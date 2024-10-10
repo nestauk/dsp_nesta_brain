@@ -11,6 +11,9 @@ packages = [
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
+google-api-python-client = "^2.149.0"
+python-dotenv = "^1.0.1"
+bs4 = "^0.0.2"
 
 
 [tool.poetry.group.test]
