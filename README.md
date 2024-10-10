@@ -13,7 +13,7 @@ Run the following commands to install depedencies.
 ```
 poetry install
 poetry install --with lint
-poetry insstall --with test
+poetry install --with test
 poetry run pre-commit install
 ```
 
