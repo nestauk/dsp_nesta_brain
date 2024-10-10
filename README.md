@@ -6,7 +6,7 @@ We're developing retrieval-augmented generation approaches to bolster internal k
 
 ## Installation
 
-We're using poetry for dependency management. 
+We're using poetry for dependency management.
 
 Run the following commands to install depedencies.
 
@@ -14,6 +14,7 @@ Run the following commands to install depedencies.
 poetry install
 poetry install --with lint
 poetry insstall --with test
+poetry run pre-commit install
 ```
 
 To start an environment in your terminal
