@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import datetime as dt
+import json
 import re
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
@@ -50,9 +53,14 @@ def is_good_p(tag: Tag) -> bool:
         "author-item__job-title",
         "author-item__bio",
         "image-cta__action",
+        "listing-item__text",
     }
-    # 'newsletter__body','newsletter__note'}
-    bad_text_regex = "Join our mailing list to receive the Nesta edit"
+    bad_text = [
+        "Join our mailing list to receive the Nesta edit",
+        "To contact the Collective Intelligence",
+        "Subscribe to our bi-monthly newsletter|Photo credit:",
+    ]
+    bad_text_regex = "|".join(bad_text)
     is_p = tag.name == "p"
     does_not_have_bad_class = not set(tag.get("class") or {}).intersection(bad_classes)
     does_not_have_bad_text = not re.search(bad_text_regex, tag.getText())
@@ -99,31 +107,56 @@ def scrape(google_search_result_or_url: Union[Dict, str]) -> str:
         # interpret google_search_result_or_url as a url
         url = google_search_result_or_url
 
-    result = requests.get(url)  # nosec
-    soup = BeautifulSoup(result.text, "html.parser")
+    try:
+        result = requests.get(url)  # nosec
+        soup = BeautifulSoup(result.text, "html.parser")
 
-    divs = unique(soup.find_all(is_good_div))
-    texty_bits = unique(
-        sum([div.find_all(is_good_p_or_list, recursive=False) for div in divs], [])
-    )  # assumes we want text from <p> elements and lists, but not other elements
-    # (for the moment – we might want to include headings later)
+        divs = unique(soup.find_all(is_good_div))
+        texty_bits = unique(
+            sum([div.find_all(is_good_p_or_list, recursive=False) for div in divs], [])
+        )  # assumes we want text from <p> elements and lists, but not other elements
+        # (for the moment – we might want to include headings later)
 
-    text = "\n\n".join([get_text(texty_bit) for texty_bit in texty_bits])
+        text = "\n\n".join([get_text(texty_bit) for texty_bit in texty_bits])
 
-    return text.strip()
+        # metadata
+        title = soup.find("title").getText().replace(" | Nesta", "")
+        script = soup.find_all("script")[0]  # publication date should be in the first script element of the page
+        try:
+            date_pub = re.search("'publishDate': '(\d{4}-\d{2}-\d{2})'", script.getText()).groups()[0]  # noqa
+            date_pub = dt.datetime.strptime(date_pub, "%Y-%m-%d")
+        except Exception:
+            logger.warning(f"Webpage {url} had no publication date")
+            date_pub = None
+
+    except Exception as e:
+        logger.critical(f"The following error was encountered while scraping {url}:\n{e}")
+
+    return {"text": text.strip(), "title": title, "date_pub": date_pub}
 
 
-def search_query_to_texts(query: str, site_url: str, **kwargs) -> List[str]:
+def search_query_to_scraped_data(query: str, site_url: str, save: bool = False, **kwargs) -> List[str]:
     """Derive a set of Google programmable search results from the query and scrape them"""
 
-    texts = []
+    scraped_data = []
 
-    search_results = google_api_call(query, site_url, **kwargs)
+    search_results = google_api_call(query, site_url, **kwargs) or []
+
     for search_result in search_results:
-        text = scrape(search_result)
-        texts.append(text)
+        scraped_datum = scrape(search_result)
+        scraped_datum["url"] = search_result.get("link")
+        scraped_data.append(scraped_datum)
 
-    return texts
+        if save:
+            uid = search_result.get("link").replace("https://www.nesta.org.uk/", "").replace("/", "-")
+            uid = re.sub("-$", "", uid)
+            scraped_datum["date_pub"] = (
+                datetime.strftime(scraped_datum["date_pub"], "%Y-%m-%d") if scraped_datum["date_pub"] else None
+            )
+            with open(f"scraping/data/nesta_{uid}.json", "w") as f:
+                json.dump(scraped_datum, f)
+
+    return scraped_data
 
 
 if __name__ == "__main__":
@@ -136,18 +169,18 @@ if __name__ == "__main__":
         # convert a set of Google programmable search results into text
         # just visually inspecting the results for now - the next step will be to vectorize them
 
-        texts = search_query_to_texts(query, site_url)
+        texts = search_query_to_scraped_data(query, site_url)
 
         for i, text in enumerate(texts):
 
-            file_path = f"data/test_{i}.txt"
+            file_path = f"scraping/data/test_{i}.txt"
             f = open(file_path, "w")
-            f.write(text)
+            f.write(text["text"])
             f.close()
 
     elif webpage_url:
         # scrape a single webpage
 
-        text = scrape(webpage_url)
+        text = scrape(webpage_url).get("text")
 
         logger.info(text)
