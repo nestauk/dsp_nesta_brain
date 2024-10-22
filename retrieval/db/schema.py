@@ -34,8 +34,8 @@ class Document(LanceModel):
         return hash(self.location)
 
     def as_metadata(self) -> Dict:
-        """Put important fields in a dict so LanceDB Document and Chunk objects
-        can easily be converted into Langchain Documents"""  # noqa
+        """Put important fields in a dict so LanceDB Document and
+        Chunk objects can easily be converted into Langchain Documents"""  # noqa
         return {attr: getattr(self, attr) for attr in ["location", "title", "date_pub"]}
 
 

@@ -3,11 +3,20 @@ import logging
 import os
 import sys
 
+from typing import Dict
 from typing import List
 from typing import Optional
+from typing import Tuple
 from typing import Union
 
+from langchain.chains import create_history_aware_retriever
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.docstore.document import Document as LangchainDocument
+from langchain_core.messages import AIMessage
+from langchain_core.messages import BaseMessage
+from langchain_core.messages import HumanMessage
+from langchain_core.runnables.base import Runnable
 
 
 if (
@@ -23,34 +32,52 @@ import streamlit as st  # noqa
 from dotenv import load_dotenv  # noqa
 from dsp_nesta_brain import logger  # noqa
 from langchain.chains import LLMChain  # noqa
-from langchain.chains.combine_documents import create_stuff_documents_chain  # noqa
 from langchain_openai import ChatOpenAI  # noqa
-from llm.prompt import question_prompt  # noqa
-from retrieval.retrieve import retrieve  # noqa
+from llm.prompt import basic_question_prompt  # noqa
+from llm.prompt import contextualize_q_prompt  # noqa
+from llm.prompt import qa_prompt  # noqa
+from retrieval.retrieve import CustomRetriever  # noqa
+
+
+def unique(seq: Union[List, Tuple]) -> List:
+    """Find unique elements of a sequence and retain order"""
+    seen = {}
+    result = []
+    for item in seq:
+        if item in seen:
+            continue
+        seen[item] = 1
+        result.append(item)
+    return result
 
 
 class Response:
     """A class just to make things like printing and writing to streamlit easier"""
 
     text: str
-    is_summary: bool = False
+    mode: str
     chunks: List[LangchainDocument]
     index: Optional[int] = None
 
     def __init__(
         self,
-        text: str,
+        chain_response: Union[str, Dict],
         chunks: Union[LangchainDocument, List[LangchainDocument]],
+        mode: str,
         index: Optional[int] = None,
-        is_summary: bool = False,
     ) -> None:
-        text = text.replace("ANSWER: ", "")
+
+        if mode == "chat":
+            text = chain_response["answer"]
+            chunks = chain_response["context"]
+        elif mode == "indiv":
+            text = chain_response.replace("ANSWER: ", "")
+            if isinstance(chunks, LangchainDocument):
+                chunks = [chunks]
         self.text = text
-        if isinstance(chunks, LangchainDocument):
-            chunks = [chunks]
         self.chunks = chunks
-        self.is_summary = is_summary
         self.index = index
+        self.mode = mode
 
     def __repr__(self) -> str:
         """Self-explanatory"""
@@ -61,32 +88,52 @@ class Response:
         return string
 
     @property
-    def a_element(self) -> str:
-        """Return hyperlink to source document"""
-        if self.is_summary:
-            return ""
-        else:
-            return f'<a href="{self.chunks[0].metadata["location"]}">{self.chunks[0].metadata["title"]}</a>'
+    def a_elements(self) -> str:
+        """Return hyperlink(s) to source document(s)"""
+        #   if self.is_summary:
+        #      return ""
+        # else:
+        elements = [f'<a href="{chunk.metadata["location"]}">{chunk.metadata["title"]}</a>' for chunk in self.chunks]
+        return "<br>".join(unique(elements))
 
     @property
     def p_element(self) -> str:
         """Return response text as an HTML paragraph"""
         return f'<p>{"<b>SUMMARY:</b> " if self.is_summary else (f"({self.index}) " if self.index else "")}{self.text}</p>'
 
+    @property
+    def is_summary(self) -> bool:
+        """Determine whether the response should be treated as a summary of other visible responses"""
+        return self.mode == "indiv" and self.index is None
+
     def as_html(self) -> str:
         """Convert the response into HTML"""
         css_class = "response " + ("summary" if self.is_summary else "indiv")
-        return f'<div class="{css_class}">{self.p_element}{self.a_element}</div>'
+        return f'<div class="{css_class}">{self.p_element}{self.a_elements}</div>'
 
 
-def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> str:
+def chat_history() -> List[BaseMessage]:
+    """Derive chat history from streamlit messages"""
+
+    def message_class(message: Dict) -> type:
+        return AIMessage if message["role"] == "assistant" else HumanMessage
+
+    return [message_class(message)(content=msg["content"]) for msg in st.session_state.messages[1:]]
+
+
+def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, mode: str, **kwargs) -> str:
     """Get synchronous LLM response from chain"""
-    input = {"context": docs, "question": question}
+    if mode == "chat":
+        input = {"input": question, "chat_history": chat_history()}
+    else:
+        input = {"context": docs, "question": question}
     return chain.invoke(input, **kwargs)
 
 
 async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> str:
     """Get asynchronous LLM response from chain"""
+    #  print("message history",chat_history())
+    #  input = {"input": question,"chat_history":chat_history()}
     input = {"context": docs, "question": question}
     return await chain.ainvoke(input, **kwargs)
 
@@ -98,28 +145,23 @@ async def individual_responses(chain: LLMChain, docs: List[LangchainDocument], q
     return responses
 
 
-def respond(
-    chain: LLMChain,
-    docs: List[LangchainDocument],
-    question: str,
-    summary_response: bool = True,
-    individual_responses_: bool = False,
-) -> List[Response]:
+def respond(chain: Runnable, docs: List[LangchainDocument], question: str, mode: str) -> List[Response]:
     """Get individual and/or summary responses from chain and convert them into Response objects"""
 
     responses = []
-    if individual_responses_:
+
+    if mode == "indiv":
         responses_ = asyncio.run(individual_responses(chain, docs, question))
         responses_ = [(response, docs[i]) for i, response in enumerate(responses_) if response != "NULL"]
-        responses += [Response(response, doc, index=i + 1) for i, (response, doc) in enumerate(responses_)]
-    if summary_response:
-        response = llm_response(chain, docs, question)
-        if response != "NULL":
-            response = Response(response, docs, is_summary=True)
-            responses.append(response)
+        responses += [Response(response, doc, mode, index=i + 1) for i, (response, doc) in enumerate(responses_)]
 
-    for response in enumerate(responses):
-        logger.info(response)
+    response = llm_response(chain, docs, question, mode)
+    response = Response(response, docs, mode)
+    if response.text != "NULL":
+        responses.append(response)
+
+    # for response in enumerate(responses):
+    #    logger.info(response)
 
     return responses
 
@@ -137,28 +179,31 @@ if __name__ == "__main__":
 
     # settings
     # retrieval settings
-    summary_response = True
-    individual_responses_ = True
-    merge = True
+    possible_modes = ["chat", "indiv"]
+    if sys.argv[1:] and sys.argv[1] in ["chat", "indiv"]:
+        mode = sys.argv[1]
+    else:
+        mode = "chat"  # mode is either 'chat' for a chat wit memeory or 'indiv' to return one response per doc
+    merge = mode == "indiv"
     limit = 10
 
-    query = "climate change projects"
+    if mode not in possible_modes:
+        raise Exception('Mode must be "chat" or "indiv"')
 
-    if not summary_response and not individual_responses_:
-        raise Exception("One or both of summary_response or individual_responses_ must be True")
-
-    # memory = ConversationBufferMemory(memory_key="chat_history",input_key="question")
-    llm = ChatOpenAI(temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-3.5-turbo")
-    chain = create_stuff_documents_chain(llm, question_prompt)
+    llm = ChatOpenAI(
+        temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini"
+    )  # gpt-3.5-turbo")
+    indiv_qa_chain = create_stuff_documents_chain(llm, basic_question_prompt)
+    chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
+    retriever = CustomRetriever()
+    # creditL https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
+    history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
+    rag_chain = create_retrieval_chain(history_aware_retriever, chat_qa_chain)
 
     st.set_page_config(layout="wide")
     st.markdown(
         """
     <style>
-        body {
-            font-family: Helvetica, Sans-Serif;
-        }
-
         p {
             margin-bottom: 0;
         }
@@ -189,7 +234,7 @@ if __name__ == "__main__":
     )
 
     st.markdown(
-        "<h2>Demo</h2>",
+        f"<h2>Demo (mode = '{mode}')</h2>",
         unsafe_allow_html=True,
     )
 
@@ -200,7 +245,7 @@ if __name__ == "__main__":
     # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            if is_html(message["content"]):
+            if message.get("html"):
                 st.markdown(message["html"], unsafe_allow_html=True)
             else:
                 st.write(message["content"])
@@ -215,25 +260,22 @@ if __name__ == "__main__":
     if st.session_state.messages[-1]["role"] != "assistant":
         with st.chat_message("assistant"):
 
-            if input:
-                with st.spinner("Fetching documents ..."):
-                    chunks = retrieve(query, limit=limit, merge=merge)
+            if mode == "indiv":
+                if input:
+                    with st.spinner("Fetching documents ..."):
+                        chunks = retriever.invoke(input, limit=limit, merge=merge)
+            else:
+                chunks = []  # if mode == 'chat', retrieval is already part of the chain
 
             responses = []
-            if chunks:
+            if mode == "chat" or (mode == "indiv" and chunks):
                 with st.spinner("Sending retrieved chunks to LLM with query ..."):
-                    responses = respond(
-                        chain,
-                        chunks,
-                        input,
-                        summary_response=summary_response,
-                        individual_responses_=individual_responses_,
-                    )
+                    responses = respond(rag_chain if mode == "chat" else indiv_qa_chain, chunks, input, mode)
 
             if responses:
                 for response in responses:
                     st.markdown(response.as_html(), unsafe_allow_html=True)
-                    message = {"role": "assistant", "content": response.as_html()}
+                    message = {"role": "assistant", "html": response.as_html(), "content": response.text}
                     st.session_state.messages.append(message)
             else:
                 st.write("I was not able to answer that question")

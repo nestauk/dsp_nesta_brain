@@ -2,17 +2,23 @@ import os
 
 from collections import OrderedDict
 from typing import List
-from typing import Union
 
 import lancedb
 
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
+from lancedb.db import LanceDBConnection
+from lancedb.table import LanceTable
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_community.vectorstores import LanceDB
+from langchain_core.retrievers import BaseRetriever
 from langchain_openai import OpenAIEmbeddings
+from openai import AsyncOpenAI
 from openai import OpenAI
 from retrieval.db.schema import Chunk
+
+
+os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
 
 def unique(chunks: List[Chunk]) -> List[Chunk]:
@@ -27,80 +33,149 @@ def unique(chunks: List[Chunk]) -> List[Chunk]:
     return result
 
 
-def vector(string: str) -> List[float]:
-    """Calculate the embedding vector of string"""
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    vector = client.embeddings.create(model="text-embedding-3-small", input=string).data[0].embedding
-    return vector
+class CustomRetriever(BaseRetriever):
+    """Custom retriever class because I encountered a bug when converting a LanceDB
+    vector store into a retriever in the usual way"""  # noqa
 
+    # code previously used for retrieval has been reused to create a formal CustomRetriever class
 
-def chunks_to_langchain_documents(chunks: List[Chunk]) -> List[LangchainDocument]:
-    """
-    Identify which source document each chunk in a list of chunks is from.
-    Then concatenate the texts of each chunk belonging to each individual document.
-    Then create a new Langchain Document containing this concatenated text
-    """  # noqa
-    chunks_grouped_by_source = OrderedDict({})
-    for chunk in chunks:
-        if chunk.source not in chunks_grouped_by_source:
-            chunks_grouped_by_source[chunk.source] = []
-        chunks_grouped_by_source[chunk.source].append(chunk)
+    async def _aget_relevant_documents(
+        self, query: str, limit: int = 3, merge: bool = False
+    ) -> List[LangchainDocument]:
+        """
+        Retrieve chunks related to a search query using a hybrid search strategy
 
-    langchain_documents = []
-    for source, chunks in chunks_grouped_by_source.items():
-        text = "\n\n".join(
-            [chunk.text for chunk in chunks]
-        )  # chunks aren't necessarily in the right order – can add an order number at the time of ingestion to fix this
-        langchain_document = LangchainDocument(page_content=text, metadata=source.as_metadata())
-        langchain_documents.append(langchain_document)
+        merge: if True then where chunks are from the same document they will be merged into a single retrieval result
+        """
 
-    return langchain_documents
+        #  async_db = await lancedb.connect_async("retrieval/db/ccid_demo_db")
+        db = lancedb.connect("retrieval/db/ccid_demo_db")
 
+        logger.info("Vectorizing query ...")
+        vector_ = await CustomRetriever.async_vector(query)
+        #   chunks = await CustomRetriever.async_retrieve_chunks(db,query,vector_,limit)
+        chunks = CustomRetriever.retrieve_chunks(db, query, vector_, limit)
+        docs = CustomRetriever.chunks_to_docs(chunks, merge=merge)
 
-def retrieve(
-    query: str, limit: int = 3, as_langchain_document: bool = True, merge: bool = False
-) -> Union[List[Chunk], List[LangchainDocument]]:
-    """
-    Retrieve chunks related to a search query using a hybrid search strategy
+        return docs
 
-    as_langchain_document: if True then retrieval results are Langchain Documents rather than Chunks
-    merge: if True then where chunks are from the same document they will be merged into a single retrieval result
-    """
+    def _get_relevant_documents(self, query: str, limit: int = 10, merge: bool = False) -> List[LangchainDocument]:
+        """
+        Retrieve chunks related to a search query using a hybrid search strategy
 
-    if merge and not as_langchain_document:
-        logger.warning("Cannot merge retrieved results if as_langchain_document is not True")
-        merge = False
+        merge: if True then where chunks are from the same document they will be merged into a single retrieval result
+        """
 
-    os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+        # the code has been chopped up into bits which can be reused easily in both synchronous and asynchronous versions
 
-    db = lancedb.connect("retrieval/db/ccid_demo_db")
-    chunk_table = db.open_table("chunk")
+        db = lancedb.connect("retrieval/db/ccid_demo_db")
 
-    logger.info("Vectorizing query ...")
-    vector_ = vector(query)
+        logger.info("Vectorizing query ...")
+        vector_ = CustomRetriever.vector(query)
+        chunks = CustomRetriever.retrieve_chunks(db, query, vector_, limit)
+        docs = CustomRetriever.chunks_to_docs(chunks, merge=merge)
 
-    logger.info("Retrieving most relevant chunks ...")
-    results = []
-    orig_limit = limit
-    while len(results) < orig_limit:  # only necessary if there are duplicates (which there shouldn't be)
-        results += chunk_table.search(query_type="hybrid").vector(vector_).text(query).limit(limit).to_pydantic(Chunk)
-        results = unique(
-            results
-        )  # there shouldn't be duplicate chunks in the DB, but this removes the possibility of returning them
-        limit = limit * 2  # increase the limit if results weren't unique and try again
+        return docs
 
-    results = results[0:orig_limit]
-    N_chunks = len(results)
-    logger.info(f"Retreived {N_chunks} chunks")
-
-    if as_langchain_document:
+    @staticmethod
+    def chunks_to_docs(chunks: List[Chunk], merge: bool = False) -> List[LangchainDocument]:
+        """Convert Chunk objects to LangchainDocument objects, with the option to merge"""
         if merge:
-            results = chunks_to_langchain_documents(results)
-            logger.info(f"{N_chunks} retreived chunks were merged into {len(results)} chunks")
+            docs = CustomRetriever.merge_chunks(chunks)
+            logger.info(f"{len(chunks)} retreived chunks were merged into {len(docs)} chunks")
+            return docs
         else:
-            results = [chunk.to_LangchainDocument() for chunk in results]
+            return [chunk.to_LangchainDocument() for chunk in chunks]
 
-    return results
+    @staticmethod
+    def merge_chunks(chunks: List[Chunk]) -> List[LangchainDocument]:
+        """
+        Identify which source document each chunk in a list of chunks is from.
+        Then concatenate the texts of each chunk belonging to each individual document.
+        Then create a new Langchain Document containing this concatenated text
+        """  # noqa
+        chunks_grouped_by_source = OrderedDict({})
+        for chunk in chunks:
+            if chunk.source not in chunks_grouped_by_source:
+                chunks_grouped_by_source[chunk.source] = []
+            chunks_grouped_by_source[chunk.source].append(chunk)
+
+        docs = []
+        for source, chunks in chunks_grouped_by_source.items():
+            text = "\n\n".join(
+                [chunk.text for chunk in chunks]
+            )  # chunks aren't necessarily in the right order – can add an order number at the time of ingestion to fix this
+            doc = LangchainDocument(page_content=text, metadata=source.as_metadata())
+            docs.append(doc)
+
+        return docs
+
+    @staticmethod
+    async def async_retrieve_chunks(
+        db: LanceDBConnection, query: str, vector_: List[float], limit: int
+    ) -> List[Chunk]:
+        """Retrieve chunks asynchroously"""
+        chunk_table = await db.open_table("chunk")
+        logger.info("Retrieving most relevant chunks ...")
+        chunks = await CustomRetriever.async_search_loop(chunk_table, query, vector_, limit)
+        chunks = chunks[0:limit]
+        logger.info(f"Retreived {len(chunks)} chunks")
+        return chunks
+
+    @staticmethod
+    def retrieve_chunks(db: LanceDBConnection, query: str, vector_: List[float], limit: int) -> List[Chunk]:
+        """Retrieve chunks synchroously"""
+        chunk_table = db.open_table("chunk")
+        logger.info("Retrieving most relevant chunks ...")
+        chunks = CustomRetriever.search_loop(chunk_table, query, vector_, limit)
+        chunks = chunks[0:limit]
+        logger.info(f"Retreived {len(chunks)} chunks")
+        return chunks
+
+    @staticmethod
+    async def async_search_loop(table: LanceTable, query: str, vector_: List[float], limit: int) -> List[Chunk]:
+        """Search LanceDB table, omit duplicate chunks, repeat the action until there are
+        limit unique chunks (should be asynchronous – see comment below)"""  # noqa
+        chunks = []
+        orig_limit = limit
+        while len(chunks) < orig_limit:  # only necessary if there are duplicates (which there shouldn't be)
+            # THIS DOESN'T WORK: #I can't see a way of doing asynchronous hybrid search at the moment
+            chunks += (
+                await table.search(query_type="hybrid").vector(vector_).text(query).limit(limit).to_pydantic(Chunk)
+            )
+            chunks = unique(
+                chunks
+            )  # there shouldn't be duplicate chunks in the DB, but this removes the possibility of returning them
+            limit = limit * 2  # increase the limit if chunks weren't unique and try again
+        return chunks
+
+    @staticmethod
+    def search_loop(table: LanceTable, query: str, vector_: List[float], limit: int) -> List[Chunk]:
+        """Search LanceDB table, omit duplicate chunks, repeat the action until there are limit unique chunks (synchronous)"""
+        chunks = []
+        orig_limit = limit
+        while len(chunks) < orig_limit:  # only necessary if there are duplicates (which there shouldn't be)
+            chunks += table.search(query_type="hybrid").vector(vector_).text(query).limit(limit).to_pydantic(Chunk)
+            chunks = unique(
+                chunks
+            )  # there shouldn't be duplicate chunks in the DB, but this removes the possibility of returning them
+            limit = limit * 2  # increase the limit if chunks weren't unique and try again
+        return chunks
+
+    @staticmethod
+    async def async_vector(string: str) -> List[float]:
+        """Calculate the embedding vector of string"""
+        async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        result = await async_client.embeddings.create(model="text-embedding-3-small", input=string)
+        vector = result.data[0].embedding
+        return vector
+
+    @staticmethod
+    def vector(string: str) -> List[float]:
+        """Calculate the embedding vector of string"""
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        vector = client.embeddings.create(model="text-embedding-3-small", input=string).data[0].embedding
+        return vector
 
 
 if __name__ == "main":
