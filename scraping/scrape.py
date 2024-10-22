@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
 
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
@@ -14,9 +16,12 @@ from typing import Union
 import requests
 
 from bs4 import BeautifulSoup
+from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
 from scraping.google_search import google_api_call
 
+
+DATA_DIR = PROJECT_DIR / "data"
 
 if TYPE_CHECKING:
     from bs4.element import Tag
@@ -97,7 +102,7 @@ def get_text(tag: Tag) -> str:
         logger.warning("Unrecognised tag name in get_text")
 
 
-def scrape(google_search_result_or_url: Union[Dict, str]) -> str:
+def scrape(google_search_result_or_url: Union[Dict, str], download_pdf: bool = True) -> str:
     """Scrape an individual webpage"""
 
     if type(google_search_result_or_url) is dict:
@@ -129,10 +134,47 @@ def scrape(google_search_result_or_url: Union[Dict, str]) -> str:
             logger.warning(f"Webpage {url} had no publication date")
             date_pub = None
 
+        if download_pdf:
+            pdf_links = extract_pdf_links(soup)
+            download_pdfs(pdf_links)
+            # to do: store somewhere the metadata to link the PDF to the webpage
+
     except Exception as e:
         logger.critical(f"The following error was encountered while scraping {url}:\n{e}")
 
     return {"text": text.strip(), "title": title, "date_pub": date_pub}
+
+
+def extract_pdf_links(soup: BeautifulSoup, base: str = "https://www.nesta.org.uk") -> list:
+    """Find all PDF links in the page and return them as a list"""
+    # Extract all PDF links
+    pdf_links = []
+    for link in soup.find_all("a", href=True):
+        href = link["href"]
+        if href.endswith(".pdf"):
+            # If it's a relative URL, make it absolute
+            if not href.startswith("http"):
+                href = f"{base}{href}"
+            pdf_links.append(href)
+    # Remove duplicates
+    return list(set(pdf_links))
+
+
+def download_pdfs(pdf_links: List[str], download_dir: Path = DATA_DIR) -> None:
+    """Download all PDFs from the list of links"""
+    for link in pdf_links:
+        try:
+            pdf_response = requests.get(link, timeout=120)
+            if pdf_response.status_code == 200:
+                # Extract the PDF filename from the URL
+                pdf_filename = os.path.basename(link)
+                with open(download_dir / f"{pdf_filename}", "wb") as f:
+                    f.write(pdf_response.content)
+                logger.info(f"Downloaded: {pdf_filename}")
+            else:
+                logger.info(f"Failed to download {link}")
+        except Exception as e:
+            logger.info(f"Error downloading {link}: {e}")
 
 
 def search_query_to_scraped_data(query: str, site_url: str, save: bool = False, **kwargs) -> List[str]:
