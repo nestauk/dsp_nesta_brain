@@ -191,12 +191,12 @@ if __name__ == "__main__":
         raise Exception('Mode must be "chat" or "indiv"')
 
     llm = ChatOpenAI(
-        temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini"
+        temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-#4o-mini"
     )  # gpt-3.5-turbo")
     indiv_qa_chain = create_stuff_documents_chain(llm, basic_question_prompt)
     chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
     retriever = CustomRetriever()
-    # creditL https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
+    # credit: https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
     history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
     rag_chain = create_retrieval_chain(history_aware_retriever, chat_qa_chain)
 
@@ -258,7 +258,7 @@ if __name__ == "__main__":
 
     # Generate a new response if last message is not from assistant
     if st.session_state.messages[-1]["role"] != "assistant":
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant"), st.empty():
 
             if mode == "indiv":
                 if input:
