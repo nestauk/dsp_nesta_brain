@@ -191,7 +191,7 @@ if __name__ == "__main__":
         raise Exception('Mode must be "chat" or "indiv"')
 
     llm = ChatOpenAI(
-        temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-#4o-mini"
+        temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini"
     )  # gpt-3.5-turbo")
     indiv_qa_chain = create_stuff_documents_chain(llm, basic_question_prompt)
     chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
