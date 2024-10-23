@@ -171,3 +171,4 @@ outputs/*
 **/.DS_Store
 retrieval/db/ccid_demo_db
 retrieval/db/ccid_demo_db/*
+.streamlit/

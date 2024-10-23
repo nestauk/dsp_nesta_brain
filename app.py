@@ -39,6 +39,32 @@ from llm.prompt import qa_prompt  # noqa
 from retrieval.retrieve import CustomRetriever  # noqa
 
 
+def check_password() -> bool:
+    """Return `True` if the user had the correct password."""
+
+    def password_entered() -> None:
+        """Check whether a password entered by the user is correct."""
+        if st.session_state["password"] == st.secrets["password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # don't store password
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # First run, show input for password.
+        st.text_input("Password", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password not correct, show input + error.
+        st.text_input("Password", type="password", on_change=password_entered, key="password")
+        st.error("😕 Password incorrect")
+        return False
+    else:
+        # Password correct.
+
+        return True
+
+
 def unique(seq: Union[List, Tuple]) -> List:
     """Find unique elements of a sequence and retain order"""
     seen = {}
@@ -174,108 +200,109 @@ def is_html(string: str) -> bool:
 
 if __name__ == "__main__":
 
-    load_dotenv()
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    if check_password():
+        load_dotenv()
+        logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    # settings
-    # retrieval settings
-    possible_modes = ["chat", "indiv"]
-    if sys.argv[1:] and sys.argv[1] in ["chat", "indiv"]:
-        mode = sys.argv[1]
-    else:
-        mode = "chat"  # mode is either 'chat' for a chat wit memeory or 'indiv' to return one response per doc
-    merge = mode == "indiv"
-    limit = 10
+        # settings
+        # retrieval settings
+        possible_modes = ["chat", "indiv"]
+        if sys.argv[1:] and sys.argv[1] in ["chat", "indiv"]:
+            mode = sys.argv[1]
+        else:
+            mode = "chat"  # mode is either 'chat' for a chat wit memeory or 'indiv' to return one response per doc
+        merge = mode == "indiv"
+        limit = 10
 
-    if mode not in possible_modes:
-        raise Exception('Mode must be "chat" or "indiv"')
+        if mode not in possible_modes:
+            raise Exception('Mode must be "chat" or "indiv"')
 
-    llm = ChatOpenAI(
-        temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini"
-    )  # gpt-3.5-turbo")
-    indiv_qa_chain = create_stuff_documents_chain(llm, basic_question_prompt)
-    chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
-    retriever = CustomRetriever()
-    # credit: https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
-    history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
-    rag_chain = create_retrieval_chain(history_aware_retriever, chat_qa_chain)
+        llm = ChatOpenAI(
+            temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini"
+        )  # gpt-3.5-turbo")
+        indiv_qa_chain = create_stuff_documents_chain(llm, basic_question_prompt)
+        chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
+        retriever = CustomRetriever()
+        # credit: https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
+        history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
+        rag_chain = create_retrieval_chain(history_aware_retriever, chat_qa_chain)
 
-    st.set_page_config(layout="wide")
-    st.markdown(
-        """
-    <style>
-        p {
-            margin-bottom: 0;
-        }
+        st.set_page_config(layout="wide")
+        st.markdown(
+            """
+        <style>
+            p {
+                margin-bottom: 0;
+            }
 
-        a{
-            margin-top: 0;
-        }
+            a{
+                margin-top: 0;
+            }
 
-        .response {
-            margin: 25px 0 0 0;
-        }
+            .response {
+                margin: 25px 0 0 0;
+            }
 
-        .indiv {
-            background-color: light-grey;
-        }
+            .indiv {
+                background-color: light-grey;
+            }
 
-        .summary {
-            border-style: solid;
-            border-width: 1px;
-            border-radius: 5px;
-            background-color: #fae5af;
-            border-color: #fae5af;
-        }
+            .summary {
+                border-style: solid;
+                border-width: 1px;
+                border-radius: 5px;
+                background-color: #fae5af;
+                border-color: #fae5af;
+            }
 
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
+        </style>
+        """,
+            unsafe_allow_html=True,
+        )
 
-    st.markdown(
-        f"<h2>Demo (mode = '{mode}')</h2>",
-        unsafe_allow_html=True,
-    )
+        st.markdown(
+            f"<h2>Demo (mode = '{mode}')</h2>",
+            unsafe_allow_html=True,
+        )
 
-    # Store session variables
-    if "messages" not in st.session_state.keys():
-        st.session_state.messages = [{"role": "assistant", "content": "How can I help?"}]
+        # Store session variables
+        if "messages" not in st.session_state.keys():
+            st.session_state.messages = [{"role": "assistant", "content": "How can I help?"}]
 
-    # Display chat messages
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            if message.get("html"):
-                st.markdown(message["html"], unsafe_allow_html=True)
-            else:
-                st.write(message["content"])
+        # Display chat messages
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                if message.get("html"):
+                    st.markdown(message["html"], unsafe_allow_html=True)
+                else:
+                    st.write(message["content"])
 
-    # User-provided input
-    if input := st.chat_input():
-        st.session_state.messages.append({"role": "user", "content": input})
-        with st.chat_message("user"):
-            st.write(input)
+        # User-provided input
+        if input := st.chat_input():
+            st.session_state.messages.append({"role": "user", "content": input})
+            with st.chat_message("user"):
+                st.write(input)
 
-    # Generate a new response if last message is not from assistant
-    if st.session_state.messages[-1]["role"] != "assistant":
-        with st.chat_message("assistant"), st.empty():
+        # Generate a new response if last message is not from assistant
+        if st.session_state.messages[-1]["role"] != "assistant":
+            with st.chat_message("assistant"), st.empty():
 
-            if mode == "indiv":
-                if input:
-                    with st.spinner("Fetching documents ..."):
-                        chunks = retriever.invoke(input, limit=limit, merge=merge)
-            else:
-                chunks = []  # if mode == 'chat', retrieval is already part of the chain
+                if mode == "indiv":
+                    if input:
+                        with st.spinner("Fetching documents ..."):
+                            chunks = retriever.invoke(input, limit=limit, merge=merge)
+                else:
+                    chunks = []  # if mode == 'chat', retrieval is already part of the chain
 
-            responses = []
-            if mode == "chat" or (mode == "indiv" and chunks):
-                with st.spinner("Sending retrieved chunks to LLM with query ..."):
-                    responses = respond(rag_chain if mode == "chat" else indiv_qa_chain, chunks, input, mode)
+                responses = []
+                if mode == "chat" or (mode == "indiv" and chunks):
+                    with st.spinner("Sending retrieved chunks to LLM with query ..."):
+                        responses = respond(rag_chain if mode == "chat" else indiv_qa_chain, chunks, input, mode)
 
-            if responses:
-                for response in responses:
-                    st.markdown(response.as_html(), unsafe_allow_html=True)
-                    message = {"role": "assistant", "html": response.as_html(), "content": response.text}
-                    st.session_state.messages.append(message)
-            else:
-                st.write("I was not able to answer that question")
+                if responses:
+                    for response in responses:
+                        st.markdown(response.as_html(), unsafe_allow_html=True)
+                        message = {"role": "assistant", "html": response.as_html(), "content": response.text}
+                        st.session_state.messages.append(message)
+                else:
+                    st.write("I was not able to answer that question")
