@@ -45,6 +45,9 @@ class Chunk(LanceModel):
     text: str  # = model.SourceField()
     vector: Vector(model.ndims())  # = model.VectorField()
     source: Document
+    order_index: Optional[
+        int
+    ]  # Only Optional because Chunks already in the db won't have it; shouldn't be Optional in later versions
 
     def __eq__(self, other: object) -> bool:
         """Self-explanatory"""

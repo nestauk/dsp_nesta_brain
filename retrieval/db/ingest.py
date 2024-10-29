@@ -39,7 +39,7 @@ def ingest(documents: List[LangchainDocument]) -> None:
     and insert Document and Chunk data (including embeddings) into the database
     """  # noqa
 
-    async def to_Chunk(chunk: LangchainDocument) -> Chunk:
+    async def to_Chunk(chunk: LangchainDocument, order_index: int) -> Chunk:
         # intentionally not using the neater syntax documented by lanceDB which automatically calculates embeddings vectors
         # using model.VectorField() specified in the schema.
         # This is because I had issues getting the nested schema to work with this method.
@@ -47,10 +47,10 @@ def ingest(documents: List[LangchainDocument]) -> None:
         source = [doc for doc in lance_documents if doc.location == chunk.metadata["location"]][0]
         result = await async_client.embeddings.create(model="text-embedding-3-small", input=chunk.page_content)
         vector = result.data[0].embedding
-        return Chunk(text=chunk.page_content, source=source, vector=vector)
+        return Chunk(text=chunk.page_content, source=source, vector=vector, order_index=order_index)
 
     async def to_Chunks(chunks: List[LangchainDocument]) -> List[Chunk]:
-        tasks = [asyncio.create_task(to_Chunk(chunk)) for chunk in chunks]
+        tasks = [asyncio.create_task(to_Chunk(chunk, i + 1)) for i, chunk in enumerate(chunks)]
         return await asyncio.gather(*tasks)
 
     logging.getLogger("httpx").setLevel(logging.WARNING)

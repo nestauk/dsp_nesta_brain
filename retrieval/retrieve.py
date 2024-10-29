@@ -102,9 +102,12 @@ class CustomRetriever(BaseRetriever):
 
         docs = []
         for source, chunks in chunks_grouped_by_source.items():
-            text = "\n\n".join(
-                [chunk.text for chunk in chunks]
-            )  # chunks aren't necessarily in the right order – can add an order number at the time of ingestion to fix this
+            chunks = sorted(
+                chunks, key=lambda chunk: chunk.order_index or 0
+            )  # put the chunks in the order in which they appeared in the original document;
+            # some chunks which were ingested initially will have order_index = None;
+            # no chunk should lack an order_index if other chunks from the same document have one
+            text = "\n\n".join([chunk.text for chunk in chunks])
             doc = LangchainDocument(page_content=text, metadata=source.as_metadata())
             docs.append(doc)
 
