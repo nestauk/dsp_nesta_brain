@@ -120,7 +120,7 @@ def _scrape(html_text: str) -> Dict:
     return text.strip()
 
 
-def scrape(google_search_result_or_url: Union[Dict, str], download_pdf: bool = False) -> str:
+def scrape(google_search_result_or_url: Union[Dict, str]) -> str:
     """Scrape an individual webpage"""
 
     if type(google_search_result_or_url) is dict:
@@ -151,11 +151,6 @@ def scrape(google_search_result_or_url: Union[Dict, str], download_pdf: bool = F
         except Exception:
             logger.warning(f"Webpage {url} had no publication date")
             date_pub = None
-
-        if download_pdf:
-            pdf_links = extract_pdf_links(soup)
-            download_pdfs(pdf_links)
-            # to do: store somewhere the metadata to link the PDF to the webpage
 
     except Exception as e:
         logger.critical(f"The following error was encountered while scraping {url}:\n{e}")
