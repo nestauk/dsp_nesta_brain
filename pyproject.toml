@@ -23,6 +23,7 @@ langchain-openai = "^0.2.2"
 streamlit = "^1.39.0"
 lxml = "^5.3.0"
 pymupdf = "^1.24.12"
+unstructured = "^0.16.0"
 
 
 [tool.poetry.group.test]

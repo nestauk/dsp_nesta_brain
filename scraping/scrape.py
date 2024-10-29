@@ -21,7 +21,7 @@ from dsp_nesta_brain import logger
 from scraping.google_search import google_api_call
 
 
-DATA_DIR = PROJECT_DIR / "data"
+DATA_DIR = PROJECT_DIR / "scraping/data"
 
 if TYPE_CHECKING:
     from bs4.element import Tag
@@ -203,22 +203,29 @@ def search_query_to_scraped_data(query: str, site_url: str, save: bool = False, 
 
 if __name__ == "__main__":
 
-    query = None  # "Centre for Collective Intelligence Design"
-    site_url = None  # "nesta.org.uk"
+    query = "Centre for Collective Intelligence Design"
+    site_url = "nesta.org.uk"
+    subdirectories = sorted(
+        ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
+    )
     webpage_url = "https://www.nesta.org.uk/jobs/product-designer-centre-for-collective-intelligence-design-ccid/"
 
     if query and site_url:
         # convert a set of Google programmable search results into text
         # just visually inspecting the results for now - the next step will be to vectorize them
 
-        texts = search_query_to_scraped_data(query, site_url)
+        for subdirectory in subdirectories:
 
-        for i, text in enumerate(texts):
+            url = site_url + "/" + subdirectory
+            for start in list(
+                range(0, 100, 10)
+            ):  # the start parameter specifies which result set to return from Google Programmable Search;
+                # 0 = first set of 10 results, 10 = the next set of 10 results, etc.
+                logger.info(f"\nGoogle search result set url = {url}, start = {start}")
 
-            file_path = f"scraping/data/test_{i}.txt"
-            f = open(file_path, "w")
-            f.write(text["text"])
-            f.close()
+            results_returned = search_query_to_scraped_data(query, site_url, save=False)
+            if not results_returned:
+                break
 
     elif webpage_url:
         # scrape a single webpage
