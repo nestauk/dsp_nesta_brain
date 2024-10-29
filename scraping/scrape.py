@@ -102,7 +102,25 @@ def get_text(tag: Tag) -> str:
         logger.warning("Unrecognised tag name in get_text")
 
 
-def scrape(google_search_result_or_url: Union[Dict, str], download_pdf: bool = True) -> str:
+def _scrape(html_text: str) -> Dict:
+    """Scrape text from an HTML string"""
+    try:
+        soup = BeautifulSoup(html_text, "html.parser")
+        divs = unique(soup.find_all(is_good_div))
+        texty_bits = unique(
+            sum([div.find_all(is_good_p_or_list, recursive=False) for div in divs], [])
+        )  # assumes we want text from <p> elements and lists, but not other elements
+        # (for the moment – we might want to include headings later)
+
+        text = "\n\n".join([get_text(texty_bit) for texty_bit in texty_bits])
+
+    except Exception as e:
+        logger.critical(f"The following error was encountered while scraping:\n{e}")
+
+    return text.strip()
+
+
+def scrape(google_search_result_or_url: Union[Dict, str], download_pdf: bool = False) -> str:
     """Scrape an individual webpage"""
 
     if type(google_search_result_or_url) is dict:
@@ -160,21 +178,44 @@ def extract_pdf_links(soup: BeautifulSoup, base: str = "https://www.nesta.org.uk
     return list(set(pdf_links))
 
 
-def download_pdfs(pdf_links: List[str], download_dir: Path = DATA_DIR) -> None:
+def download_pdfs(pdf_links: List[str], download_dir: Path = DATA_DIR, suffix: str = None) -> List[str]:
     """Download all PDFs from the list of links"""
-    for link in pdf_links:
-        try:
-            pdf_response = requests.get(link, timeout=120)
-            if pdf_response.status_code == 200:
-                # Extract the PDF filename from the URL
-                pdf_filename = os.path.basename(link)
-                with open(download_dir / f"{pdf_filename}", "wb") as f:
-                    f.write(pdf_response.content)
-                logger.info(f"Downloaded: {pdf_filename}")
-            else:
-                logger.info(f"Failed to download {link}")
-        except Exception as e:
-            logger.info(f"Error downloading {link}: {e}")
+    pdf_filenames = []
+    suffix = "" if suffix is None else f"{suffix}_"
+    if len(pdf_links) > 0:
+        for link in pdf_links:
+            try:
+                pdf_response = requests.get(link, timeout=120)
+                if pdf_response.status_code == 200:
+                    # Extract the PDF filename from the URL
+                    pdf_filename = f"{suffix}{os.path.basename(link)}"
+                    with open(download_dir / f"{pdf_filename}", "wb") as f:
+                        f.write(pdf_response.content)
+                    logger.info(f"Downloaded: {pdf_filename}")
+                    pdf_filenames.append(pdf_filename)
+                else:
+                    logger.info(f"Failed to download {link}")
+            except Exception as e:
+                logger.info(f"Error downloading {link}: {e}")
+    return pdf_filenames
+
+
+def extract_data_layer(soup: BeautifulSoup) -> Dict:
+    """Extract the dataLayer information from a webpage
+
+    Data layer contains structured information about the page, such as the page title,
+    publication date, mission area, and authors
+    """
+    script_tag = soup.find("script", string=re.compile(r"dataLayer\s*=\s*\["))
+    dataLayer_text = re.search(r"dataLayer\s*=\s*(\[\{.*?\}\]);", script_tag.string, re.DOTALL)
+
+    if dataLayer_text:
+        dataLayer_json = dataLayer_text.group(1)  # Extract the JSON-like string
+        dataLayer_json = dataLayer_json.replace("'", '"')  # Replace single quotes with double quotes for JSON parsing
+        dataLayer = json.loads(dataLayer_json)  # Parse to Python dict
+        return dataLayer
+    else:
+        return None
 
 
 def search_query_to_scraped_data(query: str, site_url: str, save: bool = False, **kwargs) -> List[str]:
