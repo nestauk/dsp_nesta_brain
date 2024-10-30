@@ -19,7 +19,7 @@ SITEMAP_PATH = PROJECT_DIR / "data/Nesta_sitemap_2024-10-29.csv"
 
 # _prefix = datetime.datetime.now().strftime("%Y-%m-%d")
 _prefix = "2024-10-29"
-OUTPUTS_PATH = PROJECT_DIR / f"data/outputs_{_prefix}"
+OUTPUTS_PATH = PROJECT_DIR / f"data/website_{_prefix}"
 OUTPUTS_PATH.mkdir(parents=True, exist_ok=True)
 
 PDF_PATH = OUTPUTS_PATH / "pdf_files"
