@@ -5,6 +5,7 @@ from typing import List
 
 import lancedb
 
+from config import DB_PATH
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from lancedb.db import LanceDBConnection
@@ -16,21 +17,10 @@ from langchain_openai import OpenAIEmbeddings
 from openai import AsyncOpenAI
 from openai import OpenAI
 from retrieval.db.schema import Chunk
+from utils import unique
 
 
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
-
-
-def unique(chunks: List[Chunk]) -> List[Chunk]:
-    """Find chunks with unique text and retain order"""
-    seen = {}
-    result = []
-    for item in chunks:
-        if item.text in seen:
-            continue
-        seen[item.text] = 1
-        result.append(item)
-    return result
 
 
 class CustomRetriever(BaseRetriever):
@@ -48,8 +38,8 @@ class CustomRetriever(BaseRetriever):
         merge: if True then where chunks are from the same document they will be merged into a single retrieval result
         """
 
-        #  async_db = await lancedb.connect_async("retrieval/db/ccid_demo_db")
-        db = lancedb.connect("retrieval/db/ccid_demo_db")
+        #  async_db = await lancedb.connect_async(DB_PATH)
+        db = lancedb.connect(DB_PATH)
 
         logger.info("Vectorizing query ...")
         vector_ = await CustomRetriever.async_vector(query)
@@ -68,7 +58,7 @@ class CustomRetriever(BaseRetriever):
 
         # the code has been chopped up into bits which can be reused easily in both synchronous and asynchronous versions
 
-        db = lancedb.connect("retrieval/db/ccid_demo_db")
+        db = lancedb.connect(DB_PATH)
 
         logger.info("Vectorizing query ...")
         vector_ = CustomRetriever.vector(query)
@@ -189,7 +179,7 @@ if __name__ == "main":
 
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    db = lancedb.connect("retrieval/db/ccid_demo_db")
+    db = lancedb.connect(DB_PATH)
     doc_table = db.open_table("document")
     chunk_table = db.open_table("chunk")
 
@@ -215,7 +205,7 @@ if __name__ == "main":
         # experimenting with Langchain
 
         vector_store = LanceDB(
-            uri="retrieval/db/ccid_demo_db",
+            uri=DB_PATH,
             embedding=OpenAIEmbeddings(),
             table_name="chunk",
         )

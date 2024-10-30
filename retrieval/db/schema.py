@@ -5,6 +5,7 @@ from typing import Optional
 
 import lancedb
 
+from config import DB_PATH
 from lancedb.embeddings import get_registry
 from lancedb.pydantic import LanceModel
 from lancedb.pydantic import Vector
@@ -49,6 +50,12 @@ class Chunk(LanceModel):
         int
     ]  # Only Optional because Chunks already in the db won't have it; shouldn't be Optional in later versions
 
+    def __init__(
+        self, order_index: Optional[int] = None, **kwargs
+    ) -> None:  # without explicitly including order_index as a keyword argument here
+        # an error will be thrown when Chunks lacking an order_index are retrieved from the db
+        super().__init__(order_index=order_index, **kwargs)
+
     def __eq__(self, other: object) -> bool:
         """Self-explanatory"""
         if not isinstance(other, Chunk):
@@ -68,7 +75,7 @@ class Chunk(LanceModel):
 if __name__ == "__main__":
 
     # creata a database with a Document table and a Chunk table
-    db = lancedb.connect("retrieval/db/ccid_demo_db")
+    db = lancedb.connect(DB_PATH)
 
     table = db.create_table("document", schema=Document)
     table = db.create_table("chunk", schema=Chunk)

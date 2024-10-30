@@ -8,6 +8,7 @@ from typing import List
 
 import lancedb
 
+from config import DB_PATH
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
@@ -18,11 +19,15 @@ from retrieval.db.schema import Document as LanceDocument
 from scraping.scrape import search_query_to_scraped_data
 
 
+CHUNK_SIZE = 2000
+CHUNK_OVERLAP = 100
+
+
 load_dotenv()
 
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
-db = lancedb.connect("retrieval/db/ccid_demo_db")
+db = lancedb.connect(DB_PATH)
 document_table = db.open_table("document")
 chunk_table = db.open_table("chunk")
 
@@ -65,7 +70,7 @@ def ingest(documents: List[LangchainDocument]) -> None:
 
     if documents:
 
-        text_splitter = CharacterTextSplitter(chunk_size=2000, chunk_overlap=100)
+        text_splitter = CharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
         docs_split = text_splitter.split_documents(documents)
 
         lance_documents = [LanceDocument(**doc.metadata) for doc in documents]

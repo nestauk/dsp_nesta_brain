@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
-from typing import Tuple
-from typing import Union
 
 import requests
 
@@ -19,24 +17,13 @@ from bs4 import BeautifulSoup
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
 from scraping.google_search import google_api_call
+from utils import unique
 
 
 DATA_DIR = PROJECT_DIR / "scraping/data"
 
 if TYPE_CHECKING:
     from bs4.element import Tag
-
-
-def unique(seq: Union[List, Tuple]) -> List:
-    """Find unique elements of a sequence and retain order"""
-    seen = {}
-    result = []
-    for item in seq:
-        if item in seen:
-            continue
-        seen[item] = 1
-        result.append(item)
-    return result
 
 
 # --- functions for filtering out particular elements that we don't want based on their class, or possibly the text they contain
@@ -120,15 +107,8 @@ def _scrape(html_text: str) -> Dict:
     return text.strip()
 
 
-def scrape(google_search_result_or_url: Union[Dict, str]) -> str:
+def scrape(url: str) -> str:
     """Scrape an individual webpage"""
-
-    if type(google_search_result_or_url) is dict:
-        # interpret google_search_result_or_url as a search result
-        url = google_search_result_or_url.get("link")
-    else:
-        # interpret google_search_result_or_url as a url
-        url = google_search_result_or_url
 
     try:
         result = requests.get(url)  # nosec
@@ -213,6 +193,28 @@ def extract_data_layer(soup: BeautifulSoup) -> Dict:
         return None
 
 
+def scrape_multiple_pages(urls: List[str], save: bool = False, **kwargs) -> List[str]:
+    """Derive a set of Google programmable search results from the query and scrape them"""
+
+    scraped_data = []
+
+    for url in urls:
+        scraped_datum = scrape(url)
+        scraped_datum["url"] = url
+        scraped_data.append(scraped_datum)
+
+        if save:
+            uid = url.replace("https://www.nesta.org.uk/", "").replace("/", "-")
+            uid = re.sub("-$", "", uid)
+            scraped_datum["date_pub"] = (
+                datetime.strftime(scraped_datum["date_pub"], "%Y-%m-%d") if scraped_datum["date_pub"] else None
+            )
+            with open(f"scraping/data/nesta_{uid}.json", "w") as f:
+                json.dump(scraped_datum, f)
+
+    return scraped_data
+
+
 def search_query_to_scraped_data(query: str, site_url: str, save: bool = False, **kwargs) -> List[str]:
     """Derive a set of Google programmable search results from the query and scrape them"""
 
@@ -220,19 +222,9 @@ def search_query_to_scraped_data(query: str, site_url: str, save: bool = False, 
 
     search_results = google_api_call(query, site_url, **kwargs) or []
 
-    for search_result in search_results:
-        scraped_datum = scrape(search_result)
-        scraped_datum["url"] = search_result.get("link")
-        scraped_data.append(scraped_datum)
+    urls = [search_result.get("link") for search_result in search_results]
 
-        if save:
-            uid = search_result.get("link").replace("https://www.nesta.org.uk/", "").replace("/", "-")
-            uid = re.sub("-$", "", uid)
-            scraped_datum["date_pub"] = (
-                datetime.strftime(scraped_datum["date_pub"], "%Y-%m-%d") if scraped_datum["date_pub"] else None
-            )
-            with open(f"scraping/data/nesta_{uid}.json", "w") as f:
-                json.dump(scraped_datum, f)
+    scraped_data = scrape_multiple_pages(urls, save=save)
 
     return scraped_data
 
