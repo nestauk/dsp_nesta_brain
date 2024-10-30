@@ -10,6 +10,7 @@ python dsp_nesta_brain/getters/nesta.py --unzip
 
 Use the following function to view the metadata
 ```
+from dsp_nesta_brain.getters.nesta import load_metadata
 metadata_df = load_metadata()
 ```
 
