@@ -164,10 +164,11 @@ cython_debug/
 # input data
 data/*
 !data/*.md
-# scrappy outputs from notebooks
-dsp_interview_transcripts/notebooks/outputs/*
 # output data, figures etc
 outputs/*
 !/outputs/*.md
 # DS store in any folder
 **/.DS_Store
+retrieval/db/ccid_demo_db
+retrieval/db/ccid_demo_db/*
+.streamlit/
