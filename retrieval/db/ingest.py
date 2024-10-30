@@ -38,25 +38,41 @@ def already_in_db(location: str) -> bool:
     return bool(results)
 
 
+async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: LanceDocument) -> Chunk:
+    """
+    Convert a Langchain chunk (as returned from a text splitter) into an object
+    of the Chunk class which can be ingested into the DB
+    """  # noqa
+    # intentionally not using the neater syntax documented by lanceDB which automatically calculates embeddings vectors
+    # using model.VectorField() specified in the schema.
+    # This is because I had issues getting the nested schema to work with this method.
+    async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    result = await async_client.embeddings.create(model="text-embedding-3-small", input=chunk.page_content)
+    vector = result.data[0].embedding
+    return Chunk(text=chunk.page_content, source=source, vector=vector, order_index=order_index)
+
+
+def documents_to_Chunks(documents: List[LangchainDocument], sources: List[LanceDocument]) -> List[Chunk]:
+    """
+    Split Langchain documents into chunks and converts these into objects
+    of the Chunk class which can be ingested into the DB
+    """  # noqa
+    text_splitter = CharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+    docs_split = text_splitter.split_documents(documents)
+    sources = [
+        [source for source in sources if source.location == chunk.metadata["location"]][0] for chunk in docs_split
+    ]
+
+    logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
+    tasks = [asyncio.create_task(chunk_to_Chunk(chunk, i + 1, sources[i])) for i, chunk in enumerate(docs_split)]
+    return asyncio.run(asyncio.gather(*tasks))
+
+
 def ingest(documents: List[LangchainDocument]) -> None:
     """
     Split documents into chunks, derive embeddings for the chunks
     and insert Document and Chunk data (including embeddings) into the database
     """  # noqa
-
-    async def to_Chunk(chunk: LangchainDocument, order_index: int) -> Chunk:
-        # intentionally not using the neater syntax documented by lanceDB which automatically calculates embeddings vectors
-        # using model.VectorField() specified in the schema.
-        # This is because I had issues getting the nested schema to work with this method.
-        async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        source = [doc for doc in lance_documents if doc.location == chunk.metadata["location"]][0]
-        result = await async_client.embeddings.create(model="text-embedding-3-small", input=chunk.page_content)
-        vector = result.data[0].embedding
-        return Chunk(text=chunk.page_content, source=source, vector=vector, order_index=order_index)
-
-    async def to_Chunks(chunks: List[LangchainDocument]) -> List[Chunk]:
-        tasks = [asyncio.create_task(to_Chunk(chunk, i + 1)) for i, chunk in enumerate(chunks)]
-        return await asyncio.gather(*tasks)
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
@@ -70,13 +86,8 @@ def ingest(documents: List[LangchainDocument]) -> None:
 
     if documents:
 
-        text_splitter = CharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
-        docs_split = text_splitter.split_documents(documents)
-
         lance_documents = [LanceDocument(**doc.metadata) for doc in documents]
-
-        logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
-        chunks = asyncio.run(to_Chunks(docs_split))
+        chunks = documents_to_Chunks(documents, lance_documents)
 
         # ====CAUTION====
         # document_table.add(lance_documents) introduces data redundancy in the database
@@ -128,9 +139,6 @@ if __name__ == "__main__":
         ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
     )
 
-    #  webpage_url = None #"https://www.nesta.org.uk/project/centre-collective-intelligence-design/"
-    #    webpage_url = "https://www.nesta.org.uk/jobs/product-designer-centre-for-collective-intelligence-design-ccid/"
-
     if query and site_url:
 
         for subdirectory in subdirectories:
@@ -144,9 +152,3 @@ if __name__ == "__main__":
                 results_returned = search_query_to_ingested_data(query, url, start=start, save=True)
                 if not results_returned:
                     break
-
-
-#    elif webpage_url:
-
-#       scraped_data = [scrape(webpage_url)]
-#      scraped_data['url'] = webpage_url
