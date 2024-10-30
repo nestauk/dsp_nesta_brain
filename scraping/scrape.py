@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
 
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
@@ -14,9 +16,12 @@ from typing import Union
 import requests
 
 from bs4 import BeautifulSoup
+from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
 from scraping.google_search import google_api_call
 
+
+DATA_DIR = PROJECT_DIR / "data"
 
 if TYPE_CHECKING:
     from bs4.element import Tag
@@ -97,6 +102,24 @@ def get_text(tag: Tag) -> str:
         logger.warning("Unrecognised tag name in get_text")
 
 
+def _scrape(html_text: str) -> Dict:
+    """Scrape text from an HTML string"""
+    try:
+        soup = BeautifulSoup(html_text, "html.parser")
+        divs = unique(soup.find_all(is_good_div))
+        texty_bits = unique(
+            sum([div.find_all(is_good_p_or_list, recursive=False) for div in divs], [])
+        )  # assumes we want text from <p> elements and lists, but not other elements
+        # (for the moment – we might want to include headings later)
+
+        text = "\n\n".join([get_text(texty_bit) for texty_bit in texty_bits])
+
+    except Exception as e:
+        logger.critical(f"The following error was encountered while scraping:\n{e}")
+
+    return text.strip()
+
+
 def scrape(google_search_result_or_url: Union[Dict, str]) -> str:
     """Scrape an individual webpage"""
 
@@ -133,6 +156,61 @@ def scrape(google_search_result_or_url: Union[Dict, str]) -> str:
         logger.critical(f"The following error was encountered while scraping {url}:\n{e}")
 
     return {"text": text.strip(), "title": title, "date_pub": date_pub}
+
+
+def extract_pdf_links(soup: BeautifulSoup, base: str = "https://www.nesta.org.uk") -> list:
+    """Find all PDF links in the page and return them as a list"""
+    # Extract all PDF links
+    pdf_links = []
+    for link in soup.find_all("a", href=True):
+        href = link["href"]
+        if href.endswith(".pdf"):
+            # If it's a relative URL, make it absolute
+            if not href.startswith("http"):
+                href = f"{base}{href}"
+            pdf_links.append(href)
+    # Remove duplicates
+    return list(set(pdf_links))
+
+
+def download_pdfs(pdf_links: List[str], download_dir: Path = DATA_DIR, suffix: str = None) -> List[str]:
+    """Download all PDFs from the list of links"""
+    pdf_filenames = []
+    suffix = "" if suffix is None else f"{suffix}_"
+    if len(pdf_links) > 0:
+        for link in pdf_links:
+            try:
+                pdf_response = requests.get(link, timeout=20)
+                if pdf_response.status_code == 200:
+                    # Extract the PDF filename from the URL
+                    pdf_filename = f"{suffix}{os.path.basename(link)}"
+                    with open(download_dir / f"{pdf_filename}", "wb") as f:
+                        f.write(pdf_response.content)
+                    logger.info(f"Downloaded: {pdf_filename}")
+                    pdf_filenames.append(pdf_filename)
+                else:
+                    logger.info(f"Failed to download {link}")
+            except Exception as e:
+                logger.info(f"Error downloading {link}: {e}")
+    return pdf_filenames
+
+
+def extract_data_layer(soup: BeautifulSoup) -> Dict:
+    """Extract the dataLayer information from a webpage
+
+    Data layer contains structured information about the page, such as the page title,
+    publication date, mission area, and authors
+    """
+    script_tag = soup.find("script", string=re.compile(r"dataLayer\s*=\s*\["))
+    dataLayer_text = re.search(r"dataLayer\s*=\s*(\[\{.*?\}\]);", script_tag.string, re.DOTALL)
+
+    if dataLayer_text:
+        dataLayer_json = dataLayer_text.group(1)  # Extract the JSON-like string
+        dataLayer_json = dataLayer_json.replace("'", '"')  # Replace single quotes with double quotes for JSON parsing
+        dataLayer = json.loads(dataLayer_json)  # Parse to Python dict
+        return dataLayer
+    else:
+        return None
 
 
 def search_query_to_scraped_data(query: str, site_url: str, save: bool = False, **kwargs) -> List[str]:
