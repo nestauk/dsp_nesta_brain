@@ -42,6 +42,7 @@ async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: Lan
     """
     Convert a Langchain chunk (as returned from a text splitter) into an object
     of the Chunk class which can be ingested into the DB
+    (including deriving an embedding for the Chunk)
     """  # noqa
     # intentionally not using the neater syntax documented by lanceDB which automatically calculates embeddings vectors
     # using model.VectorField() specified in the schema.
@@ -54,7 +55,7 @@ async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: Lan
 
 def documents_to_Chunks(documents: List[LangchainDocument], sources: List[LanceDocument]) -> List[Chunk]:
     """
-    Split Langchain documents into chunks and converts these into objects
+    Split Langchain documents into chunks and convert these into objects
     of the Chunk class which can be ingested into the DB
     """  # noqa
     text_splitter = CharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
@@ -70,8 +71,9 @@ def documents_to_Chunks(documents: List[LangchainDocument], sources: List[LanceD
 
 def ingest(documents: List[LangchainDocument]) -> None:
     """
-    Split documents into chunks, derive embeddings for the chunks
-    and insert Document and Chunk data (including embeddings) into the database
+    Find out which documents are not already in the database, convert them into
+    Document and Chunk data in accordance with the db schema
+    and insert this into the database
     """  # noqa
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
