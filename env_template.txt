@@ -1,0 +1,4 @@
+OPENAI_API_KEY = your-api-key
+BUCKET_NAME_RAW = our-bucket-name
+AWS_ACCESS_KEY = your-aws-key
+AWS_SECRET_KEY = your-aws-secret-key
