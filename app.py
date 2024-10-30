@@ -6,7 +6,6 @@ import sys
 from typing import Dict
 from typing import List
 from typing import Optional
-from typing import Tuple
 from typing import Union
 
 from langchain.chains import create_history_aware_retriever
@@ -17,6 +16,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
+from utils import unique
 
 
 if (
@@ -63,18 +63,6 @@ def check_password() -> bool:
         # Password correct.
 
         return True
-
-
-def unique(seq: Union[List, Tuple]) -> List:
-    """Find unique elements of a sequence and retain order"""
-    seen = {}
-    result = []
-    for item in seq:
-        if item in seen:
-            continue
-        seen[item] = 1
-        result.append(item)
-    return result
 
 
 class Response:
