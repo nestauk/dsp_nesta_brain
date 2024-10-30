@@ -180,7 +180,7 @@ def download_pdfs(pdf_links: List[str], download_dir: Path = DATA_DIR, suffix: s
     if len(pdf_links) > 0:
         for link in pdf_links:
             try:
-                pdf_response = requests.get(link, timeout=120)
+                pdf_response = requests.get(link, timeout=20)
                 if pdf_response.status_code == 200:
                     # Extract the PDF filename from the URL
                     pdf_filename = f"{suffix}{os.path.basename(link)}"

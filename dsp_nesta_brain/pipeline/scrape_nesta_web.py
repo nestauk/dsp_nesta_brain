@@ -1,5 +1,5 @@
 import asyncio
-import datetime
+import datetime  # noqa
 import json
 import re
 
@@ -17,7 +17,8 @@ BASE_URL = "https://nesta.org.uk"
 
 SITEMAP_PATH = PROJECT_DIR / "data/Nesta_sitemap_2024-10-29.csv"
 
-_prefix = datetime.datetime.now().strftime("%Y-%m-%d")
+# _prefix = datetime.datetime.now().strftime("%Y-%m-%d")
+_prefix = "2024-10-29"
 OUTPUTS_PATH = PROJECT_DIR / f"data/outputs_{_prefix}"
 OUTPUTS_PATH.mkdir(parents=True, exist_ok=True)
 
@@ -109,29 +110,40 @@ async def fetch_data(session: aiohttp.ClientSession, url: str, row: pd.Series) -
     try:
         async with session.get(url, timeout=120, headers={"User-Agent": "karlis.kanders@nesta.org.uk"}) as response:
             metadata = {"_status_code": response.status}
+            metadata.update(
+                {
+                    "url": url,
+                    "website": row.website,
+                    "uid": row.uid,
+                    "site_group": row.site_group,
+                    "rank": row["rank"],
+                    "views": row.views,
+                }
+            )
             if response.status == 200:
                 text = await response.text()
-
                 # Process and prepare metadata
                 soup = BeautifulSoup(text, "html.parser")
                 pdf_links = scrape.extract_pdf_links(soup, BASE_URL)
                 metadata.update(
                     {
-                        "url": url,
-                        "website": row.website,
-                        "uid": row.uid,
-                        "site_group": row.site_group,
-                        "rank": row["rank"],
-                        "views": row.views,
-                        "status_code": response.status,
                         "pdf_links": pdf_links,
                         "pdf_files": scrape.download_pdfs(pdf_links, PDF_PATH, suffix=row.uid),
                         "web_metadata": scrape.extract_data_layer(soup),
                     }
                 )
-
-                # Save content and metadata
-                await save_content_and_metadata(text, metadata, row.uid)
+            else:
+                text = None
+                logger.info(f"Failed to fetch {url}")
+                metadata.update(
+                    {
+                        "pdf_links": [],
+                        "pdf_files": [],
+                        "web_metadata": {},
+                    }
+                )
+            # Save content and metadata
+            await save_content_and_metadata(text, metadata, row.uid)
     except asyncio.TimeoutError:
         logger.info(f"Timeout error for {url}")
     except BaseException as e:
@@ -141,9 +153,10 @@ async def fetch_data(session: aiohttp.ClientSession, url: str, row: pd.Series) -
 async def save_content_and_metadata(text: str, metadata: dict, uid: str) -> None:
     """Save both HTML content and metadata asynchronously"""
     # Save HTML text content
-    txt_file_path = OUTPUTS_PATH / f"{uid}.txt"
-    async with aiofiles.open(txt_file_path, "w") as txt_file:
-        await txt_file.write(text)
+    if text is not None:
+        txt_file_path = OUTPUTS_PATH / f"{uid}.txt"
+        async with aiofiles.open(txt_file_path, "w") as txt_file:
+            await txt_file.write(text)
 
     # Save metadata to the JSONL file
     async with aiofiles.open(METADATA_FILE, "a") as f:
@@ -171,7 +184,7 @@ async def main() -> None:
             batch = sitemap_df.iloc[i : i + 10]
             logger.info(f"Batch {i // 10 + 1} out of {len(sitemap_df) // 10 + 1}")
             await process_batch(session, batch)
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
 
 
 if __name__ == "__main__":
