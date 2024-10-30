@@ -1,13 +1,25 @@
 """Getters for Nesta datasets
 
-Usage: run these following two commands in the terminal
+Usage:
+
+Run these following two commands in the terminal to fetch the data from S3
+```
 python dsp_nesta_brain/getters/nesta.py --download
 python dsp_nesta_brain/getters/nesta.py --unzip
+```
+
+Use the following function to view the metadata
+```
+metadata_df = load_metadata()
+```
+
 """
 import argparse
 import shutil
 
 from pathlib import Path
+
+import pandas as pd
 
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
@@ -75,6 +87,15 @@ def unzip_data(path: Path = LOCAL_PATH) -> None:
             logger.error(f"File not found at {compressed_db_path}. Run with --download first")
     except Exception as e:
         logger.error(f"Error uncompressing database: {e}")
+
+
+def load_metadata() -> pd.DataFrame:
+    """Load the metadata file into a DataFrame"""
+    metadata_path = LOCAL_PATH / "metadata.jsonl"
+    if metadata_path.exists():
+        return pd.read_json(metadata_path, lines=True)
+    else:
+        logger.error(f"Metadata file not found at {metadata_path}")
 
 
 if __name__ == "__main__":
