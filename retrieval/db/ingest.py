@@ -53,7 +53,7 @@ async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: Lan
     return Chunk(text=chunk.page_content, source=source, vector=vector, order_index=order_index)
 
 
-def documents_to_Chunks(documents: List[LangchainDocument], sources: List[LanceDocument]) -> List[Chunk]:
+async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[LanceDocument]) -> List[Chunk]:
     """
     Split Langchain documents into chunks and convert these into objects
     of the Chunk class which can be ingested into the DB
@@ -66,7 +66,7 @@ def documents_to_Chunks(documents: List[LangchainDocument], sources: List[LanceD
 
     logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
     tasks = [asyncio.create_task(chunk_to_Chunk(chunk, i + 1, sources[i])) for i, chunk in enumerate(docs_split)]
-    return asyncio.run(asyncio.gather(*tasks))
+    return await asyncio.gather(*tasks)
 
 
 def ingest(documents: List[LangchainDocument]) -> None:
@@ -89,7 +89,7 @@ def ingest(documents: List[LangchainDocument]) -> None:
     if documents:
 
         lance_documents = [LanceDocument(**doc.metadata) for doc in documents]
-        chunks = documents_to_Chunks(documents, lance_documents)
+        chunks = asyncio.run(documents_to_Chunks(documents, lance_documents))
 
         # ====CAUTION====
         # document_table.add(lance_documents) introduces data redundancy in the database
