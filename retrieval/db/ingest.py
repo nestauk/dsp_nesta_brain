@@ -60,12 +60,18 @@ async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[
     """  # noqa
     text_splitter = CharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
     docs_split = text_splitter.split_documents(documents)
-    sources = [
-        [source for source in sources if source.location == chunk.metadata["location"]][0] for chunk in docs_split
-    ]
 
     logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
-    tasks = [asyncio.create_task(chunk_to_Chunk(chunk, i + 1, sources[i])) for i, chunk in enumerate(docs_split)]
+    tasks = []
+    for i, chunk in enumerate(docs_split):
+        new_source = i == 0 or (i > 0 and docs_split[i - 1].metadata["location"] != chunk.metadata["location"])
+        if new_source:
+            source = [source for source in sources if source.location == chunk.metadata["location"]][0]
+            order_index = 1
+        task = asyncio.create_task(chunk_to_Chunk(chunk, order_index, source))
+        tasks.append(task)
+        order_index += 1
+
     return await asyncio.gather(*tasks)
 
 
