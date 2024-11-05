@@ -144,7 +144,7 @@ def webpages_to_ingested_data(
     docs = []
     for _, row in df.iterrows():
 
-        page_path = WEBSITE_DATA_PATH / (row["uid"] + r"\.txt")
+        page_path = WEBSITE_DATA_PATH / (row["uid"] + ".txt")
         with open(page_path, "r") as f:
             html = f.read()
         text = html_to_text(html)
