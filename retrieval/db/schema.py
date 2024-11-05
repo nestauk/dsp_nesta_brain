@@ -51,15 +51,22 @@ class Document(LanceModel):
                 kwargs["areas_of_work"] = kwargs.pop("areasOfWork")
 
             # cleaning/formatting fields
-            kwargs = {k: v for k, v in kwargs.items() if v != ""}
-            if kwargs.get("areas_of_work"):
+            kwargs = {k: v for k, v in kwargs.items() if v != ""}  # get rid of empty strings
+
+            if kwargs.get("areas_of_work"):  # correction of frequent problem
                 kwargs["areas_of_work"] = kwargs["areas_of_work"].replace("&amp;", "and")
 
-            for field_name in ["areas_of_work", "missions", "projects", "units"]:
+            for field_name in [
+                "areas_of_work",
+                "missions",
+                "projects",
+                "units",
+                "authors",
+            ]:  # convert string to list of strings
                 if kwargs.get(field_name):
                     kwargs[field_name] = re.split(",", kwargs[field_name])
 
-            if kwargs.get("date_pub") and type(kwargs.get("date_pub")) is str:
+            if kwargs.get("date_pub") and type(kwargs.get("date_pub")) is str:  # convert string to date
                 kwargs["date_pub"] = datetime.strptime(kwargs.get("date_pub"), "%Y-%m-%d").date()
 
             if False:
