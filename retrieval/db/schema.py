@@ -27,8 +27,8 @@ class Document(LanceModel):
     title: str
     date_pub: Optional[date] = None
     # extra metadata from metadata.jsonl
-    projects: Optional[List[Project]] = None
-    units: Optional[List[Unit]] = None
+    projects: Optional[List[str]] = None
+    units: Optional[List[str]] = None
     rank: Optional[int] = None
     views: Optional[int] = None
     areas_of_work: Optional[List[str]] = None
@@ -120,19 +120,24 @@ class Chunk(LanceModel):
         return LangchainDocument(page_content=self.text, metadata=self.metadata)
 
 
-class Project(LanceModel):
-    """Defines the fields which a Project nested field contains in the LanceDB database"""
+if False:
 
-    # Experimental – not sure we will ultimately need this, but it might be useful for adding
-    # sophistication to retrievel methods later
-    name: str
+    # to think about another time - Document-Project and Document-Unit are many-to-many relationships
+    # which would mean a List[Project] and List[Unit] type specification in Document class
+    # which is throwing an error message ...
 
+    class Project(LanceModel):
+        """Defines the fields which a Project nested field contains in the LanceDB database"""
 
-class Unit(LanceModel):
-    """Defines the fields which a Unit nested field contains in the LanceDB database"""
+        # Experimental – not sure we will ultimately need this, but it might be useful for adding
+        # sophistication to retrievel methods later
+        name: str
 
-    # As above: experimental
-    name: str
+    class Unit(LanceModel):
+        """Defines the fields which a Unit nested field contains in the LanceDB database"""
+
+        # As above: experimental
+        name: str
 
 
 if __name__ == "__main__":
