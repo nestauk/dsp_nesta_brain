@@ -53,14 +53,16 @@ def N_tokens(text: str) -> int:
 
 def update_request_count(texts: List[str]) -> Union[int, None]:
     """Keep a record of how many requests and tokens have been sent to the embeddings model"""
-    seconds_since_count_start = (datetime.now() - (request_count.get("time") or 0)).seconds
+    global request_count
+    if request_count:
+        seconds_since_count_start = (datetime.now() - (request_count["time"])).seconds
 
     if not request_count or (request_count and seconds_since_count_start >= 60):  # noqa
         request_count = {"time": datetime.now(), "N_requests": [], "N_tokens": []}
         seconds_since_count_start = None
 
-    request_count["N_requests"].append(len(texts))
-    request_count["N_tokens"].append(sum([N_tokens(text) for text in texts]))
+    request_count["N_requests"] += [len(texts)]
+    request_count["N_tokens"] += [sum([N_tokens(text) for text in texts])]
 
     return seconds_since_count_start
 
@@ -70,14 +72,14 @@ async def throttle(texts: List[str]) -> None:
 
     seconds_since_count_start = update_request_count(texts)
 
-    if len(request_count["N_requests"][-1]) >= RPM_RATE_LIMIT:
+    if request_count["N_requests"][-1] >= RPM_RATE_LIMIT:
         raise Exception(f"You cannot ask for {RPM_RATE_LIMIT} or more requests to the embeddings model in one go")
-    elif len(request_count["N_tokens"][-1]) >= TPM_RATE_LIMIT:
+    elif request_count["N_tokens"][-1] >= TPM_RATE_LIMIT:
         raise Exception(
             f"You cannot ask for {TPM_RATE_LIMIT} or more tokens to be sent to the embeddings model in one go"
         )
 
-    if seconds_since_count_start < 60:
+    if seconds_since_count_start and seconds_since_count_start < 60:
         msg = None
         if sum(request_count["N_requests"]) >= RPM_RATE_LIMIT:
             msg = "About to exceed OpenAI embeddings requests per minute rate limit ... sleeping for {sleep_time_} seconds"
@@ -131,7 +133,7 @@ async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[
         tasks.append(task)
         order_index += 1
 
-    await throttle(len(tasks))
+    await throttle([chunk.page_content for chunk in docs_split])
     return await asyncio.gather(*tasks)
 
 
@@ -203,7 +205,8 @@ def webpages_to_ingested_data(
     docs = []
     for i, row in df.iterrows():
 
-        logger.info(f'{i}: {row["uid"]}')
+        if i > 0 and i % 50 == 0:
+            logger.info(f"Row {i}")
 
         page_path = WEBSITE_DATA_PATH / (row["uid"] + ".txt")
         with open(page_path, "r") as f:
@@ -253,7 +256,7 @@ if __name__ == "__main__":
     metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"
     metadata_df = pd.read_json(metadata_path, lines=True)
 
-    df = metadata_df.iloc[100:250]
+    df = metadata_df.iloc[100:110]
 
     webpages_to_ingested_data(df=df, replace=replace)
 
