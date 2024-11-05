@@ -89,8 +89,8 @@ def get_text(tag: Tag) -> str:
         logger.warning("Unrecognised tag name in get_text")
 
 
-def _scrape(html_text: str) -> Dict:
-    """Scrape text from an HTML string"""
+def html_to_text(html_text: str, return_soup: bool = False) -> Dict:
+    """Get text from an HTML string"""
     try:
         soup = BeautifulSoup(html_text, "html.parser")
         divs = unique(soup.find_all(is_good_div))
@@ -104,7 +104,10 @@ def _scrape(html_text: str) -> Dict:
     except Exception as e:
         logger.critical(f"The following error was encountered while scraping:\n{e}")
 
-    return text.strip()
+    if return_soup:
+        return text.strip(), soup
+    else:
+        return text.strip()
 
 
 def scrape(url: str) -> str:
@@ -112,15 +115,7 @@ def scrape(url: str) -> str:
 
     try:
         result = requests.get(url)  # nosec
-        soup = BeautifulSoup(result.text, "html.parser")
-
-        divs = unique(soup.find_all(is_good_div))
-        texty_bits = unique(
-            sum([div.find_all(is_good_p_or_list, recursive=False) for div in divs], [])
-        )  # assumes we want text from <p> elements and lists, but not other elements
-        # (for the moment – we might want to include headings later)
-
-        text = "\n\n".join([get_text(texty_bit) for texty_bit in texty_bits])
+        text, soup = html_to_text(result.text)
 
         # metadata
         title = soup.find("title").getText().replace(" | Nesta", "")

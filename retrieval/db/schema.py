@@ -24,6 +24,17 @@ class Document(LanceModel):
     time_added: datetime
     # vector: Vector(model.ndims())  #this is the vector of the Document title ... experimental
 
+    def __init__(self, **kwargs) -> None:
+        if kwargs.get("url"):
+            kwargs["location"] = kwargs.pop("url")
+        if kwargs.get("publishDate"):
+            kwargs["date_pub"] = kwargs.pop("publishDate")
+        kwargs[
+            "time_added"
+        ] = datetime.now()  # this does not need to be a super-accurate time, for example, to the second;
+        # its purpose is to be able to filter on how recently documents were added if we want to
+        super().__init__(**kwargs)
+
     def __eq__(self, other: object) -> bool:
         """Self-explanatory"""
         if not isinstance(other, Document):

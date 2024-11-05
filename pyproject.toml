@@ -27,7 +27,9 @@ aiofiles = "^24.1.0"
 pyarrow = "^18.0.0"
 botocore = "^1.35.51"
 boto3 = "^1.35.51"
-unstructured = "^0.16.3"
+#torch = "2.2.2"      #Helen Jackson needed to add this line in order for 'poetry add "unstructured[pdf"' to work
+unstructured = {extras = ["pdf"], version = "^0.16.4"}
+nltk = "^3.9.1"
 
 
 [tool.poetry.group.test]
