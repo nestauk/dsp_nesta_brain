@@ -34,37 +34,47 @@ class Document(LanceModel):
     areas_of_work: Optional[List[str]] = None
     missions: Optional[List[str]] = None
     authors: Optional[List[str]] = None
-    contentType: Optional[List[str]] = None
+    contentType: str = None
     #
     time_added: datetime
     # vector: Vector(model.ndims())  #this is the vector of the Document title ... experimental
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, ingestion: bool = False, **kwargs) -> None:
 
-        # correcting field names
-        if kwargs.get("url"):
-            kwargs["location"] = kwargs.pop("url")
-        if kwargs.get("publishDate"):
-            kwargs["date_pub"] = kwargs.pop("publishDate")
+        if ingestion:  # this code is only needed at the time of ingestion, not when retrieving Documents from the DB
+            # correcting field names
+            if kwargs.get("url"):
+                kwargs["location"] = kwargs.pop("url")
+            if kwargs.get("publishDate"):
+                kwargs["date_pub"] = kwargs.pop("publishDate")
+            if kwargs.get("areasOfWork"):
+                kwargs["areas_of_work"] = kwargs.pop("areasOfWork")
 
-        # cleaning/formatting fields
-        if kwargs.get("areasOfWork"):
-            kwargs["areasOfWork"] = kwargs["areasOfWork"].replace("&amp;", "and")
-        for field_name in ["areasOfWork", "missions", "projects", "units"]:
-            if kwargs.get(field_name):
-                kwargs[field_name] = re.split(",", kwargs[field_name])
+            # cleaning/formatting fields
+            kwargs = {k: v for k, v in kwargs.items() if v != ""}
+            if kwargs.get("areas_of_work"):
+                kwargs["areas_of_work"] = kwargs["areas_of_work"].replace("&amp;", "and")
 
-        # conversion to schema class
-        for field_name in ["projects", "units"]:
-            if kwargs.get(field_name):
-                class_ = globals()[field_name[0:-1].upper()]
-                kwargs[field_name] = [class_(string) for string in kwargs[field_name]]
+            for field_name in ["areas_of_work", "missions", "projects", "units"]:
+                if kwargs.get(field_name):
+                    kwargs[field_name] = re.split(",", kwargs[field_name])
 
-        # additional fields
-        kwargs[
-            "time_added"
-        ] = datetime.now()  # this does not need to be a super-accurate time, for example, to the second;
-        # its purpose is to be able to filter on how recently documents were added if we want to
+            if kwargs.get("date_pub") and type(kwargs.get("date_pub")) is str:
+                kwargs["date_pub"] = datetime.strptime(kwargs.get("date_pub"), "%Y-%m-%d").date()
+
+            if False:
+                # maybe for a future version – see below
+                # conversion to schema class
+                for field_name in ["projects", "units"]:
+                    if kwargs.get(field_name):
+                        class_ = globals()[field_name[0:-1].upper()]
+                        kwargs[field_name] = [class_(string) for string in kwargs[field_name]]
+
+            # additional fields
+            kwargs[
+                "time_added"
+            ] = datetime.now()  # this does not need to be a super-accurate time, for example, to the second;
+            # its purpose is to be able to filter on how recently documents were added if we want to
 
         super().__init__(**kwargs)
 
@@ -96,7 +106,7 @@ class Chunk(LanceModel):
     source: Document
     order_index: Optional[
         int
-    ]  # Only Optional because Chunks already in the db won't have it; shouldn't be Optional in later versions
+    ] = None  # Only Optional because Chunks in ccid_demo_db don't have it; shouldn't be Optional in later versions
 
     def __init__(
         self, order_index: Optional[int] = None, **kwargs
@@ -109,6 +119,10 @@ class Chunk(LanceModel):
         if not isinstance(other, Chunk):
             return False
         return self.source == other.source and self.text == other.text
+
+    def __hash__(self) -> int:
+        """Self-explanatory"""
+        return hash(self.source.location + self.text)
 
     @property
     def metadata(self) -> Dict:
@@ -123,8 +137,8 @@ class Chunk(LanceModel):
 if False:
 
     # to think about another time - Document-Project and Document-Unit are many-to-many relationships
-    # which would mean a List[Project] and List[Unit] type specification in Document class
-    # which is throwing an error message ...
+    # ... which would mean a List[Project] and List[Unit] type specification in Document class
+    # ... which throws an error message
 
     class Project(LanceModel):
         """Defines the fields which a Project nested field contains in the LanceDB database"""
@@ -145,5 +159,6 @@ if __name__ == "__main__":
     # creata a database with a Document table and a Chunk table
     db = lancedb.connect(DB_PATH)
 
-    table = db.create_table("document", schema=Document)
+    db.create_table("document", schema=Document)
     table = db.create_table("chunk", schema=Chunk)
+    table.create_fts_index("text")

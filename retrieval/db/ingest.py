@@ -107,7 +107,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
 
     if documents:
 
-        lance_documents = [LanceDocument(**doc.metadata) for doc in documents]
+        lance_documents = [LanceDocument(ingestion=True, **doc.metadata) for doc in documents]
         chunks = asyncio.run(documents_to_Chunks(documents, lance_documents))
 
         # ====CAUTION====
@@ -118,8 +118,12 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         # the source.title for the relevant chunk records remains the same
         # This is a recipe for mess!
         # I am keeping this in temporarily for purposes of experimentation
+        logger.info(f"Ingesting {len(lance_documents)} Documents and {len(chunks)} Chunks to the database")
         document_table.add(lance_documents)
         chunk_table.add(chunks)
+
+    else:
+        logger.info("No documents or chunks to ingest to the database")
 
     logging.getLogger("httpx").setLevel(logging.INFO)
 
@@ -130,7 +134,7 @@ def webpages_to_ingested_data(
 ) -> None:
     """Convert dumped Nesta website data into LangchainDocuments and ingest"""
 
-    if not uids and not df or (uids and df):
+    if not uids and df is None or (uids and df is not None):
         raise Exception(
             "You must provide EITHER a list of website UIDs or a pandas DataFrame to webpages_to_ingested_data"
         )
@@ -153,9 +157,10 @@ def webpages_to_ingested_data(
         if type(metadata) is list:  # web_metadata is somtimes a list with a single dict element rather than a dict
             metadata = metadata[0]
         metadata.update(
-            {row[field] for field in ["url", "rank", "views"]}
+            {field: row[field] for field in ["url", "rank", "views"]}
         )  # also add these fields to what will be the LangchainDocument and LanceDocument metadata
 
+        metadata["location"] = metadata.pop("url")
         doc = LangchainDocument(page_content=text, metadata=metadata)
         docs.append(doc)
 
@@ -193,7 +198,7 @@ if __name__ == "__main__":
 
     df = metadata_df.iloc[0:10]
 
-    webpages_to_ingested_data(df, replace=replace)
+    webpages_to_ingested_data(df=df, replace=replace)
 
     if False:
         # if scraping from web
