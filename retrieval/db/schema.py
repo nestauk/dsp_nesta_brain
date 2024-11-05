@@ -1,6 +1,11 @@
+from __future__ import annotations
+
+import re
+
 from datetime import date
 from datetime import datetime
 from typing import Dict
+from typing import List
 from typing import Optional
 
 import lancedb
@@ -21,18 +26,46 @@ class Document(LanceModel):
     location: str
     title: str
     date_pub: Optional[date] = None
+    # extra metadata from metadata.jsonl
+    projects: Optional[List[Project]] = None
+    units: Optional[List[Unit]] = None
+    rank: Optional[int] = None
+    views: Optional[int] = None
+    areas_of_work: Optional[List[str]] = None
+    missions: Optional[List[str]] = None
+    authors: Optional[List[str]] = None
+    contentType: Optional[List[str]] = None
+    #
     time_added: datetime
     # vector: Vector(model.ndims())  #this is the vector of the Document title ... experimental
 
     def __init__(self, **kwargs) -> None:
+
+        # correcting field names
         if kwargs.get("url"):
             kwargs["location"] = kwargs.pop("url")
         if kwargs.get("publishDate"):
             kwargs["date_pub"] = kwargs.pop("publishDate")
+
+        # cleaning/formatting fields
+        if kwargs.get("areasOfWork"):
+            kwargs["areasOfWork"] = kwargs["areasOfWork"].replace("&amp;", "and")
+        for field_name in ["areasOfWork", "missions", "projects", "units"]:
+            if kwargs.get(field_name):
+                kwargs[field_name] = re.split(",", kwargs[field_name])
+
+        # conversion to schema class
+        for field_name in ["projects", "units"]:
+            if kwargs.get(field_name):
+                class_ = globals()[field_name[0:-1].upper()]
+                kwargs[field_name] = [class_(string) for string in kwargs[field_name]]
+
+        # additional fields
         kwargs[
             "time_added"
         ] = datetime.now()  # this does not need to be a super-accurate time, for example, to the second;
         # its purpose is to be able to filter on how recently documents were added if we want to
+
         super().__init__(**kwargs)
 
     def __eq__(self, other: object) -> bool:
@@ -49,6 +82,10 @@ class Document(LanceModel):
         """Put important fields in a dict so LanceDB Document and
         Chunk objects can easily be converted into Langchain Documents"""  # noqa
         return {attr: getattr(self, attr) for attr in ["location", "title", "date_pub"]}
+
+    def is_pdf(self) -> bool:
+        """Test whether the document is a PDF"""
+        return self.location[-4:].lower() == ".pdf"
 
 
 class Chunk(LanceModel):
@@ -81,6 +118,21 @@ class Chunk(LanceModel):
     def to_LangchainDocument(self) -> LangchainDocument:
         """Convert a Chunk into a Langchain Document"""
         return LangchainDocument(page_content=self.text, metadata=self.metadata)
+
+
+class Project(LanceModel):
+    """Defines the fields which a Project nested field contains in the LanceDB database"""
+
+    # Experimental – not sure we will ultimately need this, but it might be useful for adding
+    # sophistication to retrievel methods later
+    name: str
+
+
+class Unit(LanceModel):
+    """Defines the fields which a Unit nested field contains in the LanceDB database"""
+
+    # As above: experimental
+    name: str
 
 
 if __name__ == "__main__":
