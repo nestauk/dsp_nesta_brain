@@ -29,14 +29,16 @@ class PDF:
     good_pages_: Optional[List[PDFPage]] = None
     sections: List[PDFSection]  # sections is not necessarily the same as the concatenated sections of pages
     good_sections: Optional[List[PDFSection]] = None
+    linking_url: Optional[str] = None
 
-    def __init__(self, location: str) -> None:
+    def __init__(self, location: str, linking_url: Optional[str] = None) -> None:
         self.location = location
-        logger.info(f"Scraping document {self.location} ...")
+        logger.info(f"\nReading PDF document {self.location} ...")
         self.elements = partition_pdf(self.location)
         logger.info("Converting elements to pages and sections ...")
         self.pages = self.elements_to_pages(self.elements)
         self.sections = self.elements_to_sections(self.elements)
+        self.linking_url = linking_url
 
     @staticmethod
     def elements_to_pages(elements: List[Element]) -> List[PDFPage]:
@@ -155,8 +157,8 @@ class PDF:
                     "Content before the Executive Summary (exclusive) and after the Endnotes (inclusive) will not be ingested"
                 )
 
-        if self.good_sections is None and len(pdf.good_pages) != len(pdf.pages):
-            elements_on_good_pages = sum([page.elements for page in pdf.good_pages], [])
+        if self.good_sections is None and len(self.good_pages) != len(self.pages):
+            elements_on_good_pages = sum([page.elements for page in self.good_pages], [])
             self.good_sections = PDF.elements_to_sections(elements_on_good_pages)
             logger.info("Content on pages identified as undesirable will not be ingested")
 
@@ -167,16 +169,23 @@ class PDF:
     def guess_metadata(self, date_guess: Optional[str] = None, indent: Optional[str] = "") -> Dict:
         """Guess the title and check whether the title guess and date guess (if any) are correct"""
 
-        if pdf.pages[0].is_title_page:
-            title_guess = str(pdf.pages[0].title)
+        logger.info(indent + "Guessing metadata ...")
+
+        if self.pages[0].is_title_page:
+            title_guess = str(self.pages[0].title)
         else:
-            title_guess = first(pdf.elements, lambda element: isinstance(element, Title))
+            first_page_with_title = first(
+                self.pages[1:], lambda page: first(page.elements, lambda element: isinstance(element, Title))
+            )
+            title_guess = first(first_page_with_title.elements, lambda element: isinstance(element, Title))
 
         # this is the only metadata which can be consistently guessed from the document itself
         title = None
         if title_guess:
-            answer = input(indent + f'Is this the document title: "{str(title_guess)}"? (y/any other key)')
-            if answer == "y":
+            answer = input(
+                indent + f'Is this the document title: "{str(title_guess)}"? (any key except enter = "yes")'
+            )
+            if answer != "":
                 title = str(title_guess)
         if not title:
             title = input(indent + "Enter document title: ")
@@ -184,9 +193,9 @@ class PDF:
         metadata = {"title": title}
 
         if date_guess:
-            answer = input(indent + f'Is this the publication date: "{date_guess}"? (y/any other key)')
-            if answer == "y":
-                metadata["date_pub"] = dt.datetime.strftime(date_guess, "%Y-%m-%d")
+            answer = input(indent + f'Is this the publication date: "{date_guess}"? (any key except enter = "yes")')
+            if answer != "":
+                metadata["date_pub"] = dt.datetime.strptime(date_guess, "%Y-%m-%d")
 
         return metadata
 
