@@ -34,7 +34,7 @@ class Document(LanceModel):
     areas_of_work: Optional[List[str]] = None
     missions: Optional[List[str]] = None
     authors: Optional[List[str]] = None
-    contentType: str = None
+    contentType: Optional[str] = None
     #
     time_added: datetime
     # vector: Vector(model.ndims())  #this is the vector of the Document title ... experimental

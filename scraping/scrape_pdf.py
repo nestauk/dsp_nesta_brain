@@ -4,6 +4,7 @@ import datetime as dt
 import itertools as it
 import re
 
+from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Union
@@ -71,6 +72,13 @@ class PDF:
                 current_section.text_elements.append(element)
 
         return sections
+
+    @property
+    def filtered_text(self) -> str:
+        """Collate the text from good sections"""
+        if self.good_sections is None:
+            self.filter()
+        return "\n\n".join([section.text for section in self.good_sections])
 
     @staticmethod
     def is_bad_text(element: Element) -> bool:
@@ -155,6 +163,32 @@ class PDF:
         if self.good_sections is None:
             msg = f"I was not sure how to identify undesirable content for PDF {self.location} - the entire contents will be ingested"  # noqa
             logger.warning(msg)
+
+    def guess_metadata(self, date_guess: Optional[str] = None, indent: Optional[str] = "") -> Dict:
+        """Guess the title and check whether the title guess and date guess (if any) are correct"""
+
+        if pdf.pages[0].is_title_page:
+            title_guess = str(pdf.pages[0].title)
+        else:
+            title_guess = first(pdf.elements, lambda element: isinstance(element, Title))
+
+        # this is the only metadata which can be consistently guessed from the document itself
+        title = None
+        if title_guess:
+            answer = input(indent + f'Is this the document title: "{str(title_guess)}"? (y/any other key)')
+            if answer == "y":
+                title = str(title_guess)
+        if not title:
+            title = input(indent + "Enter document title: ")
+
+        metadata = {"title": title}
+
+        if date_guess:
+            answer = input(indent + f'Is this the publication date: "{date_guess}"? (y/any other key)')
+            if answer == "y":
+                metadata["date_pub"] = dt.datetime.strftime(date_guess, "%Y-%m-%d")
+
+        return metadata
 
 
 class PDFPage:
@@ -366,37 +400,6 @@ if __name__ == "__main__":
         pdf = PDF(path)
 
         pdf.filter()
-
-        if pdf.good_sections:
-
-            if pdf.pages[0].is_title_page:
-                title_guess = str(pdf.pages[0].title)
-            else:
-                title_guess = first(pdf.elements, lambda element: isinstance(element, Title))
-
-            title = None
-            if title_guess:
-                answer = input(f'Is this the document title: "{str(title_guess)}"? (y/any other key)')
-                if answer == "y":
-                    title = str(title_guess)
-            if not title:
-                title = input("Enter document title: ")
-
-            date_pub = None
-            while not date_pub:
-                date_pub_input = input("Publication date (%Y-%m-%d): ")
-                try:
-                    date_pub = dt.datetime.strptime(date_pub_input, "%Y-%m-%d")
-                except ValueError:
-                    logger.info("Wrong date format. Retry.")
-
-            text = " ".join([section.text for section in pdf.good_sections])
-
-            data = {
-                "text": text,
-                "title": title,
-                "date_pub": dt.datetime.strftime(date_pub, "%Y-%m-%d"),
-            }  # will also need location
 
     # for testing and development
 

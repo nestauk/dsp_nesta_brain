@@ -15,6 +15,7 @@ from config import DB_PATH
 from dotenv import load_dotenv
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
+from dsp_nesta_brain.pipeline.scrape_nesta_web import url_to_uid
 from langchain.docstore.document import Document as LangchainDocument
 from langchain.text_splitter import CharacterTextSplitter
 from openai import AsyncOpenAI
@@ -22,6 +23,7 @@ from retrieval.db.schema import Chunk
 from retrieval.db.schema import Document as LanceDocument
 from scraping.scrape import html_to_text
 from scraping.scrape import search_query_to_scraped_data
+from scraping.scrape_pdf import PDF
 
 
 _prefix = "2024-10-29"
@@ -34,8 +36,8 @@ OPENAI_ENCODING = "cl100k_base"
 
 # OpenAI limits
 request_count = {}
-RPM_RATE_LIMIT = 3000
-TPM_RATE_LIMIT = 1e6
+RPM_RATE_LIMIT = 10000
+TPM_RATE_LIMIT = 5e6
 
 load_dotenv()
 
@@ -57,18 +59,32 @@ def update_request_count(texts: List[str]) -> Union[int, None]:
     if request_count:
         seconds_since_count_start = (datetime.now() - (request_count["time"])).seconds
 
-    if not request_count or (request_count and seconds_since_count_start >= 60):  # noqa
-        request_count = {"time": datetime.now(), "N_requests": [], "N_tokens": []}
+    if not request_count:
+        request_count = {"time": datetime.now(), "N_requests": [], "N_tokens": [], "cum_N_tokens": 0}
+        seconds_since_count_start = None
+    elif seconds_since_count_start >= 60:
+        request_count["time"] = datetime.now()
+        request_count["N_requests"] = []
+        request_count["N_tokens"] = []
+        # do not reset cum_N_tokens
         seconds_since_count_start = None
 
     request_count["N_requests"] += [len(texts)]
-    request_count["N_tokens"] += [sum([N_tokens(text) for text in texts])]
+    N_tokens_ = sum([N_tokens(text) for text in texts])
+    request_count["N_tokens"] += [N_tokens_]
+    request_count["cum_N_tokens"] += N_tokens_
+
+    cumulative_cost_estimate = round(request_count["cum_N_tokens"] * 0.02 / 1e6, 2)
+    logger.info(f"Cumulative cost estimate: ${cumulative_cost_estimate}")
 
     return seconds_since_count_start
 
 
 async def throttle(texts: List[str]) -> None:
     """If embeddings model rate limits are exceeded, wait until sufficient time has passed"""
+    # this won't work well for larger batch sizes, but unfortunately there isn't really time to troubleshoot and improve it
+    # I still get API error messages back with batch_size >= 100 but that can't be due to hitting the rate limit
+    # future users may want to improve on it
 
     seconds_since_count_start = update_request_count(texts)
 
@@ -82,21 +98,30 @@ async def throttle(texts: List[str]) -> None:
     if seconds_since_count_start and seconds_since_count_start < 60:
         msg = None
         if sum(request_count["N_requests"]) >= RPM_RATE_LIMIT:
-            msg = "About to exceed OpenAI embeddings requests per minute rate limit ... sleeping for {sleep_time_} seconds"
-        elif sum(request_count["N_tokens"]) >= RPM_RATE_LIMIT:
-            msg = (
-                "About to exceed OpenAI embeddings token per minute rate limit ... sleeping for {sleep_time_} seconds"
-            )
+            msg = "About to exceed OpenAI embeddings requests per minute rate limit ... sleeping for {sleep_time} seconds"
+        elif sum(request_count["N_tokens"]) >= TPM_RATE_LIMIT:
+            msg = "About to exceed OpenAI embeddings token per minute rate limit ... sleeping for {sleep_time} seconds"
 
         if msg:
-            logger.info(msg)
-            await asyncio.sleep(60 - seconds_since_count_start)
+            sleep_time = 60 - seconds_since_count_start
+            logger.info(msg.format(sleep_time=sleep_time))
+            await asyncio.sleep(sleep_time)
 
 
-def already_in_db(location: str) -> bool:
+def doc_already_in_db(doc: LangchainDocument) -> bool:
     """Determine whether chunks from a source document have already been added to the database"""
-    results = chunk_table.search().where(f'source.location = "{location}"').to_list()
+
+    results = chunk_table.search().where(f'source.location = "{doc.metadata["location"]}"').to_list()
     return bool(results)
+
+
+def chunk_already_in_db(chunk: LangchainDocument) -> bool:
+    """Determine whether identical chunks have already been added to the database, because PDFs may be duplicated across the site.
+    Chunking strategy should have been the same.
+    """  # noqa
+
+    results = chunk_table.search().where(f'text == "{chunk.page_content}"').limit(1).to_list()
+    return bool(results), results[0].source.location if results else None
 
 
 async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: LanceDocument) -> Chunk:
@@ -122,16 +147,31 @@ async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[
     text_splitter = CharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
     docs_split = text_splitter.split_documents(documents)
 
+    if documents and not docs_split:
+        raise Exception(f"Investigate why you have zero chunks for {len(documents)} documents")
+
     logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
     tasks = []
     for i, chunk in enumerate(docs_split):
+
         new_source = i == 0 or (i > 0 and docs_split[i - 1].metadata["location"] != chunk.metadata["location"])
         if new_source:
             source = [source for source in sources if source.location == chunk.metadata["location"]][0]
             order_index = 1
-        task = asyncio.create_task(chunk_to_Chunk(chunk, order_index, source))
-        tasks.append(task)
-        order_index += 1
+
+            skip_source = False
+            source_is_pdf = source.location[-4:] == ".pdf"
+            if source_is_pdf:
+                skip_source, existing_location = chunk_already_in_db(chunk)
+            if skip_source:
+                logger.info(
+                    f"Skipping PDF {source.location} as it already seems to be in the DB with location: {existing_location}"
+                )
+
+        if not skip_source:
+            task = asyncio.create_task(chunk_to_Chunk(chunk, order_index, source))
+            tasks.append(task)
+            order_index += 1
 
     await throttle([chunk.page_content for chunk in docs_split])
     return await asyncio.gather(*tasks)
@@ -146,13 +186,13 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    already_in_db_ = [doc for doc in documents if already_in_db(doc.metadata["location"])]
-    if already_in_db_:
-        N_in_db = len(already_in_db_)
+    already_in_db = [doc for doc in documents if doc_already_in_db(doc)]
+    if already_in_db:
+        N_in_db = len(already_in_db)
 
         if replace:
             logger.info(f"{N_in_db} documents were already in the database and will be replaced")
-            for doc in already_in_db_:
+            for doc in already_in_db:
                 chunk_table.delete(f'source.location = "{doc.metadata["location"]}"').to_list()
                 document_table.delete(f'location = "{doc.metadata["location"]}"').to_list()
 
@@ -160,7 +200,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
             logger.info(
                 f"{N_in_db} documents were already in the database: {len(documents) - N_in_db} remain to be added"
             )
-            documents = [doc for doc in documents if doc not in already_in_db_]
+            documents = [doc for doc in documents if doc not in already_in_db]
 
     if documents:
 
@@ -175,7 +215,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         # the source.title for the relevant chunk records remains the same
         # This is a recipe for mess!
         # I am keeping this in temporarily for purposes of experimentation
-        logger.info(f"Ingesting {len(lance_documents)} Documents and {len(chunks)} Chunks to the database")
+        logger.info(f"Ingested {len(lance_documents)} Documents and {len(chunks)} Chunks to the database")
         document_table.add(lance_documents)
         chunk_table.add(chunks)
 
@@ -189,7 +229,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
 def webpages_to_ingested_data(
     uids: Optional[List[str]] = None, df: Optional[pd.DataFrame] = None, replace: bool = False
 ) -> None:
-    """Convert dumped Nesta website data into LangchainDocuments and ingest"""
+    """Convert dumped Nesta webpages into LangchainDocuments and ingest"""
 
     if not uids and df is None or (uids and df is not None):
         raise Exception(
@@ -205,26 +245,76 @@ def webpages_to_ingested_data(
     docs = []
     for i, row in df.iterrows():
 
-        if i > 0 and i % 50 == 0:
-            logger.info(f"Row {i}")
+        if i % 25 == 0:
+            logger.info(f"Scraping webpage in row {i}")
 
         page_path = WEBSITE_DATA_PATH / (row["uid"] + ".txt")
         with open(page_path, "r") as f:
             html = f.read()
         text = html_to_text(html)
 
-        metadata = row["web_metadata"]
-        if type(metadata) is list:  # web_metadata is somtimes a list with a single dict element rather than a dict
-            metadata = metadata[0]
-        metadata.update(
-            {field: row[field] for field in ["url", "rank", "views"]}
-        )  # also add these fields to what will be the LangchainDocument and LanceDocument metadata
+        if text:
+            metadata = row["web_metadata"]
+            if type(metadata) is list:  # web_metadata is somtimes a list with a single dict element rather than a dict
+                metadata = metadata[0]
+            metadata.update(
+                {field: row[field] for field in ["url", "rank", "views"]}
+            )  # also add these fields to what will be the LangchainDocument and LanceDocument metadata
 
-        metadata["location"] = metadata.pop("url")
-        doc = LangchainDocument(page_content=text, metadata=metadata)
-        docs.append(doc)
+            metadata["location"] = metadata.pop("url")
+            doc = LangchainDocument(page_content=text, metadata=metadata)
+            docs.append(doc)
 
-    ingest(docs, replace=replace)
+        else:
+            logger.info(
+                f'Webpage {row["url"]} did not seem to have any text'
+            )  # this is the case for some types of long read e.g. https://www.nesta.org.uk/feature/mapping-early-years-practice/
+
+    if docs:
+        ingest(docs, replace=replace)
+
+    else:
+        logger.info("No docs to ingest!")
+
+
+# if scraping/ingesting PDFs from entire Nesta website data dump
+def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False) -> None:
+    """Convert dumped Nesta website PDFs into LangchainDocuments and ingest"""
+
+    pdf_dir_path = WEBSITE_DATA_PATH / "pdf_files"
+
+    docs = []
+    for i, row in df.iterrows():
+
+        if i % 25 == 0:
+            logger.info(f"Scraping PDF {i}")
+
+        nesta_site_pdf_links = [link for link in row["pdf_links"] if "https://nesta.org.uk" in link]
+
+        if nesta_site_pdf_links:
+
+            uid_and_link_tuples = [(url_to_uid(link), link) for link in nesta_site_pdf_links]
+
+            for uid, link in uid_and_link_tuples:
+                path = pdf_dir_path / uid
+
+                pdf = PDF(path)
+                text = pdf.filtered_text
+
+                if text:
+                    metadata = pdf.guess_metadata(date_guess=row["web_metadata"].get("publishDate"), indent="\t")
+                    metadata["location"] = link
+                    doc = LangchainDocument(page_content=text, metadata=metadata)
+                    docs.append(doc)
+
+                else:
+                    logger.info(f"PDF {uid} did not seem to have any text")
+
+    if docs:
+        ingest(docs, replace=replace)
+
+    else:
+        logger.info("No PDF-derived docs to ingest")
 
 
 # if scraping/ingesting from search results
@@ -252,13 +342,22 @@ if __name__ == "__main__":
     # if scraping/ingesting from entire Nesta website data dump
 
     replace = False
+    pdf_mode = False
 
     metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"
     metadata_df = pd.read_json(metadata_path, lines=True)
+    n_rows = metadata_df.shape[0]
 
-    df = metadata_df.iloc[110:200]
+    start_index = 4650
+    batch_size = 50
 
-    webpages_to_ingested_data(df=df, replace=replace)
+    for index in list(range(start_index, n_rows, batch_size)):
+        df = metadata_df.iloc[index : (index + batch_size)]
+
+        if pdf_mode:
+            pdfs_to_ingested_data(df, replace=replace)
+        else:
+            webpages_to_ingested_data(df=df, replace=replace)
 
     if False:
         # if scraping from web
