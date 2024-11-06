@@ -194,8 +194,8 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         if replace:
             logger.info(f"{N_in_db} documents were already in the database and will be replaced")
             for doc in already_in_db:
-                chunk_table.delete(f'source.location = "{doc.metadata["location"]}"').to_list()
-                document_table.delete(f'location = "{doc.metadata["location"]}"').to_list()
+                chunk_table.delete(f'source.location = "{doc.metadata["location"]}"')
+                document_table.delete(f'location = "{doc.metadata["location"]}"')
 
         else:
             logger.info(

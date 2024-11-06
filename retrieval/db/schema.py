@@ -166,6 +166,30 @@ if __name__ == "__main__":
     # creata a database with a Document table and a Chunk table
     db = lancedb.connect(DB_PATH)
 
-    db.create_table("document", schema=Document)
-    table = db.create_table("chunk", schema=Chunk)
-    table.create_fts_index("text")
+    # creating tables
+    if False:
+        db.create_table("document", schema=Document)
+        table = db.create_table("chunk", schema=Chunk)
+        table.create_fts_index("text")
+
+    # adding full text search index retrospectively
+    if True:
+        table = db.open_table("chunk")
+        table.create_fts_index("text")
+
+    # fixing a cock up
+    if False:
+        # import pandas as pd
+        copy_from_path = "retrieval/db/full_site_demo_db_first_attempt"
+        copy_from_db = lancedb.connect(copy_from_path)
+        document_table = copy_from_db.open_table("document")
+        chunk_table = copy_from_db.open_table("chunk")
+
+        docs = document_table.search().where('NOT location LIKE "%.pdf"').limit(1000000).to_pydantic(Document)
+        chunks = chunk_table.search().where('NOT source.location LIKE "%.pdf"').limit(1000000).to_pydantic(Chunk)
+
+        new_doc_table = db.create_table("document", schema=Document)
+        new_doc_table.add(docs)
+        new_chunk_table = db.create_table("chunk", schema=Chunk)
+        new_chunk_table.add(chunks)
+        new_chunk_table.create_fts_index("text")
