@@ -228,7 +228,9 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
 
 # if scraping/ingesting from entire Nesta website data dump
 def webpages_to_ingested_data(
-    uids: Optional[List[str]] = None, df: Optional[pd.DataFrame] = None, replace: bool = False
+    uids: Optional[List[str]] = None,
+    df: Optional[pd.DataFrame] = None,
+    replace: bool = False,
 ) -> None:
     """Convert dumped Nesta webpages into LangchainDocuments and ingest"""
 
@@ -281,8 +283,30 @@ def webpages_to_ingested_data(
         logger.info("No docs to ingest!")
 
 
+def find_main_button_link(row: pd.Series) -> Union[None, str]:
+    """Find the red button indicating the main downloadable PDF on the page and extract the link"""
+    webpage_path = WEBSITE_DATA_PATH / (row["uid"] + ".txt")
+    with open(webpage_path, "r") as f:
+        html = f.read()
+    _, soup = html_to_text(html, return_soup=True)
+    main_button_div = soup.find("div", {"class": "page-heading__download-item"})
+    main_button_link = main_button_div.find("div", {"class": "btn--primary"})
+    if main_button_link:
+        return main_button_link["href"]
+
+
+def is_good_link(link: str, main_button_link: Optional[str] = None) -> bool:
+    """Test whether the link to a PDF is what we want:
+    either the same as the main button link (if main_button_link = True),
+    or at least on the Nesta website"""  # noqa
+    if main_button_link:
+        return link == main_button_link
+    else:
+        return "https://nesta.org.uk" in link
+
+
 # if scraping/ingesting PDFs from entire Nesta website data dump
-def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False) -> None:
+def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, main_button_pdf_only: bool = False) -> None:
     """Convert dumped Nesta website PDFs into LangchainDocuments and ingest"""
 
     pdf_dir_path = WEBSITE_DATA_PATH / "pdf_files"
@@ -294,11 +318,25 @@ def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False) -> None:
             logger.info(f"Row index {i}")
 
         file_name_and_link_tuples = [(row["pdf_files"][i], link) for i, link in enumerate(row["pdf_links"])]
-        nesta_file_name_and_link_tuples = [
-            (file_name, link) for file_name, link in file_name_and_link_tuples if "https://nesta.org.uk" in link
+
+        if main_button_pdf_only:
+            # I haven't had time to test this
+            main_button_link = find_main_button_link(row)
+        else:
+            main_button_link = None
+
+        desirable_file_name_and_link_tuples = [
+            (file_name, link)
+            for file_name, link in file_name_and_link_tuples
+            if is_good_link(link, main_button_link=main_button_link)
         ]
 
-        for file_name, link in nesta_file_name_and_link_tuples:
+        if main_button_link and not desirable_file_name_and_link_tuples:
+            logger.warning(
+                f'Was not able to identify the main button link for webpage {row["url"]} from pdf_links: {row["pdf_links"]}'
+            )
+
+        for file_name, link in desirable_file_name_and_link_tuples:
             path = pdf_dir_path / file_name
 
             logging.info(f"Opening {file_name}")
@@ -371,6 +409,9 @@ if __name__ == "__main__":
 
     # settings relevant to web_dump mode
     pdf_mode = True  # scrape PDFs rather than webpages
+    main_button_pdf_only = (
+        True  # only scrape PDfs if they are the main report on the page downloadable by clicking on the big red button
+    )
     metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"
     start_index = (
         int(sys.argv[1]) if len(sys.argv) > 1 else 0
@@ -397,7 +438,7 @@ if __name__ == "__main__":
             df = metadata_df.iloc[index : (index + batch_size)]
 
             if pdf_mode:
-                pdfs_to_ingested_data(df, replace=replace)
+                pdfs_to_ingested_data(df, replace=replace, main_button_pdf_only=main_button_pdf_only)
             else:
                 webpages_to_ingested_data(df=df, replace=replace)
 
