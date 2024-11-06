@@ -115,7 +115,7 @@ def scrape(url: str) -> str:
 
     try:
         result = requests.get(url)  # nosec
-        text, soup = html_to_text(result.text)
+        text, soup = html_to_text(result.text, return_soup=True)
 
         # metadata
         title = soup.find("title").getText().replace(" | Nesta", "")
