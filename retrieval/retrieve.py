@@ -1,4 +1,5 @@
 import os
+import re
 
 from collections import OrderedDict
 from typing import List
@@ -139,6 +140,8 @@ class CustomRetriever(BaseRetriever):
     def search_loop(table: LanceTable, query: str, vector_: List[float], limit: int) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are limit unique chunks (synchronous)"""
         iteration_required = True
+        # Leave only alphanumeric characters in the query using regex
+        query = re.sub(r"[^a-zA-Z0-9 ]", "", query)
         while iteration_required:  # iteration only necessary if there are duplicates (which there shouldn't be)
             chunks = table.search(query_type="hybrid").vector(vector_).text(query).limit(limit).to_pydantic(Chunk)
             found_limit_chunks = len(chunks) == limit
