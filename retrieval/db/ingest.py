@@ -301,6 +301,7 @@ def find_download_button_links(row: pd.Series, soup: BeautifulSoup) -> Union[Non
 
     def get_url_title(link: Tag) -> Tuple[str]:
         url = link["href"]
+        url = url.replace("https://www.nesta.org.uk", NESTA_SITE_URL)
         if NESTA_SITE_URL not in url:
             url = NESTA_SITE_URL + url  # no need for '/'
         document_title = None
@@ -315,6 +316,9 @@ def find_download_button_links(row: pd.Series, soup: BeautifulSoup) -> Union[Non
     def is_welsh(link: Tag, title: Optional[str] = None) -> bool:
         return detect(link.getText().strip()) == "cy" or (title and (detect(title) == "cy"))
 
+    def is_bad_link(link: Tag) -> bool:
+        return link.getText() in ["Register for the event"]
+
     download_button_divs = soup.find_all("div", {"class": "page-heading__download-item"}) or soup.find_all(
         "div", {"class": "document-cta__item"}
     )
@@ -325,7 +329,11 @@ def find_download_button_links(row: pd.Series, soup: BeautifulSoup) -> Union[Non
         ]
         if download_button_links:
             links = [(link, get_url_title(link)) for link in download_button_links]
-            return [(url, title) for link, (url, title) in links if not is_welsh(link, title=title)]
+            return [
+                (url, title)
+                for link, (url, title) in links
+                if not is_bad_link(link) and not is_welsh(link, title=title)
+            ]
 
     logger.info(
         f'Was not able to identify the main download button link(s) for webpage {row["url"]} from pdf_links: {row["pdf_links"]}'
@@ -341,18 +349,19 @@ def is_good_link(link: str) -> bool:
 
 
 # if scraping/ingesting PDFs from entire Nesta website data dump
-def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, download_button_pdf_only: bool = False) -> None:
+def pdfs_to_ingested_data(
+    df: pd.DataFrame, replace: bool = False, download_button_pdf_only: bool = False, cautious: bool = False
+) -> None:
     """Convert dumped Nesta website PDFs into LangchainDocuments and ingest"""
 
     docs = []
     for i, row in df.iterrows():
 
-        if i % 25 == 0:
-            logger.info(f"Row index {i}")
+        logger.info(f"Row index {i}")
 
-        file_names_and_links = {link: row["uid"] + "_" + re.split("/", link)[-1] for link in row["pdf_links"]}
+        file_names = {link: row["uid"] + "_" + re.split("/", link)[-1] for link in row["pdf_links"]}
 
-        #  print("\n\n", file_names_and_links, "\n\n")
+        #  print("\n\n", file_names, "\n\n")
 
         webpage_path = WEBSITE_DATA_PATH / (row["uid"] + ".txt")
         with open(webpage_path, "r") as f:
@@ -360,13 +369,12 @@ def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, download_butt
         _, soup = html_to_text(html, return_soup=True)
 
         if download_button_pdf_only:
-            # I haven't had time to test this
             button_links_doc_titles = find_download_button_links(row, soup)
 
-            # print("\n\n", button_links_doc_titles, "\n\n")
+            #   print("\n\n", button_links_doc_titles, "\n\n")
 
             desirable_file_name_and_link_tuples = [
-                (file_names_and_links[link], link, title_guess) for link, title_guess in button_links_doc_titles
+                (file_names.get(link), link, title_guess) for link, title_guess in button_links_doc_titles
             ]
 
         else:
@@ -376,20 +384,23 @@ def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, download_butt
                     link,
                     row["web_metadata"]["title"],
                 )  # web metadata title is used as one of the guesses of the title of the PDF
-                for link, file_name in file_names_and_links.items()
+                for link, file_name in file_names.items()
                 if is_good_link(link)
             ]
 
         for file_name, link, title_guess in desirable_file_name_and_link_tuples:
 
             if not doc_already_in_db(link):
-                path = PDF_PATH / file_name
+                if file_name:
+                    path = PDF_PATH / file_name
+                else:
+                    path = link
 
                 logging.info(f"Opening {file_name}")
                 os.system(f"open {path}")  # nosec
                 os.system(f'open {row["url"]}')  # nosec
 
-                if input(f'Scrape {file_name}? (any key except enter = "yes")') != "":
+                if input(f'Scrape {file_name or path}? (any key except enter = "yes")') != "":
                     try:
                         pdf = PDF(path, linking_url=row["url"])
                         text = pdf.filtered_text
@@ -407,9 +418,12 @@ def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, download_butt
                             web_metadata = row["web_metadata"]
                             if type(web_metadata) is list:
                                 web_metadata = web_metadata[0]
-                            title_guesses = unique([title_guess, soup.find("title").getText().replace(" | Nesta", "")])
+                            title_guesses = unique([soup.find("title").getText().replace(" | Nesta", ""), title_guess])
                             metadata = pdf.guess_metadata(
-                                title_guess=title_guesses, date_guess=web_metadata.get("publishDate"), indent="\t"
+                                title_guess=title_guesses,
+                                date_guess=web_metadata.get("publishDate"),
+                                cautious=cautious,
+                                indent="\t",
                             )
                             metadata["location"] = link
                             doc = LangchainDocument(page_content=text, metadata=metadata)
@@ -463,11 +477,12 @@ if __name__ == "__main__":
     pdf_mode = True  # scrape PDFs rather than webpages
     download_button_pdf_only = True  # only scrape PDfs if they are a major research output indicated on the page
     # by being downloadable by clicking a big red button
+    cautious = False  # ask whether PDF metadata guesses are correct
     metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"
     start_index = (
         int(sys.argv[1]) if len(sys.argv) > 1 else 0
     )  # the row of metadata.jsonl to start ingesting; everything prior to this will be ignored
-    batch_size = 1  # the number of webpages to ingest at a time
+    batch_size = 3  # the number of webpages to ingest at a time
 
     # settings relevant to web_search mode
     query = "Centre for Collective Intelligence Design"
@@ -489,7 +504,9 @@ if __name__ == "__main__":
             df = metadata_df.iloc[index : (index + batch_size)]
 
             if pdf_mode:
-                pdfs_to_ingested_data(df, replace=replace, download_button_pdf_only=download_button_pdf_only)
+                pdfs_to_ingested_data(
+                    df, replace=replace, download_button_pdf_only=download_button_pdf_only, cautious=cautious
+                )
             else:
                 webpages_to_ingested_data(df=df, replace=replace)
 

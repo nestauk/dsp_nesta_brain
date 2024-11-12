@@ -175,6 +175,7 @@ class PDF:
         self,
         title_guess: Optional[Union[str, List[str]]] = None,
         date_guess: Optional[str] = None,
+        cautious: bool = False,
         indent: Optional[str] = "",
     ) -> Dict:
         """Guess the title and check whether the title guess and date guess (if any) are correct"""
@@ -194,12 +195,13 @@ class PDF:
         if first_page_with_title:
             title_guesses.append(first(first_page_with_title.elements, lambda element: isinstance(element, Title)))
 
-        # this is the only metadata which can be consistently guessed from the document itself
         title = None
         while title_guesses and not title:
             title_guess = title_guesses.pop(0)
-            if title_guess:
-                if input(indent + f'Is this the document title: "{str(title_guess)}"? (any key except enter = "yes")'):
+            if title_guess:  # it might be None by mistake
+                if not cautious or input(
+                    indent + f'Is this the document title: "{str(title_guess)}"? (any key except enter = "yes")'
+                ):
                     title = str(title_guess)
         if not title:
             title = input(indent + "Enter document title: ")
@@ -208,12 +210,14 @@ class PDF:
 
         date_pub = None
         if date_guess:
-            if input(indent + f'Is this the publication date: "{date_guess}"? (any key except enter = "yes")'):
+            if not cautious or input(
+                indent + f'Is this the publication date: "{date_guess}"? (any key except enter = "yes")'
+            ):
                 date_pub = date_guess
             while not metadata.get("date_pub"):
                 try:
                     metadata["date_pub"] = dt.datetime.strptime(date_pub, "%Y-%m-%d")
-                except ValueError or TypeError:
+                except Exception:
                     date_pub = input(indent + "Enter publication date (yyyy-mm-dd): ")
 
         return metadata
