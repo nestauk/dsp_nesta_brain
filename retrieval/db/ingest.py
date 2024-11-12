@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import sys
 
 from datetime import datetime
@@ -29,6 +30,8 @@ from scraping.scrape_pdf import PDF
 
 _prefix = "2024-10-29"
 WEBSITE_DATA_PATH = PROJECT_DIR / f"scraping/data/website_{_prefix}"
+PDF_PATH = WEBSITE_DATA_PATH / "pdf_files"
+NESTA_SITE_URL = "https://nesta.org.uk"
 
 CHUNK_SIZE = 2000
 CHUNK_OVERLAP = 100
@@ -290,9 +293,16 @@ def find_main_button_link(row: pd.Series) -> Union[None, str]:
         html = f.read()
     _, soup = html_to_text(html, return_soup=True)
     main_button_div = soup.find("div", {"class": "page-heading__download-item"})
-    main_button_link = main_button_div.find("div", {"class": "btn--primary"})
-    if main_button_link:
-        return main_button_link["href"]
+    if main_button_div:
+        main_button_link = main_button_div.find("a", {"class": "btn--primary"})
+        if main_button_link:
+            document_title = None
+            document_title_match = re.search("'documentTitle': '([^']+)',", main_button_link["onclick"])
+            if document_title_match:
+                document_title = document_title_match.group(1)
+            return f'{NESTA_SITE_URL}{main_button_link["href"]}', document_title
+    elif row["pdf_links"]:
+        logger.info(f'Webpage {row["url"]} has PDF links but does not have a main download button')
 
 
 def is_good_link(link: str, main_button_link: Optional[str] = None) -> bool:
@@ -302,14 +312,12 @@ def is_good_link(link: str, main_button_link: Optional[str] = None) -> bool:
     if main_button_link:
         return link == main_button_link
     else:
-        return "https://nesta.org.uk" in link
+        return NESTA_SITE_URL in link
 
 
 # if scraping/ingesting PDFs from entire Nesta website data dump
 def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, main_button_pdf_only: bool = False) -> None:
     """Convert dumped Nesta website PDFs into LangchainDocuments and ingest"""
-
-    pdf_dir_path = WEBSITE_DATA_PATH / "pdf_files"
 
     docs = []
     for i, row in df.iterrows():
@@ -317,13 +325,13 @@ def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, main_button_p
         if i % 25 == 0:
             logger.info(f"Row index {i}")
 
-        file_name_and_link_tuples = [(row["pdf_files"][i], link) for i, link in enumerate(row["pdf_links"])]
+        file_name_and_link_tuples = [(row["uid"] + "_" + re.split("/", link)[-1], link) for link in row["pdf_links"]]
 
         if main_button_pdf_only:
             # I haven't had time to test this
-            main_button_link = find_main_button_link(row)
+            main_button_link, title_guess = find_main_button_link(row)
         else:
-            main_button_link = None
+            main_button_link, title_guess = None, None
 
         desirable_file_name_and_link_tuples = [
             (file_name, link)
@@ -337,7 +345,7 @@ def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, main_button_p
             )
 
         for file_name, link in desirable_file_name_and_link_tuples:
-            path = pdf_dir_path / file_name
+            path = PDF_PATH / file_name
 
             logging.info(f"Opening {file_name}")
             os.system(f"open {path}")  # nosec
@@ -348,7 +356,7 @@ def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, main_button_p
                     pdf = PDF(path, linking_url=row["url"])
                     text = pdf.filtered_text
                 except PDFInfoNotInstalledError as e:
-                    logging.info(f"Following error frmo trying to read PDF: {e} ... skipping")
+                    logging.info(f"Following error from trying to read PDF: {e} ... skipping")
                     text = None
 
                 if text:
@@ -361,7 +369,9 @@ def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, main_button_p
                         web_metadata = row["web_metadata"]
                         if type(web_metadata) is list:
                             web_metadata = web_metadata[0]
-                        metadata = pdf.guess_metadata(date_guess=web_metadata.get("publishDate"), indent="\t")
+                        metadata = pdf.guess_metadata(
+                            title_guess=title_guess, date_guess=web_metadata.get("publishDate"), indent="\t"
+                        )
                         metadata["location"] = link
                         doc = LangchainDocument(page_content=text, metadata=metadata)
                         docs.append(doc)
@@ -418,9 +428,9 @@ if __name__ == "__main__":
     )  # the row of metadata.jsonl to start ingesting; everything prior to this will be ignored
     batch_size = 10  # the number of webpages to ingest at a time
 
-    # settings releant to web_search mode
+    # settings relevant to web_search mode
     query = "Centre for Collective Intelligence Design"
-    site_url = "nesta.org.uk"
+    site_url = NESTA_SITE_URL
     subdirectories = sorted(
         ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
     )  # optional

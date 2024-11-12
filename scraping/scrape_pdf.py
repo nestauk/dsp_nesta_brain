@@ -166,18 +166,21 @@ class PDF:
             msg = f"I was not sure how to identify undesirable content for PDF {self.location} - the entire contents will be ingested"  # noqa
             logger.warning(msg)
 
-    def guess_metadata(self, date_guess: Optional[str] = None, indent: Optional[str] = "") -> Dict:
+    def guess_metadata(
+        self, title_guess: Optional[str] = None, date_guess: Optional[str] = None, indent: Optional[str] = ""
+    ) -> Dict:
         """Guess the title and check whether the title guess and date guess (if any) are correct"""
 
         logger.info(indent + "Guessing metadata ...")
 
-        if self.pages[0].is_title_page:
-            title_guess = str(self.pages[0].title)
-        else:
-            first_page_with_title = first(
-                self.pages[1:], lambda page: first(page.elements, lambda element: isinstance(element, Title))
-            )
-            title_guess = first(first_page_with_title.elements, lambda element: isinstance(element, Title))
+        if not title_guess:
+            if self.pages[0].is_title_page:
+                title_guess = str(self.pages[0].title)
+            else:
+                first_page_with_title = first(
+                    self.pages[1:], lambda page: first(page.elements, lambda element: isinstance(element, Title))
+                )
+                title_guess = first(first_page_with_title.elements, lambda element: isinstance(element, Title))
 
         # this is the only metadata which can be consistently guessed from the document itself
         title = None
