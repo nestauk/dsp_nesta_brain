@@ -133,26 +133,24 @@ class CustomRetriever(BaseRetriever):
         orig_limit = limit
         while len(chunks) < orig_limit:  # only necessary if there are duplicates (which there shouldn't be)
             # THIS DOESN'T WORK: #I can't see a way of doing asynchronous hybrid search at the moment
-            chunks += (
-                await table.search(query_type="hybrid").vector(vector_).text(query).limit(limit).to_pydantic(Chunk)
-            )
-            chunks = unique(
-                chunks
-            )  # there shouldn't be duplicate chunks in the DB, but this removes the possibility of returning them
-            limit = limit * 2  # increase the limit if chunks weren't unique and try again
-        return chunks
+            pass
 
     @staticmethod
     def search_loop(table: LanceTable, query: str, vector_: List[float], limit: int) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are limit unique chunks (synchronous)"""
-        chunks = []
-        orig_limit = limit
-        while len(chunks) < orig_limit:  # only necessary if there are duplicates (which there shouldn't be)
-            chunks += table.search(query_type="hybrid").vector(vector_).text(query).limit(limit).to_pydantic(Chunk)
-            chunks = unique(
+        iteration_required = True
+        while iteration_required:  # iteration only necessary if there are duplicates (which there shouldn't be)
+            chunks = table.search(query_type="hybrid").vector(vector_).text(query).limit(limit).to_pydantic(Chunk)
+            found_limit_chunks = len(chunks) == limit
+            unique_chunks = unique(
                 chunks
             )  # there shouldn't be duplicate chunks in the DB, but this removes the possibility of returning them
-            limit = limit * 2  # increase the limit if chunks weren't unique and try again
+            chunks_arent_unique = len(unique_chunks) < len(chunks)
+            iteration_required = found_limit_chunks and chunks_arent_unique
+            if iteration_required:
+                limit = limit * 2  # may need to increase the limit if chunks weren't unique and try again
+            else:
+                chunks = unique_chunks
         return chunks
 
     @staticmethod
