@@ -152,7 +152,7 @@ class PDF:
         logger.info("Identifying undesirable content ...")
 
         if self.is_standard_report_format:
-            exec_summ_and_after = list(it.dropwhile(lambda section: not section.is_executive_summary, pdf.sections))
+            exec_summ_and_after = list(it.dropwhile(lambda section: not section.is_executive_summary, self.sections))
             sections_before_end_section = list(
                 it.takewhile(lambda section: not section.is_end_section, exec_summ_and_after)
             )
@@ -172,38 +172,49 @@ class PDF:
             logger.warning(msg)
 
     def guess_metadata(
-        self, title_guess: Optional[str] = None, date_guess: Optional[str] = None, indent: Optional[str] = ""
+        self,
+        title_guess: Optional[Union[str, List[str]]] = None,
+        date_guess: Optional[str] = None,
+        indent: Optional[str] = "",
     ) -> Dict:
         """Guess the title and check whether the title guess and date guess (if any) are correct"""
 
+        if isinstance(title_guess, list):
+            title_guesses = title_guess
+        else:
+            title_guesses = [title_guess] if title_guess else []
+
         logger.info(indent + "Guessing metadata ...")
 
-        if not title_guess:
-            if self.pages[0].is_title_page:
-                title_guess = str(self.pages[0].title)
-            else:
-                first_page_with_title = first(
-                    self.pages[1:], lambda page: first(page.elements, lambda element: isinstance(element, Title))
-                )
-                title_guess = first(first_page_with_title.elements, lambda element: isinstance(element, Title))
+        if self.pages[0].is_title_page and self.pages[0].title:
+            title_guesses.append(str(self.pages[0].title))
+        first_page_with_title = first(
+            self.pages[1:], lambda page: first(page.elements, lambda element: isinstance(element, Title))
+        )
+        if first_page_with_title:
+            title_guesses.append(first(first_page_with_title.elements, lambda element: isinstance(element, Title)))
 
         # this is the only metadata which can be consistently guessed from the document itself
         title = None
-        if title_guess:
-            answer = input(
-                indent + f'Is this the document title: "{str(title_guess)}"? (any key except enter = "yes")'
-            )
-            if answer != "":
-                title = str(title_guess)
+        while title_guesses and not title:
+            title_guess = title_guesses.pop(0)
+            if title_guess:
+                if input(indent + f'Is this the document title: "{str(title_guess)}"? (any key except enter = "yes")'):
+                    title = str(title_guess)
         if not title:
             title = input(indent + "Enter document title: ")
 
         metadata = {"title": title}
 
+        date_pub = None
         if date_guess:
-            answer = input(indent + f'Is this the publication date: "{date_guess}"? (any key except enter = "yes")')
-            if answer != "":
-                metadata["date_pub"] = dt.datetime.strptime(date_guess, "%Y-%m-%d")
+            if input(indent + f'Is this the publication date: "{date_guess}"? (any key except enter = "yes")'):
+                date_pub = date_guess
+            while not metadata.get("date_pub"):
+                try:
+                    metadata["date_pub"] = dt.datetime.strptime(date_pub, "%Y-%m-%d")
+                except ValueError or TypeError:
+                    date_pub = input(indent + "Enter publication date (yyyy-mm-dd): ")
 
         return metadata
 
