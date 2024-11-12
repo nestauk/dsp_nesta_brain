@@ -22,6 +22,7 @@ from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain.text_splitter import CharacterTextSplitter
+from langdetect import detect
 from openai import AsyncOpenAI
 from pdf2image.exceptions import PDFInfoNotInstalledError
 from retrieval.db.schema import Chunk
@@ -299,25 +300,36 @@ def find_download_button_links(row: pd.Series, soup: BeautifulSoup) -> Union[Non
     """Find one or more red buttons indicating a main downloadable PDF on the page and extract the link"""
 
     def get_url_title(link: Tag) -> Tuple[str]:
+        url = link["href"]
+        if NESTA_SITE_URL not in url:
+            url = NESTA_SITE_URL + url  # no need for '/'
         document_title = None
-        document_title_match = re.search("'documentTitle': '([^']+)',", link["onclick"])
-        if document_title_match:
-            is_bad_title = re.search(r"\.(pdf|docx?)$", document_title_match.group(1))
-            if not is_bad_title:
-                document_title = document_title_match.group(1)
-        return f'{NESTA_SITE_URL}{link["href"]}', document_title
+        if link.get("onclick"):
+            document_title_match = re.search("'documentTitle': '([^']+)',", link["onclick"])
+            if document_title_match:
+                is_bad_title = re.search(r"\.(pdf|docx?)$", document_title_match.group(1))
+                if not is_bad_title:
+                    document_title = document_title_match.group(1)
+        return url, document_title
+
+    def is_welsh(link: Tag, title: Optional[str] = None) -> bool:
+        return detect(link.getText().strip()) == "cy" or (title and (detect(title) == "cy"))
 
     download_button_divs = soup.find_all("div", {"class": "page-heading__download-item"}) or soup.find_all(
         "div", {"class": "document-cta__item"}
     )
+
     if download_button_divs:
         download_button_links = [
             ele for ele in [div.find("a", {"class": "btn--primary"}) for div in download_button_divs] if ele
         ]
-        return [get_url_title(link) for link in download_button_links]
+        if download_button_links:
+            links = [(link, get_url_title(link)) for link in download_button_links]
+            return [(url, title) for link, (url, title) in links if not is_welsh(link, title=title)]
 
-    elif row["pdf_links"]:
-        logger.info(f'Webpage {row["url"]} has PDF links but does not have a main download button')
+    logger.info(
+        f'Was not able to identify the main download button link(s) for webpage {row["url"]} from pdf_links: {row["pdf_links"]}'
+    )
 
     return []
 
@@ -340,6 +352,8 @@ def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, download_butt
 
         file_names_and_links = {link: row["uid"] + "_" + re.split("/", link)[-1] for link in row["pdf_links"]}
 
+        #  print("\n\n", file_names_and_links, "\n\n")
+
         webpage_path = WEBSITE_DATA_PATH / (row["uid"] + ".txt")
         with open(webpage_path, "r") as f:
             html = f.read()
@@ -349,14 +363,11 @@ def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, download_butt
             # I haven't had time to test this
             button_links_doc_titles = find_download_button_links(row, soup)
 
+            # print("\n\n", button_links_doc_titles, "\n\n")
+
             desirable_file_name_and_link_tuples = [
                 (file_names_and_links[link], link, title_guess) for link, title_guess in button_links_doc_titles
             ]
-
-            if not desirable_file_name_and_link_tuples:
-                logger.warning(
-                    f'Was not able to identify the main button link for webpage {row["url"]} from pdf_links: {row["pdf_links"]}'
-                )
 
         else:
             desirable_file_name_and_link_tuples = [
@@ -456,7 +467,7 @@ if __name__ == "__main__":
     start_index = (
         int(sys.argv[1]) if len(sys.argv) > 1 else 0
     )  # the row of metadata.jsonl to start ingesting; everything prior to this will be ignored
-    batch_size = 3  # the number of webpages to ingest at a time
+    batch_size = 1  # the number of webpages to ingest at a time
 
     # settings relevant to web_search mode
     query = "Centre for Collective Intelligence Design"
