@@ -117,9 +117,9 @@ class PDF:
         return re.search(r"^(\S )+\S$", string.strip())  # the whole string like this indicates malformed text
 
     @property
-    def endnotes(self) -> Union[PDFSection, None]:
-        """Retrieve Endnotes section, if one exists"""
-        return first(self.sections, lambda section: section.is_endnotes)
+    def end_section(self) -> Union[PDFSection, None]:
+        """Retrieve Endnotes or References section, if one exists"""
+        return first(self.sections, lambda section: section.is_end_section)
 
     @property
     def executive_summary(self) -> Union[PDFSection, None]:
@@ -135,13 +135,16 @@ class PDF:
 
     @property
     def is_standard_report_format(self) -> bool:
-        """Test whether the document has an Executive Summary and an Endnotes section, which indicates a standard report format"""
-        return self.executive_summary and self.endnotes
+        """Test whether the document has an Executive Summary and an Endnotes/References section,
+        which indicates a standard report format"""  # noqa
+
+        return self.executive_summary and self.end_section
 
     def filter(self) -> None:
         """
         Filter the document content according to rules:
-        1. If the document has a standard report format, exclude content before the Executive Summary and content after the Endnotes, as well as the Endnotes themselves
+        1. If the document has a standard report format, exclude content before the Executive Summary and content
+        after the Endnotes/References, as well as the Endnotes/References themselves
         2. Otherwise filter out problem pages (table of contents, pages with almost no content, etc.)
         Desirable content is stored as sections in self.good_sections
         """  # noqa
@@ -150,11 +153,13 @@ class PDF:
 
         if self.is_standard_report_format:
             exec_summ_and_after = list(it.dropwhile(lambda section: not section.is_executive_summary, pdf.sections))
-            sections_before_endnotes = list(it.takewhile(lambda section: not section.is_endnotes, exec_summ_and_after))
-            self.good_sections = sections_before_endnotes
+            sections_before_end_section = list(
+                it.takewhile(lambda section: not section.is_end_section, exec_summ_and_after)
+            )
+            self.good_sections = sections_before_end_section
             if self.good_sections:
                 logger.info(
-                    "Content before the Executive Summary (exclusive) and after the Endnotes (inclusive) will not be ingested"
+                    "Content before the Executive Summary (exclusive) and after the Endnotes/References (inclusive) will not be ingested"  # noqa
                 )
 
         if self.good_sections is None and len(self.good_pages) != len(self.pages):
@@ -351,7 +356,7 @@ class PDFSection:
     A section is defined here as a set of text element items following a title
     Lots of elements are regularly misidentified as titles, so this doesn't work that well,
     particularly in PDFs which are not stand report formats, but more like slidedecks
-    It does however seem to identify the start of sections like Executive Summary and Endnotes in standard report formats reliably,
+    It does however seem to identify the start of sections like Executive Summary and Endnotes/References in standard report formats reliably,
     which is useful for getting rid of some types of undesirable text
     """  # noqa
 
@@ -377,9 +382,9 @@ class PDFSection:
         return string
 
     @property
-    def is_endnotes(self) -> bool:
-        """Test whether the section is the Endnotes section"""
-        return bool(re.match("endnotes", self.title.text.lower()))
+    def is_end_section(self) -> bool:
+        """Test whether the section is the Endnotes or References section"""
+        return bool(re.match("endnotes|references", self.title.text.lower()))
 
     @property
     def is_executive_summary(self) -> bool:

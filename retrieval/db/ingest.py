@@ -288,10 +288,12 @@ def webpages_to_ingested_data(
 
 def find_main_button_link(row: pd.Series) -> Union[None, str]:
     """Find the red button indicating the main downloadable PDF on the page and extract the link"""
+
     webpage_path = WEBSITE_DATA_PATH / (row["uid"] + ".txt")
     with open(webpage_path, "r") as f:
         html = f.read()
     _, soup = html_to_text(html, return_soup=True)
+
     main_button_div = soup.find("div", {"class": "page-heading__download-item"})
     if main_button_div:
         main_button_link = main_button_div.find("a", {"class": "btn--primary"})
@@ -301,8 +303,11 @@ def find_main_button_link(row: pd.Series) -> Union[None, str]:
             if document_title_match:
                 document_title = document_title_match.group(1)
             return f'{NESTA_SITE_URL}{main_button_link["href"]}', document_title
+
     elif row["pdf_links"]:
         logger.info(f'Webpage {row["url"]} has PDF links but does not have a main download button')
+
+    return None, None
 
 
 def is_good_link(link: str, main_button_link: Optional[str] = None) -> bool:
