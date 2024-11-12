@@ -5,7 +5,6 @@ import re
 import sys
 
 from datetime import datetime
-from typing import TYPE_CHECKING
 from typing import List
 from typing import Optional
 from typing import Tuple
@@ -16,6 +15,7 @@ import pandas as pd
 import tiktoken
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 from config import DB_PATH
 from dotenv import load_dotenv
 from dsp_nesta_brain import PROJECT_DIR
@@ -30,10 +30,6 @@ from scraping.scrape import html_to_text
 from scraping.scrape import search_query_to_scraped_data
 from scraping.scrape_pdf import PDF
 from utils import unique
-
-
-if TYPE_CHECKING:
-    from bs4.element import Tag
 
 
 _prefix = "2024-10-29"
@@ -306,7 +302,7 @@ def find_download_button_links(row: pd.Series, soup: BeautifulSoup) -> Union[Non
                 document_title = document_title_match.group(1)
         return f'{NESTA_SITE_URL}{link["href"]}', document_title
 
-    download_button_divs = soup.find("div", {"class": "page-heading__download-item"}) or soup.find(
+    download_button_divs = soup.find_all("div", {"class": "page-heading__download-item"}) or soup.find_all(
         "div", {"class": "document-cta__item"}
     )
     if download_button_divs:
@@ -337,7 +333,7 @@ def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, download_butt
         if i % 25 == 0:
             logger.info(f"Row index {i}")
 
-        file_names_and_links = {link: (row["uid"] + "_" + re.split("/", link)[-1], link) for link in row["pdf_links"]}
+        file_names_and_links = {link: row["uid"] + "_" + re.split("/", link)[-1] for link in row["pdf_links"]}
 
         webpage_path = WEBSITE_DATA_PATH / (row["uid"] + ".txt")
         with open(webpage_path, "r") as f:
