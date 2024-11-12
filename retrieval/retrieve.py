@@ -129,6 +129,7 @@ class CustomRetriever(BaseRetriever):
     async def async_search_loop(table: LanceTable, query: str, vector_: List[float], limit: int) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are
         limit unique chunks (should be asynchronous – see comment below)"""  # noqa
+        query = query.encode('ascii', 'ignore').decode('ascii')
         chunks = []
         orig_limit = limit
         while len(chunks) < orig_limit:  # only necessary if there are duplicates (which there shouldn't be)
@@ -138,6 +139,7 @@ class CustomRetriever(BaseRetriever):
     @staticmethod
     def search_loop(table: LanceTable, query: str, vector_: List[float], limit: int) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are limit unique chunks (synchronous)"""
+        query = query.encode('ascii', 'ignore').decode('ascii')
         iteration_required = True
         while iteration_required:  # iteration only necessary if there are duplicates (which there shouldn't be)
             chunks = table.search(query_type="hybrid").vector(vector_).text(query).limit(limit).to_pydantic(Chunk)
