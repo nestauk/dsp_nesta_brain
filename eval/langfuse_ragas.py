@@ -12,8 +12,10 @@ from ragas import SingleTurnSample
 from ragas import evaluate
 from ragas.metrics import AnswerRelevancy
 from ragas.metrics import Faithfulness
+from ragas.metrics import SummarizationScore
 from ragas.metrics import answer_relevancy
 from ragas.metrics import faithfulness
+from ragas.metrics import summarization_score
 from ragas_ import async_ragas_scores
 from ragas_ import evaluator_embeddings
 from ragas_ import evaluator_llm
@@ -55,11 +57,12 @@ if __name__ == "__main__":
     traces = langfuse.fetch_traces()
     samples = traces_to_samples(traces)
 
-    if True:
+    if False:
         # one way of defining which metrics to use and getting evaluation scores
         metrics = [
             AnswerRelevancy(llm=evaluator_llm),
             Faithfulness(llm=evaluator_llm),
+            SummarizationScore(llm=evaluator_llm),
         ]
 
         dataset = EvaluationDataset(samples=samples)
@@ -71,7 +74,7 @@ if __name__ == "__main__":
         # another way
         from ragas_ import init_ragas_metrics
 
-        metrics = [faithfulness, answer_relevancy]
+        metrics = [faithfulness, answer_relevancy, summarization_score]
         init_ragas_metrics(
             metrics,
             llm=evaluator_llm,
