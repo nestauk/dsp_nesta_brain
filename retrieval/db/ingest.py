@@ -134,7 +134,7 @@ def chunk_already_in_db(chunk: LangchainDocument) -> bool:
     Chunking strategy should have been the same.
     """  # noqa
 
-    results = chunk_table.search().where(f'text == "{chunk.page_content}"').limit(1).to_list()
+    results = chunk_table.search().where(f'text == "{chunk.page_content}"').limit(1).to_pydantic(Chunk)
     return bool(results), results[0].source.location if results else None
 
 
@@ -172,11 +172,19 @@ async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[
         if new_source:
             source = [source for source in sources if source.location == chunk.metadata["location"]][0]
             order_index = 1
+            existing_chunk_count = {}
 
             skip_source = False
             source_is_pdf = source.location[-4:] == ".pdf"
             if source_is_pdf:
-                skip_source, existing_location = chunk_already_in_db(chunk)
+                _, existing_location = chunk_already_in_db(chunk)
+                existing_chunk_count[existing_location] = (existing_chunk_count.get(existing_location) or 0) + 1
+                is_duplicate = (
+                    existing_chunk_count[existing_location] >= 2
+                )  # there may be the occasional paragraph which is in
+                # more than one document, so make the rule there needs to be two chunks
+                # before the document is considered a duplicate
+                skip_source = is_duplicate
             if skip_source:
                 logger.info(
                     f"Skipping PDF {source.location} as it already seems to be in the DB with location: {existing_location}"
@@ -229,9 +237,12 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         # the source.title for the relevant chunk records remains the same
         # This is a recipe for mess!
         # I am keeping this in temporarily for purposes of experimentation
-        logger.info(f"Ingested {len(lance_documents)} Documents and {len(chunks)} Chunks to the database")
-        document_table.add(lance_documents)
-        chunk_table.add(chunks)
+        if chunks:
+            logger.info(f"Ingested {len(lance_documents)} Document(s) and {len(chunks)} Chunks to the database")
+            document_table.add(lance_documents)
+            chunk_table.add(chunks)
+        else:
+            logger.info(f"No chunks from document(s) {lance_documents} to ingest to the database")
 
     else:
         logger.info("No documents or chunks to ingest to the database")
@@ -396,11 +407,12 @@ def pdfs_to_ingested_data(
                 else:
                     path = link
 
-                logging.info(f"Opening {file_name}")
-                os.system(f"open {path}")  # nosec
-                os.system(f'open {row["url"]}')  # nosec
+                if cautious:
+                    logging.info(f"Opening {file_name}")
+                    os.system(f"open {path}")  # nosec
+                    os.system(f'open {row["url"]}')  # nosec
 
-                if input(f'Scrape {file_name or path}? (any key except enter = "yes")') != "":
+                if not cautious or input(f'Scrape {file_name or path}? (any key except enter = "yes")') != "":
                     try:
                         pdf = PDF(path, linking_url=row["url"])
                         text = pdf.filtered_text
@@ -482,7 +494,7 @@ if __name__ == "__main__":
     start_index = (
         int(sys.argv[1]) if len(sys.argv) > 1 else 0
     )  # the row of metadata.jsonl to start ingesting; everything prior to this will be ignored
-    batch_size = 3  # the number of webpages to ingest at a time
+    batch_size = 1  # the number of webpages to ingest at a time
 
     # settings relevant to web_search mode
     query = "Centre for Collective Intelligence Design"
@@ -498,6 +510,8 @@ if __name__ == "__main__":
         # if scraping/ingesting from entire Nesta website data dump
 
         metadata_df = pd.read_json(metadata_path, lines=True)
+        downloaded = metadata_df["_status_code"].apply(lambda val: val == 200)
+        metadata_df = metadata_df[downloaded]
         n_rows = metadata_df.shape[0]
 
         for index in list(range(start_index, n_rows, batch_size)):
