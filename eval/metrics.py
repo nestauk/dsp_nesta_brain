@@ -92,7 +92,7 @@ class ContextSemanticSimilarity(MetricWithEmbeddings, SingleTurnMetric):
     is_cross_encoder: bool = False
     threshold: Optional[float] = None
 
-    async def _single_turn_ascore(self, sample: SingleTurnSample, *args) -> float:
+    async def _single_turn_ascore(self, sample: SingleTurnSample, callbacks: Callbacks) -> float:
         """
         Asynchronously retrn metric score for a single turn sample
 
@@ -100,9 +100,9 @@ class ContextSemanticSimilarity(MetricWithEmbeddings, SingleTurnMetric):
         see: https://github.com/explodinggradients/ragas/blob/main/src/ragas/metrics/_answer_similarity.py
         """
         row = sample.to_dict()
-        return await self._ascore(row, *args)
+        return await self._ascore(row, callbacks)
 
-    async def _ascore(self, row: Dict, *args) -> float:
+    async def _ascore(self, row: Dict, callbacks: Callbacks) -> float:
         """
         Asynchronously return metric score
 

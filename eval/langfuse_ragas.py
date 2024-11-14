@@ -1,12 +1,14 @@
 import asyncio
 import os
 
+from typing import Dict
 from typing import List
+from typing import Optional
 
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from langfuse import Langfuse
-from langfuse.api.resources.commons.types.trace_with_details import TraceWithDetails
+from langfuse.client import FetchTracesResponse
 from metrics import ContextSemanticSimilarity
 from metrics import CorrectedSummarizationScore as SummarizationScore
 from metrics import summarization_score
@@ -37,14 +39,23 @@ os.environ["LANGFUSE_HOST"] = os.getenv("LANGFUSE_HOST")
 langfuse = Langfuse()
 
 
-def traces_to_samples(traces: List[TraceWithDetails]) -> List[SingleTurnSample]:
+def traces_to_samples(
+    traces: FetchTracesResponse,
+    filter: Optional[Dict] = None,
+    return_dataset: bool = False,
+    dataset_path: Optional[str] = None,
+) -> List[SingleTurnSample]:
     """Convert a list of traces returned from the Langfuse API into RAGAS samples"""
     # traces are currently deliberately only suitable to be converted into SingleTurnSample objects
     # need to think about MultiTurnSample objects as well
 
     samples = []
 
-    for trace in traces.data:
+    traces = traces.data
+    if filter:  # filter by user_id, e.g. filter = {'user_id':'helen'} returns only traces with user id helen
+        traces = [trace for trace in traces if all(getattr(trace, attr) == value for attr, value in filter.items())]
+
+    for trace in traces:
         sample = SingleTurnSample(
             user_input=trace.input["input"],
             retrieved_contexts=[context["page_content"] for context in trace.output["context"]],
@@ -52,13 +63,21 @@ def traces_to_samples(traces: List[TraceWithDetails]) -> List[SingleTurnSample]:
         )
         samples.append(sample)
 
+    if return_dataset or dataset_path:
+        dataset = EvaluationDataset(samples=samples)
+        if dataset_path:
+            dataset_path.to_csv(dataset_path)
+
+        if return_dataset:
+            return dataset
+
     return samples
 
 
 if __name__ == "__main__":
 
     traces = langfuse.fetch_traces()
-    samples = traces_to_samples(traces)
+    samples = traces_to_samples(traces, filter={"user_id": "helen"})
 
     if False:
         # one way of defining which metrics to use and getting evaluation scores
