@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import Dict
 
+from ragas.metrics import RubricsScoreWithoutReference
 from ragas.metrics import SummarizationScore
 from ragas.metrics.base import MetricType
 
@@ -12,6 +13,20 @@ if TYPE_CHECKING:
 
 
 # custom metrics
+
+# This may or may not work – experiment
+# The default rubrics can also be used – they are similar to these.
+# See https://github.com/explodinggradients/ragas/blob/main/src/ragas/metrics/_domain_specific_rubrics.py
+rubrics = {
+    "score1_description": "The response is irrelevant and does not answer the question at all.",
+    "score2_description": "The response partially answers the question but makes serious omissions, or includes irrelevant information.",  # noqa
+    "score3_description": "The response generally answers the question but may lack detail or clarity.",
+    "score4_description": "The response answers the question well with only minor issues or missing details.",
+    "score5_description": "The response answers the question fully and is clear and detailed.",
+}
+
+rubrics_metric_1 = RubricsScoreWithoutReference()  # default rubrics
+rubrics_metric_2 = RubricsScoreWithoutReference(rubrics=rubrics)  # bespoke rubrics
 
 
 class CorrectedSummarizationScore(SummarizationScore):
