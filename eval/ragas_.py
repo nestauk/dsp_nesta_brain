@@ -45,14 +45,7 @@ async def async_ragas_scores(samples: List[SingleTurnSample], metrics: List[Metr
     """Asynchronously derive metric scores for a list of samples"""
 
     async def sample_scores(sample: SingleTurnSample) -> Dict:
-        # -- the first two lines are a hack
-        # RAGAS SummarizationScore _ascore method seems to need sample to have an attribute called 'reference_contexts'
-        # I think this is a typo as the SummarizationScore example in the documentation does not mention this attribute
-        # see https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/summarization_score/#summarization-score
-        sample_ = sample.copy()
-        sample_.reference_contexts = sample_.retrieved_contexts
-        # --
-        tasks = [asyncio.create_task(metric.single_turn_ascore(sample_)) for metric in metrics]
+        tasks = [asyncio.create_task(metric.single_turn_ascore(sample)) for metric in metrics]
         scores = await asyncio.gather(*tasks)
         return {metrics[i].name: score for i, score in enumerate(scores)}
 
