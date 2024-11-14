@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+from dataclasses import field
+from statistics import mean
 from typing import TYPE_CHECKING
 from typing import Dict
+from typing import Optional
+from typing import Set
+from typing import cast
 
+import numpy as np
+
+from ragas.embeddings.base import HuggingfaceEmbeddings
 from ragas.metrics import RubricsScoreWithoutReference
 from ragas.metrics import SummarizationScore
 from ragas.metrics.base import MetricType
+from ragas.metrics.base import MetricWithEmbeddings
+from ragas.metrics.base import SingleTurnMetric
 
 
 if TYPE_CHECKING:
     from langchain.callbacks.base import Callbacks
+    from ragas.dataset_schema import SingleTurnSample
 
 
 # custom metrics
@@ -69,3 +80,58 @@ class CorrectedSummarizationScore(SummarizationScore):
 
 
 summarization_score = CorrectedSummarizationScore()
+
+
+class ContextSemanticSimilarity(MetricWithEmbeddings, SingleTurnMetric):
+    """Retrospectively calculates mean semantic similarity between the input and retrieved contexts"""
+
+    name: str = "input_semantic_similarity"
+    _required_columns: Dict[MetricType, Set[str]] = field(
+        default_factory=lambda: {MetricType.SINGLE_TURN: {"user_input", "response"}}
+    )
+    is_cross_encoder: bool = False
+    threshold: Optional[float] = None
+
+    async def _single_turn_ascore(self, sample: SingleTurnSample, *args) -> float:
+        """
+        Asynchronously retrn metric score for a single turn sample
+
+        Copied from SemanticSimilarity class
+        see: https://github.com/explodinggradients/ragas/blob/main/src/ragas/metrics/_answer_similarity.py
+        """
+        row = sample.to_dict()
+        return await self._ascore(row, *args)
+
+    async def _ascore(self, row: Dict, *args) -> float:
+        """
+        Asynchronously return metric score
+
+        Adapted from SemanticSimilarity class
+        see: https://github.com/explodinggradients/ragas/blob/main/src/ragas/metrics/_answer_similarity.py
+        """
+        assert self.embeddings is not None, "embeddings must be set"
+
+        user_input = cast(str, row["user_input"])
+        retrieved_contexts = cast(str, row["retrieved_contexts"])
+
+        if self.is_cross_encoder and isinstance(self.embeddings, HuggingfaceEmbeddings):
+            raise NotImplementedError("async score [ascore()] not implemented for HuggingFace embeddings")
+        else:
+            embedding_1 = np.array(await self.embeddings.embed_text(user_input))
+            context_embeddings = [
+                np.array(await self.embeddings.embed_text(context)) for context in retrieved_contexts
+            ]
+            # Normalization factors of the above embeddings
+            norms_1 = np.linalg.norm(embedding_1, keepdims=True)
+            context_norms = [np.linalg.norm(embedding, keepdims=True) for embedding in context_embeddings]
+            embedding_1_normalized = embedding_1 / norms_1
+            context_embeddings_normalized = [
+                embedding / context_norms[i] for i, embedding in enumerate(context_embeddings)
+            ]
+            similarities = [
+                (embedding_1_normalized @ context_embedding_normalized.T)
+                for context_embedding_normalized in context_embeddings_normalized
+            ]
+            score = mean(similarities)
+
+        return score

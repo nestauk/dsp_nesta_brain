@@ -21,7 +21,7 @@ load_dotenv()
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
 evaluator_llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o-mini"))
-evaluator_embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings())
+evaluator_embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model="text-embedding-3-small"))
 
 
 def init_ragas_metrics(metrics: List[Metric], llm: LangchainLLMWrapper, embedding: LangchainEmbeddingsWrapper) -> None:

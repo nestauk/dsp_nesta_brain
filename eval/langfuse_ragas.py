@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from langfuse import Langfuse
 from langfuse.api.resources.commons.types.trace_with_details import TraceWithDetails
+from metrics import ContextSemanticSimilarity
 from metrics import CorrectedSummarizationScore as SummarizationScore
 from metrics import summarization_score
 from ragas import EvaluationDataset
@@ -81,7 +82,14 @@ if __name__ == "__main__":
             name="my_test",
             definition="Score responses in range of 0 to 5 based on factors such as grammar, relevance, and coherence.",
         )  # trivial example for experimentation
-        metrics = [faithfulness, answer_relevancy, summarization_score, context_precision, simple_criterion]
+        metrics = [
+            faithfulness,
+            answer_relevancy,
+            summarization_score,
+            context_precision,
+            simple_criterion,
+            ContextSemanticSimilarity(),
+        ]
 
         init_ragas_metrics(
             metrics,
