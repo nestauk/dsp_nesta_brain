@@ -98,7 +98,7 @@ class Document(LanceModel):
     def as_metadata(self) -> Dict:
         """Put important fields in a dict so LanceDB Document and
         Chunk objects can easily be converted into Langchain Documents"""  # noqa
-        return {attr: getattr(self, attr) for attr in ["location", "title", "date_pub"]}
+        return self.__dict__
 
     def is_pdf(self) -> bool:
         """Test whether the document is a PDF"""

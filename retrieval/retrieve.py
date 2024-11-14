@@ -156,7 +156,7 @@ class CustomRetriever(BaseRetriever):
                 .text(query)
                 .where(
                     filter_condition,
-                    pre_filter=True,
+                    prefilter=True,
                 )
                 .limit(limit)
                 .to_pydantic(Chunk)
@@ -189,7 +189,7 @@ class CustomRetriever(BaseRetriever):
         return vector
 
 
-if __name__ == "main":
+if __name__ == "__main__":
 
     load_dotenv()
 
@@ -202,6 +202,21 @@ if __name__ == "main":
     chunk_table = db.open_table("chunk")
 
     # code below is just for testing and experimenting
+
+    if True:
+        # experimenting with search filter conditions
+        query = "What work has Nesta done on educational technology"
+        # query = 'Who has experience working in government'
+        filter_condition = "source.date_pub >= to_timestamp('2020-01-01')"  # filter by date
+        # filter_condition = "array_contains(source.projects,'Digital Arts and Culture Accelerator')" #filter by project.
+        # Remember the 'projects' field is a list of strings (there can be more than one project)
+        # filter_condition = "source.contentType = 'person page'"  #filter by content type
+        # filter_condition = "source.rank <= 100" #filter by page popularity
+        #  filter_condition = None  #also works with no filter condition
+        chunks = CustomRetriever().invoke(query, filter_condition=filter_condition)
+        logger.info(len(chunks))
+        for chunk in chunks:
+            logger.info("\n\n", chunk)
 
     if False:
         # experimenting with queries
