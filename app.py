@@ -38,6 +38,7 @@ from llm.prompt import basic_question_prompt  # noqa
 from llm.prompt import contextualize_q_prompt  # noqa
 from llm.prompt import qa_prompt  # noqa
 from retrieval.retrieve import CustomRetriever  # noqa
+from streamlit_feedback import streamlit_feedback  # noqa
 
 
 langfuse_handler = CallbackHandler(
@@ -158,7 +159,7 @@ async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], que
     #  print("message history",chat_history())
     #  input = {"input": question,"chat_history":chat_history()}
     input = {"context": docs, "question": question}
-    return await chain.ainvoke(input, config={"callbacks": [langfuse_handler]}, **kwargs)
+    return await chain.ainvoke(input)  # , config={"callbacks": [langfuse_handler]}, **kwargs)
 
 
 async def individual_responses(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> List[str]:
@@ -193,6 +194,11 @@ def is_html(string: str) -> bool:
     """Test whether a string is HTML"""
     # credit: https://stackoverflow.com/questions/24856035/how-to-detect-with-python-if-the-string-contains-html-code
     return lxml.html.fromstring(string).find(".//*") is not None
+
+
+def push_feedback_to_langfuse(feedback: Dict) -> None:
+    """Send the feedback score and comments to Langfuse"""
+    pass
 
 
 if __name__ == "__main__":
@@ -303,3 +309,10 @@ if __name__ == "__main__":
                         st.session_state.messages.append(message)
                 else:
                     st.write("I was not able to answer that question")
+
+        feedback = streamlit_feedback(
+            feedback_type="faces",
+            optional_text_label="[Optional] Please provide an explanation",
+            key="feedback",
+            on_submit=push_feedback_to_langfuse,
+        )
