@@ -10,6 +10,8 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
+from langchain_openai import ChatOpenAI
+from langchain_openai import OpenAIEmbeddings
 from langfuse import Langfuse
 from langfuse.client import FetchTracesResponse
 from metrics import ContextSemanticSimilarity
@@ -19,6 +21,8 @@ from ragas import EvaluationDataset
 from ragas import MultiTurnSample
 from ragas import SingleTurnSample
 from ragas import evaluate
+from ragas.embeddings import LangchainEmbeddingsWrapper
+from ragas.llms import LangchainLLMWrapper
 from ragas.messages import AIMessage
 from ragas.messages import HumanMessage
 from ragas.metrics import AnswerRelevancy
@@ -27,9 +31,10 @@ from ragas.metrics import LLMContextPrecisionWithoutReference
 from ragas.metrics import answer_relevancy
 from ragas.metrics import faithfulness
 from ragas.metrics._simple_criteria import SimpleCriteriaScoreWithoutReference
-from ragas_ import async_ragas_scores
-from ragas_ import evaluator_embeddings
-from ragas_ import evaluator_llm
+from ragas.metrics.base import Metric
+from ragas.metrics.base import MetricWithEmbeddings
+from ragas.metrics.base import MetricWithLLM
+from ragas.run_config import RunConfig
 
 
 if TYPE_CHECKING:
@@ -48,6 +53,37 @@ os.environ["LANGFUSE_PUBLIC_KEY"] = os.getenv("LANGFUSE_PUBLIC_KEY")
 os.environ["LANGFUSE_HOST"] = os.getenv("LANGFUSE_HOST")
 
 langfuse = Langfuse()
+
+
+def init_ragas_metrics(metrics: List[Metric], llm: LangchainLLMWrapper, embedding: LangchainEmbeddingsWrapper) -> None:
+    """Initialise metrics (if necessary) with LLMs or embeddings"""
+
+    # can be useful for defining metrics in the way described here:
+    # https://langfuse.com/guides/cookbook/evaluation_of_rag_with_ragas
+
+    for metric in metrics:
+        if isinstance(metric, MetricWithLLM):
+            metric.llm = llm
+        if isinstance(metric, MetricWithEmbeddings):
+            metric.embeddings = embedding
+        run_config = RunConfig()
+        metric.init(run_config)
+
+
+# a way of obtaining scores which may be useful in some circumstances
+# adapted from: https://langfuse.com/guides/cookbook/evaluation_of_rag_with_ragas
+async def async_ragas_scores(samples: List[SingleTurnSample], metrics: List[Metric]) -> List[Dict]:
+    """Asynchronously derive metric scores for a list of samples"""
+
+    async def sample_scores(sample: SingleTurnSample) -> Dict:
+        tasks = [asyncio.create_task(metric.single_turn_ascore(sample)) for metric in metrics]
+        scores = await asyncio.gather(*tasks)
+        return {metrics[i].name: score for i, score in enumerate(scores)}
+
+    tasks = [asyncio.create_task(sample_scores(sample)) for sample in samples]
+    scores = await asyncio.gather(*tasks)
+
+    return scores
 
 
 def trace_to_conversation(trace: TraceWithDetails, answer_history: List[str]) -> List[Message]:
@@ -135,6 +171,9 @@ def traces_to_samples(
 
 if __name__ == "__main__":
 
+    evaluator_llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o-mini"))
+    evaluator_embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model="text-embedding-3-small"))
+
     traces = langfuse.fetch_traces()
     samples = traces_to_samples(traces)  # , filter={"user_id": "helen"})
 
@@ -152,8 +191,6 @@ if __name__ == "__main__":
         logger.info(df)
 
     else:
-        # another way
-        from ragas_ import init_ragas_metrics
 
         context_precision = LLMContextPrecisionWithoutReference()
         simple_criterion = SimpleCriteriaScoreWithoutReference(
