@@ -16,6 +16,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
+from langfuse.callback import CallbackHandler
 from utils import unique
 
 
@@ -37,6 +38,14 @@ from llm.prompt import basic_question_prompt  # noqa
 from llm.prompt import contextualize_q_prompt  # noqa
 from llm.prompt import qa_prompt  # noqa
 from retrieval.retrieve import CustomRetriever  # noqa
+
+
+langfuse_handler = CallbackHandler(
+    secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+    public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+    host=os.getenv("LANGFUSE_HOST"),
+    user_id="anon",
+)
 
 
 def check_password() -> bool:
@@ -141,7 +150,7 @@ def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, 
         input = {"input": question, "chat_history": chat_history()}
     else:
         input = {"context": docs, "question": question}
-    return chain.invoke(input, **kwargs)
+    return chain.invoke(input, config={"callbacks": [langfuse_handler]}, *kwargs)
 
 
 async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> str:
@@ -149,7 +158,7 @@ async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], que
     #  print("message history",chat_history())
     #  input = {"input": question,"chat_history":chat_history()}
     input = {"context": docs, "question": question}
-    return await chain.ainvoke(input, **kwargs)
+    return await chain.ainvoke(input, config={"callbacks": [langfuse_handler]}, **kwargs)
 
 
 async def individual_responses(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> List[str]:
