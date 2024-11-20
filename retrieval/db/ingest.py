@@ -384,12 +384,15 @@ def pdfs_to_ingested_data(
 
             #   print("\n\n", button_links_doc_titles, "\n\n")
 
-            desirable_file_name_and_link_tuples = [
+            desirable_file_name_and_link_tuples = [  #stores the file names and links just of the PDFs we're interested in 
+                                                     #according to some criterion – here the criterion is that the link is 
+                                                     #contained in a download button (indicating a major publication)
                 (file_names.get(link), link, title_guess) for link, title_guess in button_links_doc_titles
             ]
 
         else:
-            desirable_file_name_and_link_tuples = [
+            desirable_file_name_and_link_tuples = [   #see comment above. Here the criterion is simply that the PDF
+                                                    #is on the Nesta website and not an external website
                 (
                     file_name,
                     link,
@@ -407,7 +410,9 @@ def pdfs_to_ingested_data(
                 else:
                     path = link
 
-                if cautious:
+                if cautious:   #if being cautious, you will be asked to decide whether you want to scrape the PDF and
+                                #whether the metadata guesses are correct. This opens the PDF and its corresponding
+                                #webpage for examination
                     logging.info(f"Opening {file_name}")
                     os.system(f"open {path}")  # nosec
                     os.system(f'open {row["url"]}')  # nosec
@@ -489,7 +494,7 @@ if __name__ == "__main__":
     pdf_mode = True  # scrape PDFs rather than webpages
     download_button_pdf_only = True  # only scrape PDfs if they are a major research output indicated on the page
     # by being downloadable by clicking a big red button
-    cautious = False  # ask whether PDF metadata guesses are correct
+    cautious = False  # ask whether you want to scrape the PDF and whether the metadata guesses are correct
     metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"
     start_index = (
         int(sys.argv[1]) if len(sys.argv) > 1 else 0
