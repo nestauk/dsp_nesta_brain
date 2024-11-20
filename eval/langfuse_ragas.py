@@ -14,9 +14,11 @@ from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
 from langfuse import Langfuse
 from langfuse.client import FetchTracesResponse
-from metrics import ContextSemanticSimilarity
+
+# from metrics import ContextSemanticSimilarity
 from metrics import CorrectedSummarizationScore as SummarizationScore
-from metrics import summarization_score
+
+# from metrics import summarization_score
 from ragas import EvaluationDataset
 from ragas import MultiTurnSample
 from ragas import SingleTurnSample
@@ -30,7 +32,8 @@ from ragas.metrics import Faithfulness
 from ragas.metrics import LLMContextPrecisionWithoutReference
 from ragas.metrics import answer_relevancy
 from ragas.metrics import faithfulness
-from ragas.metrics._simple_criteria import SimpleCriteriaScoreWithoutReference
+
+# from ragas.metrics._simple_criteria import SimpleCriteriaScoreWithoutReference
 from ragas.metrics.base import Metric
 from ragas.metrics.base import MetricWithEmbeddings
 from ragas.metrics.base import MetricWithLLM
@@ -72,13 +75,20 @@ def init_ragas_metrics(metrics: List[Metric], llm: LangchainLLMWrapper, embeddin
 
 # a way of obtaining scores which may be useful in some circumstances
 # adapted from: https://langfuse.com/guides/cookbook/evaluation_of_rag_with_ragas
-async def async_ragas_scores(samples: List[SingleTurnSample], metrics: List[Metric]) -> List[Dict]:
+async def async_ragas_scores(samples: List[BaseSample], metrics: List[Metric]) -> List[Dict]:
     """Asynchronously derive metric scores for a list of samples"""
 
-    async def sample_scores(sample: SingleTurnSample) -> Dict:
-        tasks = [asyncio.create_task(metric.single_turn_ascore(sample)) for metric in metrics]
+    async def sample_scores(sample: BaseSample) -> Dict:
+        if isinstance(sample, SingleTurnSample):
+            tasks = [asyncio.create_task(metric.single_turn_ascore(sample)) for metric in metrics]
+        else:
+            tasks = [asyncio.create_task(metric.multi_turn_ascore(sample)) for metric in multi_turn_metrics]
         scores = await asyncio.gather(*tasks)
         return {metrics[i].name: score for i, score in enumerate(scores)}
+
+    multi_turn_metrics = [metric for metric in metrics if hasattr(metric, "_multi_turn_ascore")]
+    if not multi_turn_metrics:
+        logger.warning("None of the metrics specified have methods for returning scores for multi-turn samples")
 
     tasks = [asyncio.create_task(sample_scores(sample)) for sample in samples]
     scores = await asyncio.gather(*tasks)
@@ -113,6 +123,7 @@ def traces_to_samples(
     # need to think about MultiTurnSample objects as well
 
     samples = []
+    trace_ids = []  # will need these in order to push scores to langfuse
 
     traces = traces.data
     if filter:  # filter by user_id, e.g. filter = {'user_id':'helen'} returns only traces with user id helen
@@ -156,6 +167,7 @@ def traces_to_samples(
                     ),  # contexts are not passed in to MultiTurnSample objects
                 )
             samples.append(sample)
+            trace_ids.append(trace.id)
             answer_history = []
 
     if return_dataset or dataset_path:
@@ -166,7 +178,18 @@ def traces_to_samples(
         if return_dataset:
             return dataset
 
-    return samples
+    return samples, trace_ids
+
+
+def push_scores_to_langfuse(samples: List[BaseSample], trace_ids: List[str], metrics: List[Metric]) -> None:
+    """Calculate metric scores for a list of samples and push them to the equivalent traces in Langfuse"""
+    if not len(samples) == len(trace_ids):
+        raise Exception("trace_ids cannot map precisely onto samples as the two lists are not identical in length")
+    ragas_scores = asyncio.run(async_ragas_scores(samples, metrics))
+    for i, score_set in enumerate(ragas_scores):
+        for score_name, score in score_set.items():
+            langfuse.score(trace_id=trace_ids[i], name=score_name, value=score)
+    logger.info(f"Pushed scores for {len(samples)} samples to Langfuse")
 
 
 if __name__ == "__main__":
@@ -175,7 +198,7 @@ if __name__ == "__main__":
     evaluator_embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model="text-embedding-3-small"))
 
     traces = langfuse.fetch_traces()
-    samples = traces_to_samples(traces)  # , filter={"user_id": "helen"})
+    samples, trace_ids = traces_to_samples(traces)
 
     if False:
         # one way of defining which metrics to use and getting evaluation scores
@@ -193,18 +216,7 @@ if __name__ == "__main__":
     else:
 
         context_precision = LLMContextPrecisionWithoutReference()
-        simple_criterion = SimpleCriteriaScoreWithoutReference(
-            name="my_test",
-            definition="Score responses in range of 0 to 5 based on factors such as grammar, relevance, and coherence.",
-        )  # trivial example for experimentation
-        metrics = [
-            faithfulness,
-            answer_relevancy,
-            summarization_score,
-            context_precision,
-            simple_criterion,
-            ContextSemanticSimilarity(),
-        ]
+        metrics = [context_precision, answer_relevancy, faithfulness]
 
         init_ragas_metrics(
             metrics,
@@ -212,5 +224,4 @@ if __name__ == "__main__":
             embedding=evaluator_embeddings,
         )
 
-        ragas_scores = asyncio.run(async_ragas_scores(samples, metrics))
-        logger.info(ragas_scores)
+        push_scores_to_langfuse(samples, trace_ids, metrics)
