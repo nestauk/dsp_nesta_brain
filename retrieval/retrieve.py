@@ -28,7 +28,9 @@ class CustomRetriever(BaseRetriever):
     """Custom retriever class because I encountered a bug when converting a LanceDB
     vector store into a retriever in the usual way"""  # noqa
 
-    # code previously used for retrieval has been reused to create a formal CustomRetriever class
+    filter_condition: Optional[
+        str
+    ] = None  # added because kwargs to chain.invoke in app.py are not passed on to the retriever
 
     async def _aget_relevant_documents(
         self, query: str, limit: int = 3, merge: bool = False, **kwargs
@@ -56,6 +58,8 @@ class CustomRetriever(BaseRetriever):
         """
         Retrieve chunks related to a search query using a hybrid search strategy
 
+        CAUTION: kwargs are not passed on when the retriever is part of a rag_chain and the rag_chain is invoked
+
         merge: if True then where chunks are from the same document they will be merged into a single retrieval result
         """
 
@@ -65,7 +69,9 @@ class CustomRetriever(BaseRetriever):
 
         logger.info("Vectorizing query ...")
         vector_ = CustomRetriever.vector(query)
-        chunks = CustomRetriever.retrieve_chunks(db, query, vector_, limit, **kwargs)
+        chunks = CustomRetriever.retrieve_chunks(
+            db, query, vector_, limit, filter_condition=self.filter_condition, **kwargs
+        )
         docs = CustomRetriever.chunks_to_docs(chunks, merge=merge)
 
         return docs
@@ -213,6 +219,7 @@ if __name__ == "__main__":
         # filter_condition = "source.contentType = 'person page'"  #filter by content type
         # filter_condition = "source.rank <= 100" #filter by page popularity
         #  filter_condition = None  #also works with no filter condition
+        filter_condition = "source.date_pub >= to_timestamp('2020-01-01') and source.contentType = 'person page'"
         chunks = CustomRetriever().invoke(query, filter_condition=filter_condition)
         logger.info(len(chunks))
         for chunk in chunks:
