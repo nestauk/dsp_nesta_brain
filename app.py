@@ -4,6 +4,7 @@ import os
 import sys
 import uuid
 
+from datetime import datetime
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -51,6 +52,12 @@ langfuse_handler = CallbackHandler(
     host=os.getenv("LANGFUSE_HOST"),
     user_id="anon",
 )
+
+
+EARLIEST_YEAR = 2003  # 2003 is the earliest publication date in the DB
+CURRENT_YEAR = datetime.now().year
+
+WIDGET_DEFAULTS = {"from_year": EARLIEST_YEAR, "to_year": CURRENT_YEAR, "include_people": "Yes", "mission": None}
 
 
 def check_password() -> bool:
@@ -119,10 +126,17 @@ class Response:
     @property
     def a_elements(self) -> str:
         """Return hyperlink(s) to source document(s)"""
-        #   if self.is_summary:
-        #      return ""
-        # else:
-        elements = [f'<a href="{chunk.metadata["location"]}">{chunk.metadata["title"]}</a>' for chunk in self.chunks]
+        test_mode = False
+        if test_mode:
+            logger.warning("Formatting of links for testing retrieval filtering is in use – do not use for production")
+            elements = [
+                f'<a href="{chunk.metadata["location"]}">{chunk.metadata["title"]} {chunk.metadata["date_pub"]} {chunk.metadata["contentType"]} {chunk.metadata["missions"]}</a>'  # noqa
+                for chunk in self.chunks
+            ]
+        else:
+            elements = [
+                f'<a href="{chunk.metadata["location"]}">{chunk.metadata["title"]}</a>' for chunk in self.chunks
+            ]
         return "<br>".join(unique(elements))
 
     @property
@@ -178,19 +192,21 @@ async def individual_responses(chain: LLMChain, docs: List[LangchainDocument], q
     return responses_and_trace_ids
 
 
-def respond(chain: Runnable, docs: List[LangchainDocument], question: str, mode: str) -> List[Response]:
+def respond(chain: Runnable, docs: List[LangchainDocument], question: str, mode: str, **kwargs) -> List[Response]:
     """Get individual and/or summary responses from chain and convert them into Response objects"""
 
     responses = []
 
     if mode == "indiv":
-        responses_and_trace_ids = asyncio.run(individual_responses(chain, docs, question))
+      
+        responses_and_trace_ids = asyncio.run(individual_responses(chain, docs, question, **kwargs))
         responses_ = [
             (response, docs[i]) for i, (response, _) in enumerate(responses_and_trace_ids) if response != "NULL"
         ]
         responses += [Response(response, doc, mode, index=i + 1) for i, (response, doc) in enumerate(responses_)]
 
     response, trace_id = llm_response(chain, docs, question, mode)
+
     response = Response(response, docs, mode)
     if response.text != "NULL":
         responses.append(response)
@@ -208,6 +224,36 @@ def is_html(string: str) -> bool:
     return lxml.html.fromstring(string).find(".//*") is not None
 
 
+def filter_flag() -> None:
+    """
+    Indicate that filters have been used and therefore filter conditions need to be provided
+    (used in widget callbacks)
+    """  # noqa
+    st.session_state.filter_flag = True
+
+
+def filter_conditions() -> Union[str, None]:
+    """Compute what the filter conditions are from widget values"""
+    if "filter_flag" in st.session_state:
+        filter_conditions = []
+        for key, default in WIDGET_DEFAULTS.items():
+            current_value = st.session_state[key]
+            if (
+                current_value != default
+            ):  # caution: if all widgets are at their default value then no filter is required
+                # if the defaults change, the logic here may also need to change
+                if key == "from_year":
+                    filter_conditions.append(f"source.date_pub >= to_timestamp('{current_value}-01-01')")
+                elif key == "to_year":
+                    filter_conditions.append(f"source.date_pub <= to_timestamp('{current_value}-12-31')")
+                elif key == "include_people" and current_value == "No":
+                    filter_conditions.append("source.contentType != 'person page'")
+                elif key == "mission":
+                    filter_conditions.append(f"array_contains(source.missions,'{current_value}')")
+        if filter_conditions:
+            return " and ".join(filter_conditions)
+    return None
+
 def push_feedback_to_langfuse(feedback: Dict) -> None:
     """Send the feedback score and comments to Langfuse"""
 
@@ -220,6 +266,7 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
     )
 
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
+
 
 
 if __name__ == "__main__":
@@ -241,9 +288,7 @@ if __name__ == "__main__":
         if mode not in possible_modes:
             raise Exception('Mode must be "chat" or "indiv"')
 
-        llm = ChatOpenAI(
-            temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini"
-        )  # gpt-3.5-turbo")
+        llm = ChatOpenAI(temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini")
         indiv_qa_chain = create_stuff_documents_chain(llm, basic_question_prompt)
         chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
         retriever = CustomRetriever()
@@ -289,6 +334,45 @@ if __name__ == "__main__":
             unsafe_allow_html=True,
         )
 
+        # widgets for filter conditions
+        with st.sidebar:
+            from_year = st.number_input(
+                label="From year",
+                min_value=EARLIEST_YEAR,
+                max_value=CURRENT_YEAR,
+                key="from_year",
+                value=WIDGET_DEFAULTS["from_year"],
+                on_change=filter_flag,
+            )
+            to_year = st.number_input(
+                label="To year",
+                min_value=from_year,
+                max_value=CURRENT_YEAR,
+                key="to_year",
+                value=WIDGET_DEFAULTS["to_year"],
+                on_change=filter_flag,
+            )
+            include_people_options = ("Yes", "No")
+            include_people = st.radio(
+                "Include people pages",
+                include_people_options,
+                key="include_people",
+                index=include_people_options.index(WIDGET_DEFAULTS["include_people"]),
+                on_change=filter_flag,
+            )
+            mission_options = ("A fairer start", "A healthy life", "A sustainable future", None)
+            mission = st.radio(
+                "Mission",
+                mission_options,
+                key="mission",
+                index=mission_options.index(WIDGET_DEFAULTS["mission"]),
+                on_change=filter_flag,
+            )
+
+            for key, default in WIDGET_DEFAULTS.items():
+                if key not in st.session_state:
+                    st.session_state[key] = default
+
         # Store session variables
         if "messages" not in st.session_state.keys():
             st.session_state.messages = [{"role": "assistant", "content": "How can I help?"}]
@@ -311,6 +395,10 @@ if __name__ == "__main__":
         responses = []
         if st.session_state.messages[-1]["role"] != "assistant":
             with st.chat_message("assistant"), st.empty():
+
+                retriever.filter_condition = (
+                    filter_conditions()
+                )  # this is not ideal syntax, but kwargs to chain.invoke are not passed on to the retriever
 
                 if mode == "indiv":
                     if input:

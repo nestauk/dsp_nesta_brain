@@ -2,6 +2,7 @@ import os
 
 from collections import OrderedDict
 from typing import List
+from typing import Optional
 
 import lancedb
 
@@ -27,31 +28,37 @@ class CustomRetriever(BaseRetriever):
     """Custom retriever class because I encountered a bug when converting a LanceDB
     vector store into a retriever in the usual way"""  # noqa
 
-    # code previously used for retrieval has been reused to create a formal CustomRetriever class
+    filter_condition: Optional[
+        str
+    ] = None  # added because kwargs to chain.invoke in app.py are not passed on to the retriever
 
     async def _aget_relevant_documents(
-        self, query: str, limit: int = 3, merge: bool = False
+        self, query: str, limit: int = 3, merge: bool = False, **kwargs
     ) -> List[LangchainDocument]:
         """
         Retrieve chunks related to a search query using a hybrid search strategy
 
         merge: if True then where chunks are from the same document they will be merged into a single retrieval result
         """
-
+        # doesn't currently include all the asynchronous components that if could – see async_search_loop for explanation
         #  async_db = await lancedb.connect_async(DB_PATH)
         db = lancedb.connect(DB_PATH)
 
         logger.info("Vectorizing query ...")
         vector_ = await CustomRetriever.async_vector(query)
         #   chunks = await CustomRetriever.async_retrieve_chunks(db,query,vector_,limit)
-        chunks = CustomRetriever.retrieve_chunks(db, query, vector_, limit)
+        chunks = CustomRetriever.retrieve_chunks(db, query, vector_, limit, **kwargs)
         docs = CustomRetriever.chunks_to_docs(chunks, merge=merge)
 
         return docs
 
-    def _get_relevant_documents(self, query: str, limit: int = 10, merge: bool = False) -> List[LangchainDocument]:
+    def _get_relevant_documents(
+        self, query: str, limit: int = 10, merge: bool = False, **kwargs
+    ) -> List[LangchainDocument]:
         """
         Retrieve chunks related to a search query using a hybrid search strategy
+
+        CAUTION: kwargs are not passed on when the retriever is part of a rag_chain and the rag_chain is invoked
 
         merge: if True then where chunks are from the same document they will be merged into a single retrieval result
         """
@@ -62,7 +69,9 @@ class CustomRetriever(BaseRetriever):
 
         logger.info("Vectorizing query ...")
         vector_ = CustomRetriever.vector(query)
-        chunks = CustomRetriever.retrieve_chunks(db, query, vector_, limit)
+        chunks = CustomRetriever.retrieve_chunks(
+            db, query, vector_, limit, filter_condition=self.filter_condition, **kwargs
+        )
         docs = CustomRetriever.chunks_to_docs(chunks, merge=merge)
 
         return docs
@@ -105,48 +114,63 @@ class CustomRetriever(BaseRetriever):
 
     @staticmethod
     async def async_retrieve_chunks(
-        db: LanceDBConnection, query: str, vector_: List[float], limit: int
+        db: LanceDBConnection, query: str, vector_: List[float], limit: int, **kwargs
     ) -> List[Chunk]:
         """Retrieve chunks asynchroously"""
         chunk_table = await db.open_table("chunk")
         logger.info("Retrieving most relevant chunks ...")
-        chunks = await CustomRetriever.async_search_loop(chunk_table, query, vector_, limit)
+        chunks = await CustomRetriever.async_search_loop(chunk_table, query, vector_, limit, **kwargs)
         chunks = chunks[0:limit]
         logger.info(f"Retreived {len(chunks)} chunks")
         return chunks
 
     @staticmethod
-    def retrieve_chunks(db: LanceDBConnection, query: str, vector_: List[float], limit: int) -> List[Chunk]:
+    def retrieve_chunks(db: LanceDBConnection, query: str, vector_: List[float], limit: int, **kwargs) -> List[Chunk]:
         """Retrieve chunks synchroously"""
         chunk_table = db.open_table("chunk")
         logger.info("Retrieving most relevant chunks ...")
-        chunks = CustomRetriever.search_loop(chunk_table, query, vector_, limit)
+        chunks = CustomRetriever.search_loop(chunk_table, query, vector_, limit, **kwargs)
         chunks = chunks[0:limit]
         logger.info(f"Retreived {len(chunks)} chunks")
         return chunks
 
     @staticmethod
-    async def async_search_loop(table: LanceTable, query: str, vector_: List[float], limit: int) -> List[Chunk]:
+    async def async_search_loop(
+        table: LanceTable, query: str, vector_: List[float], limit: int, filter_condition: Optional[str] = None
+    ) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are
         limit unique chunks (should be asynchronous – see comment below)"""  # noqa
-        query = query.encode('ascii', 'ignore').decode('ascii')
+        query = query.encode("ascii", "ignore").decode("ascii")
         chunks = []
         orig_limit = limit
-        while len(chunks) < orig_limit:  # only necessary if there are duplicates (which there shouldn't be)
+        while len(chunks) < orig_limit:
             # THIS DOESN'T WORK: #I can't see a way of doing asynchronous hybrid search at the moment
             pass
 
     @staticmethod
-    def search_loop(table: LanceTable, query: str, vector_: List[float], limit: int) -> List[Chunk]:
+    def search_loop(
+        table: LanceTable, query: str, vector_: List[float], limit: int, filter_condition: Optional[str] = None
+    ) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are limit unique chunks (synchronous)"""
-        query = query.encode('ascii', 'ignore').decode('ascii')
+        query = query.encode("ascii", "ignore").decode("ascii")
         iteration_required = True
-        while iteration_required:  # iteration only necessary if there are duplicates (which there shouldn't be)
-            chunks = table.search(query_type="hybrid").vector(vector_).text(query).limit(limit).to_pydantic(Chunk)
+        while iteration_required:  # iteration only necessary if there are duplicates, for example,
+            # some 'boilerplate' text from reports may be duplicated
+            chunks = (
+                table.search(query_type="hybrid")
+                .vector(vector_)
+                .text(query)
+                .where(
+                    filter_condition,
+                    prefilter=True,
+                )
+                .limit(limit)
+                .to_pydantic(Chunk)
+            )
             found_limit_chunks = len(chunks) == limit
             unique_chunks = unique(
                 chunks
-            )  # there shouldn't be duplicate chunks in the DB, but this removes the possibility of returning them
+            )  # there shouldn't be many duplicate chunks in the DB, but this removes the possibility of returning them
             chunks_arent_unique = len(unique_chunks) < len(chunks)
             iteration_required = found_limit_chunks and chunks_arent_unique
             if iteration_required:
@@ -171,7 +195,7 @@ class CustomRetriever(BaseRetriever):
         return vector
 
 
-if __name__ == "main":
+if __name__ == "__main__":
 
     load_dotenv()
 
@@ -184,6 +208,22 @@ if __name__ == "main":
     chunk_table = db.open_table("chunk")
 
     # code below is just for testing and experimenting
+
+    if True:
+        # experimenting with search filter conditions
+        query = "What work has Nesta done on educational technology"
+        # query = 'Who has experience working in government'
+        filter_condition = "source.date_pub >= to_timestamp('2020-01-01')"  # filter by date
+        # filter_condition = "array_contains(source.projects,'Digital Arts and Culture Accelerator')" #filter by project.
+        # Remember the 'projects' field is a list of strings (there can be more than one project)
+        # filter_condition = "source.contentType = 'person page'"  #filter by content type
+        # filter_condition = "source.rank <= 100" #filter by page popularity
+        #  filter_condition = None  #also works with no filter condition
+        filter_condition = "source.date_pub >= to_timestamp('2020-01-01') and source.contentType = 'person page'"
+        chunks = CustomRetriever().invoke(query, filter_condition=filter_condition)
+        logger.info(len(chunks))
+        for chunk in chunks:
+            logger.info("\n\n", chunk)
 
     if False:
         # experimenting with queries
