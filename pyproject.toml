@@ -30,6 +30,9 @@ boto3 = "^1.35.51"
 #torch = "2.2.2"      #Helen Jackson needed to add this line in order for 'poetry add "unstructured[pdf"' to work
 unstructured = {extras = ["pdf"], version = "^0.16.4"}
 nltk = "^3.9.1"
+streamlit-feedback = "^0.1.3"
+langfuse = "^2.54.1"
+ragas = "^0.2.5"
 
 
 [tool.poetry.group.test]

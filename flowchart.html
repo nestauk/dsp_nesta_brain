@@ -1,0 +1,136 @@
+<!doctype html>
+<meta http-equiv="content-type" content="application/xhtml+xml; charset=utf-8" />
+<html>
+<head>
+    <title>Nesta Brain demo flowchart</title>
+
+    <style type="text/css">
+        body {
+            font: 10pt sans;
+        }
+
+        #mynetwork {
+            width: 900px;
+            height: 600px;
+        }
+
+    </style>
+    <script type="text/javascript" src="https://visjs.github.io/vis-network/standalone/umd/vis-network.min.js"></script>
+    <link href="vis-4.21.0/dist/vis-network.min.css" rel="stylesheet" type="text/css"/>
+
+    <!--DRAFT 1-->
+    <script type="text/javascript">
+        var nodes = null;
+        var edges = null;
+        var network = null;
+        var directionInput = document.getElementById("direction");
+
+        function destroy() {
+            if (network !== null) {
+                network.destroy();
+                network = null;
+            }
+        }
+
+        function draw() {
+            destroy();
+            var connectionCount = [];
+            height = 40
+            h_incr = height + 40;
+            width = 125;
+            w_incr = width + 80;
+            nodes = [
+                        {id: 'i1', x:0, y:h_incr*-1, label: "UI",group:'info'},
+                        {id: 'i2', x:w_incr*1, y:h_incr*-1, label: "prompt",group:'info'},
+                        {id: 'i3', x:w_incr*2, y:h_incr*-1, label: "model",group:'info'},
+                        {id: 'i4', x:w_incr*3, y:h_incr*-1, label: "Lance DB",group:'info'},
+                        {id: 'ell', x:w_incr*0, y:h_incr*0.5, label: "\u22EE",group:'info'},
+                        {id: 'chh', x:0, y:h_incr*0, label: "chat history",group:'io'},
+                        {id: 'd1', x:w_incr*-1, y:h_incr*0,group:"dummy"},
+                        {id: 'd2', x:w_incr*1, y:h_incr*0,group:"dummy"},
+                        {id: 'ui', x:0, y:h_incr*1, label: "user input",group:'io'},
+                        {id: 'p1', x:w_incr*1, y:h_incr*1, label: "chat history contextualization prompt"},
+                        {id: 'llm1', x:w_incr*2, y:h_incr*1, label: "LLM"},
+                        {id: 'op1', x:w_incr*2, y:h_incr*2, label: "user input (contextualised)",group:'io'},
+                        {id: 'em', x:w_incr*2, y:h_incr*3, label: "embedding model"},
+                        {id: 'ev', x:w_incr*2, y:h_incr*4, label: "user input\n(embedding vector)",group:'io'},
+                        {id: 'ldb', x:w_incr*3, y:h_incr*4, label: "hybrid search"},
+                        {id: 'ch', x:w_incr*3, y:h_incr*5, label: "chunks",group:"io"},
+                        {id: 'cx', x:w_incr*1, y:h_incr*5, label: "context"},
+                        {id: 'p2', x:w_incr*1, y:h_incr*6, label: "Q&A prompt"},
+                        {id: 'llm2', x:w_incr*2, y:h_incr*6, label: "LLM"},
+                        {id: 'd3', x:w_incr*-1, y:h_incr*6,group:"dummy"},
+                        {id: 'op2', x:w_incr*0, y:h_incr*7, label: "response",group:'io'},
+                        {id: 'd4', x:w_incr*2, y:h_incr*7,group:"dummy"},
+                    ];
+
+            edges = [
+                         {from: 'chh', to: 'd1',arrows: {to:false}},
+                         {from: 'd1', to: 'd3',arrows: {to:false}},
+                         {from: 'd3', to: 'p2'},
+                         {from: 'chh', to: 'd2',arrows: {to:false}},
+                         {from: 'd2', to: 'p1'},
+                         {from: 'ui', to: 'p1'},
+                         {from: 'p1', to: 'llm1'},
+                         {from: 'llm1', to: 'op1'},
+                         {from: 'op1', to: 'em'},
+                         {from: 'em', to: 'ev'},
+                         {from: 'ev', to: 'ldb'},
+                         {from: 'ldb', to: 'ch'},
+                         {from: 'ch', to: 'cx'},
+                         {from: 'cx', to: 'p2'},
+                         {from: 'p2', to: 'llm2'},
+                         {from: 'llm2', to: 'd4',arrows: {to:false}},
+                         {from: 'd4', to: 'op2'},
+                        ];
+
+
+            // create a network
+            var container = document.getElementById('mynetwork');
+            var data = {
+                nodes: nodes,
+                edges: edges
+            };
+
+            var options = {
+                groups: {
+                            dummy: {shape:'dot',color: {background:'white',border:'pink'},size:0},
+                            info: {color: {background:'white',border:'white'}},
+                            io: {color: {background:'lightgrey',border:'grey'}}
+                       },
+                nodes: {
+                            shape: 'box',
+                            color:{background:'#84c0f5'},
+                            font: {size:14},
+                            heightConstraint: {minimum: 40},
+                            widthConstraint: {minimum: width, maximum:width}
+                       },
+                edges: {
+                    color:{color:'#84c0f5'},
+                    font: {size:10, background:'lightgrey'},
+                    arrows: {to:true}
+                },
+                layout: {
+              //      hierarchical: {
+                //        direction: directionInput.value
+                  //  }
+                },
+                physics:false
+            };
+            network = new vis.Network(container, data, options);
+
+        }
+
+    </script>
+
+
+
+</head>
+
+<body onload="draw();">
+<h2>Nesta Brain demo flowchart</h2>
+
+<div id="mynetwork"></div>
+
+</body>
+</html>

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sys
+import uuid
 
 from datetime import datetime
 from typing import Dict
@@ -17,6 +18,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
+from langfuse import Langfuse
+from langfuse.callback import CallbackHandler
 from utils import unique
 
 
@@ -38,6 +41,17 @@ from llm.prompt import basic_question_prompt  # noqa
 from llm.prompt import contextualize_q_prompt  # noqa
 from llm.prompt import qa_prompt  # noqa
 from retrieval.retrieve import CustomRetriever  # noqa
+from streamlit_feedback import streamlit_feedback  # noqa
+
+
+langfuse = Langfuse()
+
+langfuse_handler = CallbackHandler(
+    secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+    public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+    host=os.getenv("LANGFUSE_HOST"),
+    user_id="anon",
+)
 
 
 EARLIEST_YEAR = 2003  # 2003 is the earliest publication date in the DB
@@ -79,6 +93,7 @@ class Response:
     mode: str
     chunks: List[LangchainDocument]
     index: Optional[int] = None
+    trace_id: Optional[str] = None  # may need trace ids to push feedback to Langfuse
 
     def __init__(
         self,
@@ -155,7 +170,9 @@ def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, 
         input = {"input": question, "chat_history": chat_history()}
     else:
         input = {"context": docs, "question": question}
-    return chain.invoke(input, **kwargs)
+    trace_id = str(uuid.uuid4())
+    response = chain.invoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, *kwargs)
+    return response, trace_id
 
 
 async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> str:
@@ -163,14 +180,16 @@ async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], que
     #  print("message history",chat_history())
     #  input = {"input": question,"chat_history":chat_history()}
     input = {"context": docs, "question": question}
-    return await chain.ainvoke(input, **kwargs)
+    trace_id = str(uuid.uuid4())
+    response = await chain.ainvoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, **kwargs)
+    return response, trace_id
 
 
 async def individual_responses(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> List[str]:
     """Get asynchronous LLM responses for a number of documents/chunks from chain"""
     tasks = [asyncio.create_task(async_llm_response(chain, [doc], question, **kwargs)) for doc in docs]
-    responses = await asyncio.gather(*tasks)
-    return responses
+    responses_and_trace_ids = await asyncio.gather(*tasks)
+    return responses_and_trace_ids
 
 
 def respond(chain: Runnable, docs: List[LangchainDocument], question: str, mode: str, **kwargs) -> List[Response]:
@@ -179,14 +198,19 @@ def respond(chain: Runnable, docs: List[LangchainDocument], question: str, mode:
     responses = []
 
     if mode == "indiv":
-        responses_ = asyncio.run(individual_responses(chain, docs, question, **kwargs))
-        responses_ = [(response, docs[i]) for i, response in enumerate(responses_) if response != "NULL"]
+      
+        responses_and_trace_ids = asyncio.run(individual_responses(chain, docs, question, **kwargs))
+        responses_ = [
+            (response, docs[i]) for i, (response, _) in enumerate(responses_and_trace_ids) if response != "NULL"
+        ]
         responses += [Response(response, doc, mode, index=i + 1) for i, (response, doc) in enumerate(responses_)]
 
-    response = llm_response(chain, docs, question, mode, **kwargs)
+    response, trace_id = llm_response(chain, docs, question, mode)
+
     response = Response(response, docs, mode)
     if response.text != "NULL":
         responses.append(response)
+    st.session_state["current_trace_id"] = trace_id
 
     # for response in enumerate(responses):
     #    logger.info(response)
@@ -229,6 +253,20 @@ def filter_conditions() -> Union[str, None]:
         if filter_conditions:
             return " and ".join(filter_conditions)
     return None
+
+def push_feedback_to_langfuse(feedback: Dict) -> None:
+    """Send the feedback score and comments to Langfuse"""
+
+    trace_id = st.session_state["current_trace_id"]
+
+    faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
+
+    langfuse.score(
+        trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
+    )
+
+    logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
+
 
 
 if __name__ == "__main__":
@@ -354,6 +392,7 @@ if __name__ == "__main__":
                 st.write(input)
 
         # Generate a new response if last message is not from assistant
+        responses = []
         if st.session_state.messages[-1]["role"] != "assistant":
             with st.chat_message("assistant"), st.empty():
 
@@ -368,7 +407,6 @@ if __name__ == "__main__":
                 else:
                     chunks = []  # if mode == 'chat', retrieval is already part of the chain
 
-                responses = []
                 if mode == "chat" or (mode == "indiv" and chunks):
                     with st.spinner("Sending retrieved chunks to LLM with query ..."):
                         responses = respond(rag_chain if mode == "chat" else indiv_qa_chain, chunks, input, mode)
@@ -378,5 +416,14 @@ if __name__ == "__main__":
                         st.markdown(response.as_html(), unsafe_allow_html=True)
                         message = {"role": "assistant", "html": response.as_html(), "content": response.text}
                         st.session_state.messages.append(message)
+
                 else:
                     st.write("I was not able to answer that question")
+
+        # if there is more than one response, the feedback will be pushed to Langfuse with the trace_id of the last one
+        feedback = streamlit_feedback(
+            feedback_type="faces",
+            optional_text_label="[Optional] Please provide an explanation",
+            key="feedback",
+            on_submit=push_feedback_to_langfuse,
+        )

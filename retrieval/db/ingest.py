@@ -1,23 +1,28 @@
 import asyncio
 import logging
 import os
+import re
 import sys
 
 from datetime import datetime
 from typing import List
 from typing import Optional
+from typing import Tuple
 from typing import Union
 
 import lancedb
 import pandas as pd
 import tiktoken
 
+from bs4 import BeautifulSoup
+from bs4.element import Tag
 from config import DB_PATH
 from dotenv import load_dotenv
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain.text_splitter import CharacterTextSplitter
+from langdetect import detect
 from openai import AsyncOpenAI
 from pdf2image.exceptions import PDFInfoNotInstalledError
 from retrieval.db.schema import Chunk
@@ -25,10 +30,13 @@ from retrieval.db.schema import Document as LanceDocument
 from scraping.scrape import html_to_text
 from scraping.scrape import search_query_to_scraped_data
 from scraping.scrape_pdf import PDF
+from utils import unique
 
 
 _prefix = "2024-10-29"
 WEBSITE_DATA_PATH = PROJECT_DIR / f"scraping/data/website_{_prefix}"
+PDF_PATH = WEBSITE_DATA_PATH / "pdf_files"
+NESTA_SITE_URL = "https://nesta.org.uk"
 
 CHUNK_SIZE = 2000
 CHUNK_OVERLAP = 100
@@ -109,10 +117,15 @@ async def throttle(texts: List[str]) -> None:
             await asyncio.sleep(sleep_time)
 
 
-def doc_already_in_db(doc: LangchainDocument) -> bool:
+def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
     """Determine whether chunks from a source document have already been added to the database"""
 
-    results = chunk_table.search().where(f'source.location = "{doc.metadata["location"]}"').to_list()
+    if isinstance(doc_or_location, LangchainDocument):
+        location = doc_or_location.metadata["location"]
+    elif isinstance(doc_or_location, str):
+        location = doc_or_location
+
+    results = chunk_table.search().where(f'source.location = "{location}"').to_list()
     return bool(results)
 
 
@@ -121,7 +134,7 @@ def chunk_already_in_db(chunk: LangchainDocument) -> bool:
     Chunking strategy should have been the same.
     """  # noqa
 
-    results = chunk_table.search().where(f'text == "{chunk.page_content}"').limit(1).to_list()
+    results = chunk_table.search().where(f'text == "{chunk.page_content}"').limit(1).to_pydantic(Chunk)
     return bool(results), results[0].source.location if results else None
 
 
@@ -159,11 +172,19 @@ async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[
         if new_source:
             source = [source for source in sources if source.location == chunk.metadata["location"]][0]
             order_index = 1
+            existing_chunk_count = {}
 
             skip_source = False
             source_is_pdf = source.location[-4:] == ".pdf"
             if source_is_pdf:
-                skip_source, existing_location = chunk_already_in_db(chunk)
+                _, existing_location = chunk_already_in_db(chunk)
+                existing_chunk_count[existing_location] = (existing_chunk_count.get(existing_location) or 0) + 1
+                is_duplicate = (
+                    existing_chunk_count[existing_location] >= 2
+                )  # there may be the occasional paragraph which is in
+                # more than one document, so make the rule there needs to be two chunks
+                # before the document is considered a duplicate
+                skip_source = is_duplicate
             if skip_source:
                 logger.info(
                     f"Skipping PDF {source.location} as it already seems to be in the DB with location: {existing_location}"
@@ -216,9 +237,12 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         # the source.title for the relevant chunk records remains the same
         # This is a recipe for mess!
         # I am keeping this in temporarily for purposes of experimentation
-        logger.info(f"Ingested {len(lance_documents)} Documents and {len(chunks)} Chunks to the database")
-        document_table.add(lance_documents)
-        chunk_table.add(chunks)
+        if chunks:
+            logger.info(f"Ingested {len(lance_documents)} Document(s) and {len(chunks)} Chunks to the database")
+            document_table.add(lance_documents)
+            chunk_table.add(chunks)
+        else:
+            logger.info(f"No chunks from document(s) {lance_documents} to ingest to the database")
 
     else:
         logger.info("No documents or chunks to ingest to the database")
@@ -283,91 +307,149 @@ def webpages_to_ingested_data(
         logger.info("No docs to ingest!")
 
 
-def find_main_button_link(row: pd.Series) -> Union[None, str]:
-    """Find the red button indicating the main downloadable PDF on the page and extract the link"""
-    webpage_path = WEBSITE_DATA_PATH / (row["uid"] + ".txt")
-    with open(webpage_path, "r") as f:
-        html = f.read()
-    _, soup = html_to_text(html, return_soup=True)
-    main_button_div = soup.find("div", {"class": "page-heading__download-item"})
-    main_button_link = main_button_div.find("div", {"class": "btn--primary"})
-    if main_button_link:
-        return main_button_link["href"]
+def find_download_button_links(row: pd.Series, soup: BeautifulSoup) -> Union[None, str]:
+    """Find one or more red buttons indicating a main downloadable PDF on the page and extract the link"""
+
+    def get_url_title(link: Tag) -> Tuple[str]:
+        url = link["href"]
+        url = url.replace("https://www.nesta.org.uk", NESTA_SITE_URL)
+        if NESTA_SITE_URL not in url:
+            url = NESTA_SITE_URL + url  # no need for '/'
+        document_title = None
+        if link.get("onclick"):
+            document_title_match = re.search("'documentTitle': '([^']+)',", link["onclick"])
+            if document_title_match:
+                is_bad_title = re.search(r"\.(pdf|docx?)$", document_title_match.group(1))
+                if not is_bad_title:
+                    document_title = document_title_match.group(1)
+        return url, document_title
+
+    def is_welsh(link: Tag, title: Optional[str] = None) -> bool:
+        return detect(link.getText().strip()) == "cy" or (title and (detect(title) == "cy"))
+
+    def is_bad_link(link: Tag) -> bool:
+        return link.getText() in ["Register for the event"]
+
+    download_button_divs = soup.find_all("div", {"class": "page-heading__download-item"}) or soup.find_all(
+        "div", {"class": "document-cta__item"}
+    )
+
+    if download_button_divs:
+        download_button_links = [
+            ele for ele in [div.find("a", {"class": "btn--primary"}) for div in download_button_divs] if ele
+        ]
+        if download_button_links:
+            links = [(link, get_url_title(link)) for link in download_button_links]
+            return [
+                (url, title)
+                for link, (url, title) in links
+                if not is_bad_link(link) and not is_welsh(link, title=title)
+            ]
+
+    logger.info(
+        f'Was not able to identify the main download button link(s) for webpage {row["url"]} from pdf_links: {row["pdf_links"]}'
+    )
+
+    return []
 
 
-def is_good_link(link: str, main_button_link: Optional[str] = None) -> bool:
-    """Test whether the link to a PDF is what we want:
-    either the same as the main button link (if main_button_link = True),
-    or at least on the Nesta website"""  # noqa
-    if main_button_link:
-        return link == main_button_link
-    else:
-        return "https://nesta.org.uk" in link
+def is_good_link(link: str) -> bool:
+    """Test whether the link to a PDF is what we want: current sole criterion is that it is on the Nesta website"""  # noqa
+
+    return NESTA_SITE_URL in link
 
 
 # if scraping/ingesting PDFs from entire Nesta website data dump
-def pdfs_to_ingested_data(df: pd.DataFrame, replace: bool = False, main_button_pdf_only: bool = False) -> None:
+def pdfs_to_ingested_data(
+    df: pd.DataFrame, replace: bool = False, download_button_pdf_only: bool = False, cautious: bool = False
+) -> None:
     """Convert dumped Nesta website PDFs into LangchainDocuments and ingest"""
-
-    pdf_dir_path = WEBSITE_DATA_PATH / "pdf_files"
 
     docs = []
     for i, row in df.iterrows():
 
-        if i % 25 == 0:
-            logger.info(f"Row index {i}")
+        logger.info(f"Row index {i}")
 
-        file_name_and_link_tuples = [(row["pdf_files"][i], link) for i, link in enumerate(row["pdf_links"])]
+        file_names = {link: row["uid"] + "_" + re.split("/", link)[-1] for link in row["pdf_links"]}
 
-        if main_button_pdf_only:
-            # I haven't had time to test this
-            main_button_link = find_main_button_link(row)
+        #  print("\n\n", file_names, "\n\n")
+
+        webpage_path = WEBSITE_DATA_PATH / (row["uid"] + ".txt")
+        with open(webpage_path, "r") as f:
+            html = f.read()
+        _, soup = html_to_text(html, return_soup=True)
+
+        if download_button_pdf_only:
+            button_links_doc_titles = find_download_button_links(row, soup)
+
+            #   print("\n\n", button_links_doc_titles, "\n\n")
+
+            desirable_file_name_and_link_tuples = [  #stores the file names and links just of the PDFs we're interested in 
+                                                     #according to some criterion – here the criterion is that the link is 
+                                                     #contained in a download button (indicating a major publication)
+                (file_names.get(link), link, title_guess) for link, title_guess in button_links_doc_titles
+            ]
+
         else:
-            main_button_link = None
+            desirable_file_name_and_link_tuples = [   #see comment above. Here the criterion is simply that the PDF
+                                                    #is on the Nesta website and not an external website
+                (
+                    file_name,
+                    link,
+                    row["web_metadata"]["title"],
+                )  # web metadata title is used as one of the guesses of the title of the PDF
+                for link, file_name in file_names.items()
+                if is_good_link(link)
+            ]
 
-        desirable_file_name_and_link_tuples = [
-            (file_name, link)
-            for file_name, link in file_name_and_link_tuples
-            if is_good_link(link, main_button_link=main_button_link)
-        ]
+        for file_name, link, title_guess in desirable_file_name_and_link_tuples:
 
-        if main_button_link and not desirable_file_name_and_link_tuples:
-            logger.warning(
-                f'Was not able to identify the main button link for webpage {row["url"]} from pdf_links: {row["pdf_links"]}'
-            )
+            if not doc_already_in_db(link):
+                if file_name:
+                    path = PDF_PATH / file_name
+                else:
+                    path = link
 
-        for file_name, link in desirable_file_name_and_link_tuples:
-            path = pdf_dir_path / file_name
+                if cautious:   #if being cautious, you will be asked to decide whether you want to scrape the PDF and
+                                #whether the metadata guesses are correct. This opens the PDF and its corresponding
+                                #webpage for examination
+                    logging.info(f"Opening {file_name}")
+                    os.system(f"open {path}")  # nosec
+                    os.system(f'open {row["url"]}')  # nosec
 
-            logging.info(f"Opening {file_name}")
-            os.system(f"open {path}")  # nosec
-            os.system(f'open {row["url"]}')  # nosec
+                if not cautious or input(f'Scrape {file_name or path}? (any key except enter = "yes")') != "":
+                    try:
+                        pdf = PDF(path, linking_url=row["url"])
+                        text = pdf.filtered_text
+                    except PDFInfoNotInstalledError as e:
+                        logging.info(f"Following error from trying to read PDF: {e} ... skipping")
+                        text = None
 
-            if input(f'Scrape {file_name}? (any key except enter = "yes")') != "":
-                try:
-                    pdf = PDF(path, linking_url=row["url"])
-                    text = pdf.filtered_text
-                except PDFInfoNotInstalledError as e:
-                    logging.info(f"Following error frmo trying to read PDF: {e} ... skipping")
-                    text = None
+                    if text:
 
-                if text:
+                        if any(doc.page_content == text for doc in docs):
+                            logging.info(f"PDF {file_name} has already been ingested this batch")
 
-                    if any(doc.page_content == text for doc in docs):
-                        logging.info(f"PDF {file_name} has already been ingested this batch")
+                        else:
+
+                            web_metadata = row["web_metadata"]
+                            if type(web_metadata) is list:
+                                web_metadata = web_metadata[0]
+                            title_guesses = unique([soup.find("title").getText().replace(" | Nesta", ""), title_guess])
+                            metadata = pdf.guess_metadata(
+                                title_guess=title_guesses,
+                                date_guess=web_metadata.get("publishDate"),
+                                cautious=cautious,
+                                indent="\t",
+                            )
+                            metadata["location"] = link
+                            doc = LangchainDocument(page_content=text, metadata=metadata)
+                            docs.append(doc)
 
                     else:
-
-                        web_metadata = row["web_metadata"]
-                        if type(web_metadata) is list:
-                            web_metadata = web_metadata[0]
-                        metadata = pdf.guess_metadata(date_guess=web_metadata.get("publishDate"), indent="\t")
-                        metadata["location"] = link
-                        doc = LangchainDocument(page_content=text, metadata=metadata)
-                        docs.append(doc)
-
-                else:
-                    logger.info(f"\nPDF {file_name} did not seem to have any text – ignoring")
+                        logger.info(f"\nPDF {file_name} did not seem to have any text – ignoring")
+            else:
+                logger.info(f"PDF {link} was already in the database")
 
             sys.stdout.write("\n")  # there may be quite a lot of info messages generated by PDF operations
             # this gap in the messages helps keep it readable
@@ -405,22 +487,23 @@ if __name__ == "__main__":
     mode = "web_dump"  # if 'web_search', do a web search, scrape and ingest the results
     # if 'web_dump', ingest data which has already been downloaded from the Nesta website
     possible_modes = ["web_dump", "web_search"]
-    replace = False  # if True, if the document already exists in the DB, any chunks derived from it will be deleted and replaced
+    replace = False  # if True, if the document already exists in the DB, any chunks derived
+    # from it will be deleted and replaced
 
     # settings relevant to web_dump mode
     pdf_mode = True  # scrape PDFs rather than webpages
-    main_button_pdf_only = (
-        True  # only scrape PDfs if they are the main report on the page downloadable by clicking on the big red button
-    )
+    download_button_pdf_only = True  # only scrape PDfs if they are a major research output indicated on the page
+    # by being downloadable by clicking a big red button
+    cautious = False  # ask whether you want to scrape the PDF and whether the metadata guesses are correct
     metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"
     start_index = (
         int(sys.argv[1]) if len(sys.argv) > 1 else 0
     )  # the row of metadata.jsonl to start ingesting; everything prior to this will be ignored
-    batch_size = 10  # the number of webpages to ingest at a time
+    batch_size = 1  # the number of webpages to ingest at a time
 
-    # settings releant to web_search mode
+    # settings relevant to web_search mode
     query = "Centre for Collective Intelligence Design"
-    site_url = "nesta.org.uk"
+    site_url = NESTA_SITE_URL
     subdirectories = sorted(
         ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
     )  # optional
@@ -432,13 +515,17 @@ if __name__ == "__main__":
         # if scraping/ingesting from entire Nesta website data dump
 
         metadata_df = pd.read_json(metadata_path, lines=True)
+        downloaded = metadata_df["_status_code"].apply(lambda val: val == 200)
+        metadata_df = metadata_df[downloaded]
         n_rows = metadata_df.shape[0]
 
         for index in list(range(start_index, n_rows, batch_size)):
             df = metadata_df.iloc[index : (index + batch_size)]
 
             if pdf_mode:
-                pdfs_to_ingested_data(df, replace=replace, main_button_pdf_only=main_button_pdf_only)
+                pdfs_to_ingested_data(
+                    df, replace=replace, download_button_pdf_only=download_button_pdf_only, cautious=cautious
+                )
             else:
                 webpages_to_ingested_data(df=df, replace=replace)
 
