@@ -73,6 +73,10 @@ class CustomRetriever(BaseRetriever):
         chunks = CustomRetriever.retrieve_chunks(
             db, query, vector_, limit, filter_condition=self.filter_condition, **kwargs
         )
+        # Quick hack to give access for RAG to author and title information (by Karlis)
+        for chunk in chunks:
+            chunk.text = chunk.text + "; title: " + str(chunk.source.title) + "; authors: " + str(chunk.source.authors)
+        # (hack ends)
         docs = CustomRetriever.chunks_to_docs(chunks, merge=merge)
 
         return docs

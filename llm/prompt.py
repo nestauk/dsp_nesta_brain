@@ -15,6 +15,7 @@ basic_question_prompt_template = """
     Use the following pieces of context to extract facts which help answer the question.
     Keep your replies short and informative, unless you're asked to write something more substantial (such as a project plan or section of a report).
     Pay attention to the grammar and tense of verbs of the context text, to determine whether a project or person is still active or not.
+    If question implies asking for names of specific people, check the 'authors' field within the context chunk metadata.
     If you don't find useful information in the context, then write "I did not get any relevant context for this but I will reply to the best of my knowledge." before providing an answer.
     If you find ambiguous information in the context, ask for clarifying questions.
     {context}
@@ -32,6 +33,7 @@ qa_system_prompt = """
     Use the following pieces of context to extract facts which help answer the question.
     Keep your replies short and informative, unless you're asked to write something more substantial (such as a project plan or section of a report).
     Pay attention to the grammar and tense of verbs of the context text, to determine whether a project or person is still active or not.
+    If asked about people, use the authors field within context for relevant people names.
     If you don't find useful information in the context, then write "I did not get any relevant context for this but I will reply to the best of my knowledge." before providing an answer.
     If you find ambiguous information in the context, ask for clarifying questions.
     {context}
