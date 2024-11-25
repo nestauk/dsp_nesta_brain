@@ -137,7 +137,7 @@ class Response:
             elements = [
                 f'<a href="{chunk.metadata["location"]}">{chunk.metadata["title"]}</a>' for chunk in self.chunks
             ]
-        return "<br>".join(unique(elements))
+        return "<br><br><em>References</em><br>" + "<br>".join(unique(elements))
 
     @property
     def p_element(self) -> str:
@@ -198,7 +198,7 @@ def respond(chain: Runnable, docs: List[LangchainDocument], question: str, mode:
     responses = []
 
     if mode == "indiv":
-      
+
         responses_and_trace_ids = asyncio.run(individual_responses(chain, docs, question, **kwargs))
         responses_ = [
             (response, docs[i]) for i, (response, _) in enumerate(responses_and_trace_ids) if response != "NULL"
@@ -254,6 +254,7 @@ def filter_conditions() -> Union[str, None]:
             return " and ".join(filter_conditions)
     return None
 
+
 def push_feedback_to_langfuse(feedback: Dict) -> None:
     """Send the feedback score and comments to Langfuse"""
 
@@ -266,7 +267,6 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
     )
 
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
-
 
 
 if __name__ == "__main__":
@@ -330,7 +330,18 @@ if __name__ == "__main__":
         )
 
         st.markdown(
-            f"<h2>Demo (mode = '{mode}')</h2>",
+            # f"<h2>Demo (mode = '{mode}')</h2>",
+            """
+            <h2>🧠 Nesta Brain</h2><br/>This is an experimental prototype of a chatbot that "knows" a lot of about Nesta.
+            When you ask a question, it searches through thousands of webpages and reports, to find the most relevant content.
+            <br/><br/>
+            We hope this could be helpful for our knowledge management, such as for quickly finding information about
+            our past projects and synthesising it into new outputs.
+            The chatbot has access to information and reports on Nesta's website up to October 2024.
+             </br></br>
+            Use the parameters in the side bar to customise the information accessible to the chatbot (eg, select
+            specific data range or mission team).</br></br>
+            """,
             unsafe_allow_html=True,
         )
 
@@ -362,7 +373,7 @@ if __name__ == "__main__":
             )
             mission_options = ("A fairer start", "A healthy life", "A sustainable future", None)
             mission = st.radio(
-                "Mission",
+                "Mission-specific content",
                 mission_options,
                 key="mission",
                 index=mission_options.index(WIDGET_DEFAULTS["mission"]),
@@ -375,7 +386,9 @@ if __name__ == "__main__":
 
         # Store session variables
         if "messages" not in st.session_state.keys():
-            st.session_state.messages = [{"role": "assistant", "content": "How can I help?"}]
+            st.session_state.messages = [
+                {"role": "assistant", "content": "Hi, how can I help?"},
+            ]
 
         # Display chat messages
         for message in st.session_state.messages:

@@ -1,4 +1,5 @@
 import os
+import re
 
 from collections import OrderedDict
 from typing import List
@@ -140,7 +141,9 @@ class CustomRetriever(BaseRetriever):
     ) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are
         limit unique chunks (should be asynchronous – see comment below)"""  # noqa
-        query = query.encode("ascii", "ignore").decode("ascii")
+        # query = query.encode("ascii", "ignore").decode("ascii")
+        # keep only alphanumeric characters in the query
+        query = re.sub(r"\W+", " ", query)
         chunks = []
         orig_limit = limit
         while len(chunks) < orig_limit:
@@ -152,7 +155,8 @@ class CustomRetriever(BaseRetriever):
         table: LanceTable, query: str, vector_: List[float], limit: int, filter_condition: Optional[str] = None
     ) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are limit unique chunks (synchronous)"""
-        query = query.encode("ascii", "ignore").decode("ascii")
+        # query = query.encode("ascii", "ignore").decode("ascii")
+        query = re.sub(r"\W+", " ", query)
         iteration_required = True
         while iteration_required:  # iteration only necessary if there are duplicates, for example,
             # some 'boilerplate' text from reports may be duplicated
