@@ -55,9 +55,10 @@ langfuse_handler = CallbackHandler(
 
 
 EARLIEST_YEAR = 2003  # 2003 is the earliest publication date in the DB
+DEFAULT_START_YEAR = 2019
 CURRENT_YEAR = datetime.now().year
 
-WIDGET_DEFAULTS = {"from_year": EARLIEST_YEAR, "to_year": CURRENT_YEAR, "include_people": "Yes", "mission": None}
+WIDGET_DEFAULTS = {"from_year": DEFAULT_START_YEAR, "to_year": CURRENT_YEAR, "include_people": "Yes", "mission": None}
 
 
 def check_password() -> bool:
@@ -248,13 +249,13 @@ def filter_conditions() -> Union[str, None]:
         filter_conditions = []
         for key, default in WIDGET_DEFAULTS.items():
             current_value = st.session_state[key]
-            if (
+            if key == "from_year" and current_value != EARLIEST_YEAR:
+                filter_conditions.append(f"source.date_pub >= to_timestamp('{current_value}-01-01')")
+            elif (
                 current_value != default
-            ):  # caution: if all widgets are at their default value then no filter is required
+            ):  # caution: if the rest of the widgets are at their default value then no filter is required
                 # if the defaults change, the logic here may also need to change
-                if key == "from_year":
-                    filter_conditions.append(f"source.date_pub >= to_timestamp('{current_value}-01-01')")
-                elif key == "to_year":
+                if key == "to_year":
                     filter_conditions.append(f"source.date_pub <= to_timestamp('{current_value}-12-31')")
                 elif key == "include_people" and current_value == "No":
                     filter_conditions.append("source.contentType != 'person page'")
