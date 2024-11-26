@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import sys
 import uuid
 
@@ -87,12 +88,44 @@ def check_password() -> bool:
         return True
 
 
+class Reference:
+    """A class to make inline citations easier"""
+
+    chunk: LangchainDocument
+    index: int
+
+    def __init__(self, chunk: LangchainDocument, index: int) -> None:
+        self.chunk = chunk
+        self.index = index
+
+    @property
+    def metadata(self) -> Dict:
+        """Get chunk metadata"""
+        return self.chunk.metadata
+
+    def as_html(self) -> str:
+        """Return reference metadata as an anchor element (indexed)"""
+        test_mode = False
+        if test_mode:
+            if self.index == 1:
+                logger.warning(
+                    "Formatting of links for testing retrieval filtering is in use – do not use for production"
+                )
+            return f'<a href="{self.metadata["location"]}">[{self.index}] {self.metadata["title"]} {self.metadata["date_pub"]} {self.metadata["contentType"]} {self.metadata["missions"]}</a>'  # noqa
+        else:
+            return f'<a href="{self.metadata["location"]}">[{self.index}] {self.metadata["title"]}</a>'
+
+    def as_superscript(self) -> str:
+        """Return index as a clickable link within a superscript, suitable for inline citations"""
+        return f'<sup><a href="{self.metadata["location"]}">{self.index}</a></sup>'
+
+
 class Response:
     """A class just to make things like printing and writing to streamlit easier"""
 
     text: str
     mode: str
-    chunks: List[LangchainDocument]
+    references: List[Reference]
     index: Optional[int] = None
     trace_id: Optional[str] = None  # may need trace ids to push feedback to Langfuse
 
@@ -112,7 +145,7 @@ class Response:
             if isinstance(chunks, LangchainDocument):
                 chunks = [chunks]
         self.text = text
-        self.chunks = chunks
+        self.references = [Reference(chunk, i + 1) for i, chunk in enumerate(chunks)]
         self.index = index
         self.mode = mode
 
@@ -120,31 +153,20 @@ class Response:
         """Self-explanatory"""
         string = "\n--------------\n" + self.text
         if not self.is_summary:
-            string += f'\n{self.chunks[0].page_content}\n{self.chunks[0].metadata["location"]}'
+            string += f'\n{self.references[0].chunk.page_content}\n{self.references[0].metadata["location"]}'
         string += "\n--------------\n\n"
         return string
 
     @property
     def a_elements(self) -> str:
         """Return hyperlink(s) to source document(s)"""
-        test_mode = False
-        if test_mode:
-            logger.warning("Formatting of links for testing retrieval filtering is in use – do not use for production")
-            elements = [
-                f'<a href="{chunk.metadata["location"]}">{chunk.metadata["title"]} {chunk.metadata["date_pub"]} {chunk.metadata["contentType"]} {chunk.metadata["missions"]}</a>'  # noqa
-                for chunk in self.chunks
-            ]
-        else:
-            elements = [
-                f'<a href="{chunk.metadata["location"]}">[{i+1}] {chunk.metadata["title"]}</a>'
-                for i, chunk in enumerate(self.chunks)
-            ]
-        return elements
+        return [reference.as_html() for reference in self.references]
 
     @property
     def p_element(self) -> str:
         """Return response text as an HTML paragraph"""
-        return f'<p>{"<b>SUMMARY:</b> " if self.is_summary else (f"({self.index}) " if self.index else "")}{self.text}</p>'
+        header = "<b>SUMMARY:</b> " if self.is_summary else (f"({self.index}) " if self.index else "")
+        return f"<p>{header}{self.text_with_superscript_citations}</p>"
 
     @property
     def is_summary(self) -> bool:
@@ -152,15 +174,38 @@ class Response:
         return self.mode == "indiv" and self.index is None
 
     @property
-    def references(self) -> str:
+    def references_(self) -> str:
         """Return formatted reference list"""
         a_elements = self.a_elements
         return "<br><br><em>References</em><br>" + "<br>".join(unique(a_elements))
 
+    @property
+    def text_with_superscript_citations(self) -> str:
+        """
+        Return text converting all citations in square brackets to a clickable superscript
+
+        Note: we may encounter problems if for some reason numbers within square brackets appear in the text
+        because they are part of the answer
+        """
+        text = self.text
+        N_references = len(self.references)
+        citations = set(re.findall(r"\[\d+\]", text))
+        for citation in citations:
+            citation_index = int(citation[1:-1])  # remove the square brackets
+            if citation_index <= N_references:  # citation indices are in the range 1:N rather than 0:(N-1)
+                superscript = self.references[citation_index - 1].as_superscript()
+                text = text.replace(citation, superscript)
+            else:
+                logging.warning(f"Citation {citation} contained an index greater than the number of references")
+        text = text.replace(
+            "</sup><sup>", ","
+        )  # where there are citations next to each other, merge them into the same superscript and separate them with commas
+        return text
+
     def as_html(self) -> str:
         """Convert the response into HTML"""
         css_class = "response " + ("summary" if self.is_summary else "indiv")
-        return f'<div class="{css_class}">{self.p_element}{self.references}</div>'
+        return f'<div class="{css_class}">{self.p_element}{self.references_}</div>'
 
 
 def chat_history() -> List[BaseMessage]:
