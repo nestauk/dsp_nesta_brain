@@ -164,6 +164,14 @@ def chat_history() -> List[BaseMessage]:
     return [message_class(message)(content=msg["content"]) for msg in st.session_state.messages[1:]]
 
 
+def trace_metadata() -> Dict:
+    """Compile trace metadata on sidebar parameters and the resulting filter_condition string"""
+    sidebar_metadata = {key: st.session_state[key] for key in WIDGET_DEFAULTS.keys()}
+    metadata = {"sidebar": sidebar_metadata}
+    metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
+    return metadata
+
+
 def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, mode: str, **kwargs) -> str:
     """Get synchronous LLM response from chain"""
     if mode == "chat":
@@ -172,6 +180,7 @@ def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, 
         input = {"context": docs, "question": question}
     trace_id = str(uuid.uuid4())
     response = chain.invoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, *kwargs)
+    langfuse.trace(id=trace_id, metadata=trace_metadata())
     return response, trace_id
 
 
@@ -182,6 +191,7 @@ async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], que
     input = {"context": docs, "question": question}
     trace_id = str(uuid.uuid4())
     response = await chain.ainvoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, **kwargs)
+    langfuse.trace(id=trace_id, metadata=trace_metadata())
     return response, trace_id
 
 
@@ -332,7 +342,7 @@ if __name__ == "__main__":
         st.markdown(
             # f"<h2>Demo (mode = '{mode}')</h2>",
             """
-            <h2>🧠 Nesta Brain</h2><br/>This is an experimental prototype of a chatbot that "knows" a lot of about Nesta.
+            <h2>🧠 Nesta Brain</h2><br/>This is an experimental prototype of a chatbot that "knows" a lot about Nesta.
             When you ask a question, it searches through thousands of webpages and reports, to find the most relevant content.
             <br/><br/>
             We hope this could be helpful for our knowledge management, such as for quickly finding information about
@@ -409,9 +419,10 @@ if __name__ == "__main__":
         if st.session_state.messages[-1]["role"] != "assistant":
             with st.chat_message("assistant"), st.empty():
 
-                retriever.filter_condition = (
-                    filter_conditions()
-                )  # this is not ideal syntax, but kwargs to chain.invoke are not passed on to the retriever
+                filter_condition = filter_conditions()
+                retriever.filter_condition = filter_condition  # this is not ideal syntax, but kwargs to chain.invoke
+                # are not passed on to the retriever
+                st.session_state["filter_condition"] = filter_condition
 
                 if mode == "indiv":
                     if input:
