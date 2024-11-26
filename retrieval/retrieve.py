@@ -77,8 +77,9 @@ class CustomRetriever(BaseRetriever):
     def chunks_to_docs(chunks: List[Chunk], merge: bool = False, enumerate_: bool = False) -> List[LangchainDocument]:
         """Convert Chunk objects to LangchainDocument objects, with the option to merge"""
         if merge:
-            docs = CustomRetriever.merge_chunks(chunks)
-            logger.info(f"{len(chunks)} retreived chunks were merged into {len(docs)} chunks")
+            docs = CustomRetriever.merge_chunks(chunks, enumerate_=enumerate_)
+            if len(docs) < len(chunks):
+                logger.info(f"{len(chunks)} retreived chunks were merged into {len(docs)} chunks")
             return docs
         else:
             return [
@@ -87,7 +88,7 @@ class CustomRetriever(BaseRetriever):
             ]
 
     @staticmethod
-    def merge_chunks(chunks: List[Chunk]) -> List[LangchainDocument]:
+    def merge_chunks(chunks: List[Chunk], enumerate_: bool = False) -> List[LangchainDocument]:
         """
         Identify which source document each chunk in a list of chunks is from.
         Then concatenate the texts of each chunk belonging to each individual document.
@@ -107,7 +108,9 @@ class CustomRetriever(BaseRetriever):
             # some chunks which were ingested initially will have order_index = None;
             # no chunk should lack an order_index if other chunks from the same document have one
             text = "\n\n".join([chunk.text for chunk in chunks])
-            doc = LangchainDocument(page_content=text, metadata=source.as_metadata())
+            doc = Chunk.to_LangchainDocument_(
+                text, metadata=source.as_metadata(), enumeration_index=len(docs) + 1 if enumerate_ else None
+            )
             docs.append(doc)
 
         return docs
