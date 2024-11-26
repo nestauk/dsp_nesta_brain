@@ -187,8 +187,6 @@ def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, 
 
 async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> str:
     """Get asynchronous LLM response from chain"""
-    #  print("message history",chat_history())
-    #  input = {"input": question,"chat_history":chat_history()}
     input = {"context": docs, "question": question}
     trace_id = str(uuid.uuid4())
     response = await chain.ainvoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, **kwargs)
@@ -235,34 +233,25 @@ def is_html(string: str) -> bool:
     return lxml.html.fromstring(string).find(".//*") is not None
 
 
-def filter_flag() -> None:
-    """
-    Indicate that filters have been used and therefore filter conditions need to be provided
-    (used in widget callbacks)
-    """  # noqa
-    st.session_state.filter_flag = True
-
-
 def filter_conditions() -> Union[str, None]:
     """Compute what the filter conditions are from widget values"""
-    if "filter_flag" in st.session_state:
-        filter_conditions = []
-        for key, default in WIDGET_DEFAULTS.items():
-            current_value = st.session_state[key]
-            if key == "from_year" and current_value != EARLIEST_YEAR:
-                filter_conditions.append(f"source.date_pub >= to_timestamp('{current_value}-01-01')")
-            elif (
-                current_value != default
-            ):  # caution: if the rest of the widgets are at their default value then no filter is required
-                # if the defaults change, the logic here may also need to change
-                if key == "to_year":
-                    filter_conditions.append(f"source.date_pub <= to_timestamp('{current_value}-12-31')")
-                elif key == "include_people" and current_value == "No":
-                    filter_conditions.append("source.contentType != 'person page'")
-                elif key == "mission":
-                    filter_conditions.append(f"array_contains(source.missions,'{current_value}')")
-        if filter_conditions:
-            return " and ".join(filter_conditions)
+    filter_conditions = []
+    for key, default in WIDGET_DEFAULTS.items():
+        current_value = st.session_state[key]
+        if key == "from_year" and current_value != EARLIEST_YEAR:
+            filter_conditions.append(f"source.date_pub >= to_timestamp('{current_value}-01-01')")
+        elif (
+            current_value != default
+        ):  # caution: if the rest of the widgets are at their default value then no filter is required
+            # if the defaults change, the logic here may also need to change
+            if key == "to_year":
+                filter_conditions.append(f"source.date_pub <= to_timestamp('{current_value}-12-31')")
+            elif key == "include_people" and current_value == "No":
+                filter_conditions.append("source.contentType != 'person page'")
+            elif key == "mission":
+                filter_conditions.append(f"array_contains(source.missions,'{current_value}')")
+    if filter_conditions:
+        return " and ".join(filter_conditions)
     return None
 
 
@@ -364,7 +353,6 @@ if __name__ == "__main__":
                 max_value=CURRENT_YEAR,
                 key="from_year",
                 value=WIDGET_DEFAULTS["from_year"],
-                on_change=filter_flag,
             )
             to_year = st.number_input(
                 label="To year",
@@ -372,7 +360,6 @@ if __name__ == "__main__":
                 max_value=CURRENT_YEAR,
                 key="to_year",
                 value=WIDGET_DEFAULTS["to_year"],
-                on_change=filter_flag,
             )
             include_people_options = ("Yes", "No")
             include_people = st.radio(
@@ -380,7 +367,6 @@ if __name__ == "__main__":
                 include_people_options,
                 key="include_people",
                 index=include_people_options.index(WIDGET_DEFAULTS["include_people"]),
-                on_change=filter_flag,
             )
             mission_options = ("A fairer start", "A healthy life", "A sustainable future", None)
             mission = st.radio(
@@ -388,7 +374,6 @@ if __name__ == "__main__":
                 mission_options,
                 key="mission",
                 index=mission_options.index(WIDGET_DEFAULTS["mission"]),
-                on_change=filter_flag,
             )
 
             for key, default in WIDGET_DEFAULTS.items():
