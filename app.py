@@ -136,9 +136,10 @@ class Response:
             ]
         else:
             elements = [
-                f'<a href="{chunk.metadata["location"]}">{chunk.metadata["title"]}</a>' for chunk in self.chunks
+                f'<a href="{chunk.metadata["location"]}">[{i+1}] {chunk.metadata["title"]}</a>'
+                for i, chunk in enumerate(self.chunks)
             ]
-        return "<br><br><em>References</em><br>" + "<br>".join(unique(elements))
+        return elements
 
     @property
     def p_element(self) -> str:
@@ -150,10 +151,16 @@ class Response:
         """Determine whether the response should be treated as a summary of other visible responses"""
         return self.mode == "indiv" and self.index is None
 
+    @property
+    def references(self) -> str:
+        """Return formatted reference list"""
+        a_elements = self.a_elements
+        return "<br><br><em>References</em><br>" + "<br>".join(unique(a_elements))
+
     def as_html(self) -> str:
         """Convert the response into HTML"""
         css_class = "response " + ("summary" if self.is_summary else "indiv")
-        return f'<div class="{css_class}">{self.p_element}{self.a_elements}</div>'
+        return f'<div class="{css_class}">{self.p_element}{self.references}</div>'
 
 
 def chat_history() -> List[BaseMessage]:
@@ -293,7 +300,8 @@ if __name__ == "__main__":
             mode = sys.argv[1]
         else:
             mode = "chat"  # mode is either 'chat' for a chat wit memeory or 'indiv' to return one response per doc
-        merge = mode == "indiv"
+        merge = True  # merge needs to be True from now own for indexed references and inline citations to work
+        # - otherwise we could get the same source reference appearing more than once in the reference list
         limit = 10
 
         if mode not in possible_modes:
@@ -302,7 +310,9 @@ if __name__ == "__main__":
         llm = ChatOpenAI(temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini")
         indiv_qa_chain = create_stuff_documents_chain(llm, basic_question_prompt)
         chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
-        retriever = CustomRetriever()
+        retriever = CustomRetriever(
+            merge=merge
+        )  # merge cannot be passed through to the retriever via rag_chain kwargs, so set here
         # credit: https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
         history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
         rag_chain = create_retrieval_chain(history_aware_retriever, chat_qa_chain)
@@ -428,7 +438,7 @@ if __name__ == "__main__":
                 if mode == "indiv":
                     if input:
                         with st.spinner("Fetching documents ..."):
-                            chunks = retriever.invoke(input, limit=limit, merge=merge, enumerate=True)
+                            chunks = retriever.invoke(input, limit=limit, enumerate=True)
                 else:
                     chunks = []  # if mode == 'chat', retrieval is already part of the chain
 

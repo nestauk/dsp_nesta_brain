@@ -32,15 +32,10 @@ class CustomRetriever(BaseRetriever):
     filter_condition: Optional[
         str
     ] = None  # added because kwargs to chain.invoke in app.py are not passed on to the retriever
+    merge: bool = False  # if True then where chunks are from the same document they will be merged into a single retrieval result
 
-    async def _aget_relevant_documents(
-        self, query: str, limit: int = 3, merge: bool = False, **kwargs
-    ) -> List[LangchainDocument]:
-        """
-        Retrieve chunks related to a search query using a hybrid search strategy
-
-        merge: if True then where chunks are from the same document they will be merged into a single retrieval result
-        """
+    async def _aget_relevant_documents(self, query: str, limit: int = 3, **kwargs) -> List[LangchainDocument]:
+        """Retrieve chunks related to a search query using a hybrid search strategy"""
         # doesn't currently include all the asynchronous components that if could – see async_search_loop for explanation
         #  async_db = await lancedb.connect_async(DB_PATH)
         db = lancedb.connect(DB_PATH)
@@ -49,19 +44,16 @@ class CustomRetriever(BaseRetriever):
         vector_ = await CustomRetriever.async_vector(query)
         #   chunks = await CustomRetriever.async_retrieve_chunks(db,query,vector_,limit)
         chunks = CustomRetriever.retrieve_chunks(db, query, vector_, limit, **kwargs)
-        docs = CustomRetriever.chunks_to_docs(chunks, merge=merge, enumerate_=True)
+        docs = CustomRetriever.chunks_to_docs(chunks, merge=self.merge, enumerate_=True)
 
         return docs
 
-    def _get_relevant_documents(
-        self, query: str, limit: int = 10, merge: bool = False, **kwargs
-    ) -> List[LangchainDocument]:
+    def _get_relevant_documents(self, query: str, limit: int = 10, **kwargs) -> List[LangchainDocument]:
         """
         Retrieve chunks related to a search query using a hybrid search strategy
 
         CAUTION: kwargs are not passed on when the retriever is part of a rag_chain and the rag_chain is invoked
 
-        merge: if True then where chunks are from the same document they will be merged into a single retrieval result
         """
 
         # the code has been chopped up into bits which can be reused easily in both synchronous and asynchronous versions
@@ -77,7 +69,7 @@ class CustomRetriever(BaseRetriever):
         for chunk in chunks:
             chunk.text = chunk.text + "; title: " + str(chunk.source.title) + "; authors: " + str(chunk.source.authors)
         # (hack ends)
-        docs = CustomRetriever.chunks_to_docs(chunks, merge=merge, enumerate_=True)
+        docs = CustomRetriever.chunks_to_docs(chunks, merge=self.merge, enumerate_=True)
 
         return docs
 
