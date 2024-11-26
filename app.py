@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sys
+import uuid
 
 from datetime import datetime
 from typing import Dict
@@ -17,6 +18,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
+from langfuse import Langfuse
+from langfuse.callback import CallbackHandler
 from utils import unique
 
 
@@ -38,12 +41,24 @@ from llm.prompt import basic_question_prompt  # noqa
 from llm.prompt import contextualize_q_prompt  # noqa
 from llm.prompt import qa_prompt  # noqa
 from retrieval.retrieve import CustomRetriever  # noqa
+from streamlit_feedback import streamlit_feedback  # noqa
+
+
+langfuse = Langfuse()
+
+langfuse_handler = CallbackHandler(
+    secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+    public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+    host=os.getenv("LANGFUSE_HOST"),
+    user_id="anon",
+)
 
 
 EARLIEST_YEAR = 2003  # 2003 is the earliest publication date in the DB
+DEFAULT_START_YEAR = 2019
 CURRENT_YEAR = datetime.now().year
 
-WIDGET_DEFAULTS = {"from_year": EARLIEST_YEAR, "to_year": CURRENT_YEAR, "include_people": "Yes", "mission": None}
+WIDGET_DEFAULTS = {"from_year": DEFAULT_START_YEAR, "to_year": CURRENT_YEAR, "include_people": "Yes", "mission": None}
 
 
 def check_password() -> bool:
@@ -79,6 +94,7 @@ class Response:
     mode: str
     chunks: List[LangchainDocument]
     index: Optional[int] = None
+    trace_id: Optional[str] = None  # may need trace ids to push feedback to Langfuse
 
     def __init__(
         self,
@@ -122,7 +138,7 @@ class Response:
             elements = [
                 f'<a href="{chunk.metadata["location"]}">{chunk.metadata["title"]}</a>' for chunk in self.chunks
             ]
-        return "<br>".join(unique(elements))
+        return "<br><br><em>References</em><br>" + "<br>".join(unique(elements))
 
     @property
     def p_element(self) -> str:
@@ -149,13 +165,24 @@ def chat_history() -> List[BaseMessage]:
     return [message_class(message)(content=msg["content"]) for msg in st.session_state.messages[1:]]
 
 
+def trace_metadata() -> Dict:
+    """Compile trace metadata on sidebar parameters and the resulting filter_condition string"""
+    sidebar_metadata = {key: st.session_state[key] for key in WIDGET_DEFAULTS.keys()}
+    metadata = {"sidebar": sidebar_metadata}
+    metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
+    return metadata
+
+
 def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, mode: str, **kwargs) -> str:
     """Get synchronous LLM response from chain"""
     if mode == "chat":
         input = {"input": question, "chat_history": chat_history()}
     else:
         input = {"context": docs, "question": question}
-    return chain.invoke(input, **kwargs)
+    trace_id = str(uuid.uuid4())
+    response = chain.invoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, *kwargs)
+    langfuse.trace(id=trace_id, metadata=trace_metadata())
+    return response, trace_id
 
 
 async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> str:
@@ -163,14 +190,17 @@ async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], que
     #  print("message history",chat_history())
     #  input = {"input": question,"chat_history":chat_history()}
     input = {"context": docs, "question": question}
-    return await chain.ainvoke(input, **kwargs)
+    trace_id = str(uuid.uuid4())
+    response = await chain.ainvoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, **kwargs)
+    langfuse.trace(id=trace_id, metadata=trace_metadata())
+    return response, trace_id
 
 
 async def individual_responses(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> List[str]:
     """Get asynchronous LLM responses for a number of documents/chunks from chain"""
     tasks = [asyncio.create_task(async_llm_response(chain, [doc], question, **kwargs)) for doc in docs]
-    responses = await asyncio.gather(*tasks)
-    return responses
+    responses_and_trace_ids = await asyncio.gather(*tasks)
+    return responses_and_trace_ids
 
 
 def respond(chain: Runnable, docs: List[LangchainDocument], question: str, mode: str, **kwargs) -> List[Response]:
@@ -179,14 +209,19 @@ def respond(chain: Runnable, docs: List[LangchainDocument], question: str, mode:
     responses = []
 
     if mode == "indiv":
-        responses_ = asyncio.run(individual_responses(chain, docs, question, **kwargs))
-        responses_ = [(response, docs[i]) for i, response in enumerate(responses_) if response != "NULL"]
+
+        responses_and_trace_ids = asyncio.run(individual_responses(chain, docs, question, **kwargs))
+        responses_ = [
+            (response, docs[i]) for i, (response, _) in enumerate(responses_and_trace_ids) if response != "NULL"
+        ]
         responses += [Response(response, doc, mode, index=i + 1) for i, (response, doc) in enumerate(responses_)]
 
-    response = llm_response(chain, docs, question, mode, **kwargs)
+    response, trace_id = llm_response(chain, docs, question, mode)
+
     response = Response(response, docs, mode)
     if response.text != "NULL":
         responses.append(response)
+    st.session_state["current_trace_id"] = trace_id
 
     # for response in enumerate(responses):
     #    logger.info(response)
@@ -214,13 +249,13 @@ def filter_conditions() -> Union[str, None]:
         filter_conditions = []
         for key, default in WIDGET_DEFAULTS.items():
             current_value = st.session_state[key]
-            if (
+            if key == "from_year" and current_value != EARLIEST_YEAR:
+                filter_conditions.append(f"source.date_pub >= to_timestamp('{current_value}-01-01')")
+            elif (
                 current_value != default
-            ):  # caution: if all widgets are at their default value then no filter is required
+            ):  # caution: if the rest of the widgets are at their default value then no filter is required
                 # if the defaults change, the logic here may also need to change
-                if key == "from_year":
-                    filter_conditions.append(f"source.date_pub >= to_timestamp('{current_value}-01-01')")
-                elif key == "to_year":
+                if key == "to_year":
                     filter_conditions.append(f"source.date_pub <= to_timestamp('{current_value}-12-31')")
                 elif key == "include_people" and current_value == "No":
                     filter_conditions.append("source.contentType != 'person page'")
@@ -229,6 +264,20 @@ def filter_conditions() -> Union[str, None]:
         if filter_conditions:
             return " and ".join(filter_conditions)
     return None
+
+
+def push_feedback_to_langfuse(feedback: Dict) -> None:
+    """Send the feedback score and comments to Langfuse"""
+
+    trace_id = st.session_state["current_trace_id"]
+
+    faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
+
+    langfuse.score(
+        trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
+    )
+
+    logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
 
 
 if __name__ == "__main__":
@@ -292,7 +341,18 @@ if __name__ == "__main__":
         )
 
         st.markdown(
-            f"<h2>Demo (mode = '{mode}')</h2>",
+            # f"<h2>Demo (mode = '{mode}')</h2>",
+            """
+            <h2>🧠 Nesta Brain</h2><br/>This is an experimental prototype of a chatbot that "knows" a lot about Nesta.
+            When you ask a question, it searches through thousands of webpages and reports, to find the most relevant content.
+            <br/><br/>
+            We hope this could be helpful for our knowledge management, such as for quickly finding information about
+            our past projects and synthesising it into new outputs.
+            The chatbot has access to information and reports on Nesta's website up to October 2024.
+             </br></br>
+            Use the parameters in the side bar to customise the information accessible to the chatbot (eg, select
+            specific data range or mission team).</br></br>
+            """,
             unsafe_allow_html=True,
         )
 
@@ -324,7 +384,7 @@ if __name__ == "__main__":
             )
             mission_options = ("A fairer start", "A healthy life", "A sustainable future", None)
             mission = st.radio(
-                "Mission",
+                "Mission-specific content",
                 mission_options,
                 key="mission",
                 index=mission_options.index(WIDGET_DEFAULTS["mission"]),
@@ -337,7 +397,9 @@ if __name__ == "__main__":
 
         # Store session variables
         if "messages" not in st.session_state.keys():
-            st.session_state.messages = [{"role": "assistant", "content": "How can I help?"}]
+            st.session_state.messages = [
+                {"role": "assistant", "content": "Hi, how can I help?"},
+            ]
 
         # Display chat messages
         for message in st.session_state.messages:
@@ -354,12 +416,14 @@ if __name__ == "__main__":
                 st.write(input)
 
         # Generate a new response if last message is not from assistant
+        responses = []
         if st.session_state.messages[-1]["role"] != "assistant":
             with st.chat_message("assistant"), st.empty():
 
-                retriever.filter_condition = (
-                    filter_conditions()
-                )  # this is not ideal syntax, but kwargs to chain.invoke are not passed on to the retriever
+                filter_condition = filter_conditions()
+                retriever.filter_condition = filter_condition  # this is not ideal syntax, but kwargs to chain.invoke
+                # are not passed on to the retriever
+                st.session_state["filter_condition"] = filter_condition
 
                 if mode == "indiv":
                     if input:
@@ -368,7 +432,6 @@ if __name__ == "__main__":
                 else:
                     chunks = []  # if mode == 'chat', retrieval is already part of the chain
 
-                responses = []
                 if mode == "chat" or (mode == "indiv" and chunks):
                     with st.spinner("Sending retrieved chunks to LLM with query ..."):
                         responses = respond(rag_chain if mode == "chat" else indiv_qa_chain, chunks, input, mode)
@@ -378,5 +441,14 @@ if __name__ == "__main__":
                         st.markdown(response.as_html(), unsafe_allow_html=True)
                         message = {"role": "assistant", "html": response.as_html(), "content": response.text}
                         st.session_state.messages.append(message)
+
                 else:
                     st.write("I was not able to answer that question")
+
+        # if there is more than one response, the feedback will be pushed to Langfuse with the trace_id of the last one
+        feedback = streamlit_feedback(
+            feedback_type="faces",
+            optional_text_label="[Optional] Please provide an explanation",
+            key="feedback",
+            on_submit=push_feedback_to_langfuse,
+        )
