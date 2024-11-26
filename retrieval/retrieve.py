@@ -49,7 +49,7 @@ class CustomRetriever(BaseRetriever):
         vector_ = await CustomRetriever.async_vector(query)
         #   chunks = await CustomRetriever.async_retrieve_chunks(db,query,vector_,limit)
         chunks = CustomRetriever.retrieve_chunks(db, query, vector_, limit, **kwargs)
-        docs = CustomRetriever.chunks_to_docs(chunks, merge=merge)
+        docs = CustomRetriever.chunks_to_docs(chunks, merge=merge, enumerate_=True)
 
         return docs
 
@@ -77,19 +77,22 @@ class CustomRetriever(BaseRetriever):
         for chunk in chunks:
             chunk.text = chunk.text + "; title: " + str(chunk.source.title) + "; authors: " + str(chunk.source.authors)
         # (hack ends)
-        docs = CustomRetriever.chunks_to_docs(chunks, merge=merge)
+        docs = CustomRetriever.chunks_to_docs(chunks, merge=merge, enumerate_=True)
 
         return docs
 
     @staticmethod
-    def chunks_to_docs(chunks: List[Chunk], merge: bool = False) -> List[LangchainDocument]:
+    def chunks_to_docs(chunks: List[Chunk], merge: bool = False, enumerate_: bool = False) -> List[LangchainDocument]:
         """Convert Chunk objects to LangchainDocument objects, with the option to merge"""
         if merge:
             docs = CustomRetriever.merge_chunks(chunks)
             logger.info(f"{len(chunks)} retreived chunks were merged into {len(docs)} chunks")
             return docs
         else:
-            return [chunk.to_LangchainDocument() for chunk in chunks]
+            return [
+                chunk.to_LangchainDocument(enumeration_index=i + 1 if enumerate_ else None)
+                for i, chunk in enumerate(chunks)
+            ]
 
     @staticmethod
     def merge_chunks(chunks: List[Chunk]) -> List[LangchainDocument]:

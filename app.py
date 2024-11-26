@@ -428,7 +428,7 @@ if __name__ == "__main__":
                 if mode == "indiv":
                     if input:
                         with st.spinner("Fetching documents ..."):
-                            chunks = retriever.invoke(input, limit=limit, merge=merge)
+                            chunks = retriever.invoke(input, limit=limit, merge=merge, enumerate=True)
                 else:
                     chunks = []  # if mode == 'chat', retrieval is already part of the chain
 
