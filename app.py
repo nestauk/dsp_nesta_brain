@@ -55,9 +55,10 @@ langfuse_handler = CallbackHandler(
 
 
 EARLIEST_YEAR = 2003  # 2003 is the earliest publication date in the DB
+DEFAULT_START_YEAR = 2019
 CURRENT_YEAR = datetime.now().year
 
-WIDGET_DEFAULTS = {"from_year": EARLIEST_YEAR, "to_year": CURRENT_YEAR, "include_people": "Yes", "mission": None}
+WIDGET_DEFAULTS = {"from_year": DEFAULT_START_YEAR, "to_year": CURRENT_YEAR, "include_people": "Yes", "mission": None}
 
 
 def check_password() -> bool:
@@ -164,6 +165,14 @@ def chat_history() -> List[BaseMessage]:
     return [message_class(message)(content=msg["content"]) for msg in st.session_state.messages[1:]]
 
 
+def trace_metadata() -> Dict:
+    """Compile trace metadata on sidebar parameters and the resulting filter_condition string"""
+    sidebar_metadata = {key: st.session_state[key] for key in WIDGET_DEFAULTS.keys()}
+    metadata = {"sidebar": sidebar_metadata}
+    metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
+    return metadata
+
+
 def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, mode: str, **kwargs) -> str:
     """Get synchronous LLM response from chain"""
     if mode == "chat":
@@ -172,16 +181,16 @@ def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, 
         input = {"context": docs, "question": question}
     trace_id = str(uuid.uuid4())
     response = chain.invoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, *kwargs)
+    langfuse.trace(id=trace_id, metadata=trace_metadata())
     return response, trace_id
 
 
 async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> str:
     """Get asynchronous LLM response from chain"""
-    #  print("message history",chat_history())
-    #  input = {"input": question,"chat_history":chat_history()}
     input = {"context": docs, "question": question}
     trace_id = str(uuid.uuid4())
     response = await chain.ainvoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, **kwargs)
+    langfuse.trace(id=trace_id, metadata=trace_metadata())
     return response, trace_id
 
 
@@ -224,34 +233,25 @@ def is_html(string: str) -> bool:
     return lxml.html.fromstring(string).find(".//*") is not None
 
 
-def filter_flag() -> None:
-    """
-    Indicate that filters have been used and therefore filter conditions need to be provided
-    (used in widget callbacks)
-    """  # noqa
-    st.session_state.filter_flag = True
-
-
 def filter_conditions() -> Union[str, None]:
     """Compute what the filter conditions are from widget values"""
-    if "filter_flag" in st.session_state:
-        filter_conditions = []
-        for key, default in WIDGET_DEFAULTS.items():
-            current_value = st.session_state[key]
-            if (
-                current_value != default
-            ):  # caution: if all widgets are at their default value then no filter is required
-                # if the defaults change, the logic here may also need to change
-                if key == "from_year":
-                    filter_conditions.append(f"source.date_pub >= to_timestamp('{current_value}-01-01')")
-                elif key == "to_year":
-                    filter_conditions.append(f"source.date_pub <= to_timestamp('{current_value}-12-31')")
-                elif key == "include_people" and current_value == "No":
-                    filter_conditions.append("source.contentType != 'person page'")
-                elif key == "mission":
-                    filter_conditions.append(f"array_contains(source.missions,'{current_value}')")
-        if filter_conditions:
-            return " and ".join(filter_conditions)
+    filter_conditions = []
+    for key, default in WIDGET_DEFAULTS.items():
+        current_value = st.session_state[key]
+        if key == "from_year" and current_value != EARLIEST_YEAR:
+            filter_conditions.append(f"source.date_pub >= to_timestamp('{current_value}-01-01')")
+        elif (
+            current_value != default
+        ):  # caution: if the rest of the widgets are at their default value then no filter is required
+            # if the defaults change, the logic here may also need to change
+            if key == "to_year":
+                filter_conditions.append(f"source.date_pub <= to_timestamp('{current_value}-12-31')")
+            elif key == "include_people" and current_value == "No":
+                filter_conditions.append("source.contentType != 'person page'")
+            elif key == "mission":
+                filter_conditions.append(f"array_contains(source.missions,'{current_value}')")
+    if filter_conditions:
+        return " and ".join(filter_conditions)
     return None
 
 
@@ -332,7 +332,7 @@ if __name__ == "__main__":
         st.markdown(
             # f"<h2>Demo (mode = '{mode}')</h2>",
             """
-            <h2>🧠 Nesta Brain</h2><br/>This is an experimental prototype of a chatbot that "knows" a lot of about Nesta.
+            <h2>🧠 Nesta Brain</h2><br/>This is an experimental prototype of a chatbot that "knows" a lot about Nesta.
             When you ask a question, it searches through thousands of webpages and reports, to find the most relevant content.
             <br/><br/>
             We hope this could be helpful for our knowledge management, such as for quickly finding information about
@@ -353,7 +353,6 @@ if __name__ == "__main__":
                 max_value=CURRENT_YEAR,
                 key="from_year",
                 value=WIDGET_DEFAULTS["from_year"],
-                on_change=filter_flag,
             )
             to_year = st.number_input(
                 label="To year",
@@ -361,7 +360,6 @@ if __name__ == "__main__":
                 max_value=CURRENT_YEAR,
                 key="to_year",
                 value=WIDGET_DEFAULTS["to_year"],
-                on_change=filter_flag,
             )
             include_people_options = ("Yes", "No")
             include_people = st.radio(
@@ -369,7 +367,6 @@ if __name__ == "__main__":
                 include_people_options,
                 key="include_people",
                 index=include_people_options.index(WIDGET_DEFAULTS["include_people"]),
-                on_change=filter_flag,
             )
             mission_options = ("A fairer start", "A healthy life", "A sustainable future", None)
             mission = st.radio(
@@ -377,7 +374,6 @@ if __name__ == "__main__":
                 mission_options,
                 key="mission",
                 index=mission_options.index(WIDGET_DEFAULTS["mission"]),
-                on_change=filter_flag,
             )
 
             for key, default in WIDGET_DEFAULTS.items():
@@ -409,9 +405,10 @@ if __name__ == "__main__":
         if st.session_state.messages[-1]["role"] != "assistant":
             with st.chat_message("assistant"), st.empty():
 
-                retriever.filter_condition = (
-                    filter_conditions()
-                )  # this is not ideal syntax, but kwargs to chain.invoke are not passed on to the retriever
+                filter_condition = filter_conditions()
+                retriever.filter_condition = filter_condition  # this is not ideal syntax, but kwargs to chain.invoke
+                # are not passed on to the retriever
+                st.session_state["filter_condition"] = filter_condition
 
                 if mode == "indiv":
                     if input:
