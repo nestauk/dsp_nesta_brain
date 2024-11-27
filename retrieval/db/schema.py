@@ -136,9 +136,20 @@ class Chunk(LanceModel):
         """Chunk metadata derived from source"""
         return self.source.as_metadata()
 
-    def to_LangchainDocument(self) -> LangchainDocument:
+    @staticmethod
+    def to_LangchainDocument_(text: str, metadata: Dict, enumeration_index: Optional[int] = None) -> LangchainDocument:
+        """
+        Convert text into a Langchain Document
+
+        Having this as a separate method to to_LangchainDocument is useful when merging chunks
+        """
+        if enumeration_index:
+            text = f"[{enumeration_index}] {text}"
+        return LangchainDocument(page_content=text, metadata=metadata)
+
+    def to_LangchainDocument(self, **kwargs) -> LangchainDocument:
         """Convert a Chunk into a Langchain Document"""
-        return LangchainDocument(page_content=self.text, metadata=self.metadata)
+        return self.to_LangchainDocument_(self.text, self.metadata, **kwargs)
 
 
 if False:
