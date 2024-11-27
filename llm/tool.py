@@ -1,7 +1,6 @@
 import os
 
 from operator import itemgetter
-from typing import TYPE_CHECKING
 from typing import Callable
 from typing import List
 
@@ -11,8 +10,12 @@ from langchain.chains import LLMChain  # noqa
 from langchain.chains import create_history_aware_retriever
 from langchain.chains import create_retrieval_chain
 from langchain.output_parsers.openai_tools import JsonOutputKeyToolsParser
+from langchain.prompts import PromptTemplate
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables import RunnableParallel
 from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables.base import Runnable
 from langchain_openai import ChatOpenAI  # noqa
 from llm.prompt import basic_question_prompt  # noqa
 from llm.prompt import contextualize_q_prompt  # noqa
@@ -20,13 +23,6 @@ from llm.prompt import qa_prompt  # noqa
 from pydantic import BaseModel
 from pydantic import Field
 from retrieval.retrieve import CustomRetriever  # noqa
-
-
-if TYPE_CHECKING:
-    from langchain.prompts import PromptTemplate
-    from langchain_core.language_models.chat_models import BaseChatModel
-    from langchain_core.retrievers import BaseRetriever
-    from langchain_core.runnables.base import Runnable
 
 
 # see https://python.langchain.com/v0.1/docs/use_cases/question_answering/citations/
