@@ -21,6 +21,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
+from llm.tool import rag_chain_with_citation_tool
 
 
 if (
@@ -100,6 +101,11 @@ class Reference:
         self.index = index
 
     @property
+    def is_pdf(self) -> bool:
+        """Test whether the underlying source document is a PDF"""
+        return self.metadata["location"].lower()[-4:] == ".pdf"
+
+    @property
     def metadata(self) -> Dict:
         """Get chunk metadata"""
         return self.chunk.metadata
@@ -113,9 +119,9 @@ class Reference:
                 logger.warning(
                     "Formatting of links for testing retrieval filtering is in use – do not use for production"
                 )
-            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]} {self.metadata["date_pub"]} {self.metadata["contentType"]} {self.metadata["missions"]}</a>'  # noqa
+            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]}{" (PDF)" if self.is_pdf else ""} {self.metadata["date_pub"]} {self.metadata["contentType"]} {self.metadata["missions"]}</a>'  # noqa
         else:
-            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]}</a>'
+            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]}{" (PDF)" if self.is_pdf else ""}</a>'  # noqa
 
     def as_superscript(self, reset_index: bool = False) -> str:
         """Return index as a clickable link within a superscript, suitable for inline citations"""
@@ -128,12 +134,11 @@ class Response:
     """A class just to make things like printing and writing to streamlit easier"""
 
     text: str
+    quoted_answer: Optional[Dict] = None  # store quoted_answer instance if a tool has been used to derived citations
     mode: str
     references: List[Reference]
     index: Optional[int] = None
     trace_id: Optional[str] = None  # may need trace ids to push feedback to Langfuse
-    split_references: bool = True  # if True, references will be split into cited and uncited retrieved sources
-    # and the numbering reset so that references are numbered in the order they appear in the final list
 
     def __init__(
         self,
@@ -144,13 +149,20 @@ class Response:
     ) -> None:
 
         if mode == "chat":
-            text = chain_response["answer"]
+            if type(chain_response["answer"]) is str:
+                self.text = chain_response["answer"]
+            elif isinstance(
+                chain_response["answer"], dict
+            ):  # this will be the case if a tool has been used for citations:
+                # see quoted_answer class in llm/tool.py
+                # use isinstance, not type
+                self.quoted_answer = chain_response["answer"]["quoted_answer"]
+                self.text = self.quoted_answer["answer"]
             chunks = chain_response["context"]
         elif mode == "indiv":
-            text = chain_response.replace("ANSWER: ", "")
+            self.text = chain_response.replace("ANSWER: ", "")
             if isinstance(chunks, LangchainDocument):
                 chunks = [chunks]
-        self.text = text
         self.references = [Reference(chunk, i + 1) for i, chunk in enumerate(chunks)]
         self.index = index
         self.mode = mode
@@ -169,7 +181,7 @@ class Response:
         return [reference.as_html() for reference in self.references]
 
     @property
-    def citations(self) -> List[str]:
+    def citations_in_text(self) -> List[str]:
         """Return the list of citations in the text, i.e. numbers appearing in square brackets"""
         return set(re.findall(r"\[\d+\]", self.text))
 
@@ -192,15 +204,19 @@ class Response:
     @property
     def references_(self) -> str:
         """Return formatted reference list"""
-        if self.split_references:
+        if split_references:
             cited = [reference.as_html(reset_index=True) for reference in self.cited_references]
             not_cited = [reference.as_html(reset_index=True) for reference in self.uncited_references]
-            actual_references = "<br><br><em>References:</em><br>" + "<br>".join(cited)
-            the_rest = "<br><em>May be of interest:</em><br>" + "<br>".join(not_cited)
+            actual_references = "<br><br><em>Cited references:</em><br>" + "<br>".join(cited) if cited else ""
+            the_rest = (
+                f"<br><em>{'May be useful' if cited else 'Sources'}:</em><br>" + "<br>".join(not_cited)
+                if not_cited
+                else ""
+            )
             return actual_references + the_rest
         else:
-            a_elements = [reference.as_html() for reference in self.cited_references]
-            return "<br><br><em>References:</em><br>" + "<br>".join(a_elements)
+            a_elements = [reference.as_html() for reference in self.references]
+            return "<br><br><em>Sources:</em><br>" + "<br>".join(a_elements)
 
     @property
     def text_with_superscript_citations(self) -> str:
@@ -211,16 +227,16 @@ class Response:
         because they are part of the answer
         """
 
-        if self.split_references:
+        if split_references:
             self.reset_reference_indices()
 
         text = self.text
         N_references = len(self.references)
-        for citation in self.citations:
+        for citation in self.citations_in_text:
             citation_index = int(citation[1:-1])  # remove the square brackets
             if citation_index <= N_references:  # citation indices are in the range 1:N rather than 0:(N-1)
                 reference = self.references[citation_index - 1]
-                superscript = reference.as_superscript(reset_index=self.split_references)
+                superscript = reference.as_superscript(reset_index=split_references)
                 text = text.replace(citation, superscript)
             else:
                 logging.warning(f"Citation {citation} contained an index greater than the number of references")
@@ -241,7 +257,7 @@ class Response:
 
     def reset_reference_indices(self) -> None:
         """Reset how the reference numbering will appear if references are split into cited and uncited sources"""
-        for citation in self.citations:
+        for citation in self.citations_in_text:
             citation_index = int(citation[1:-1])
             reference = self.references[citation_index - 1]
             reference.cited = True
@@ -250,13 +266,22 @@ class Response:
             reference.reset_index = i + 1
 
 
-def chat_history() -> List[BaseMessage]:
-    """Derive chat history from streamlit messages"""
+def chat_history(*args) -> List[BaseMessage]:
+    """
+    Derive chat history from streamlit messages
+
+    args are unused, but necessary if using chat_history as an argument in rag_chain_with_citation_tool to avoid an error
+    """
 
     def message_class(message: Dict) -> type:
         return AIMessage if message["role"] == "assistant" else HumanMessage
 
-    return [message_class(message)(content=msg["content"]) for msg in st.session_state.messages[1:]]
+    if (
+        "messages" in st.session_state
+    ):  # also necessary if using chat_history as an argument in rag_chain_with_citation_tool to avoid an error
+        return [message_class(message)(content=msg["content"]) for msg in st.session_state.messages[1:]]
+    else:
+        return []
 
 
 def trace_metadata() -> Dict:
@@ -264,6 +289,12 @@ def trace_metadata() -> Dict:
     sidebar_metadata = {key: st.session_state[key] for key in WIDGET_DEFAULTS.keys()}
     metadata = {"sidebar": sidebar_metadata}
     metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
+    metadata["settings"] = {
+        "merge": merge,
+        "use_tool_for_citations": use_tool_for_citations,
+        "limit": limit,
+        "mode": mode,
+    }
     return metadata
 
 
@@ -274,7 +305,7 @@ def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, 
     else:
         input = {"context": docs, "question": question}
     trace_id = str(uuid.uuid4())
-    response = chain.invoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, *kwargs)
+    response = chain.invoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, **kwargs)
     langfuse.trace(id=trace_id, metadata=trace_metadata())
     return response, trace_id
 
@@ -375,10 +406,13 @@ if __name__ == "__main__":
         if sys.argv[1:] and sys.argv[1] in ["chat", "indiv"]:
             mode = sys.argv[1]
         else:
-            mode = "chat"  # mode is either 'chat' for a chat wit memeory or 'indiv' to return one response per doc
+            mode = "chat"  # mode is either 'chat' for a chat with memeory or 'indiv' to return one response per doc
         merge = True  # merge needs to be True from now own for indexed references and inline citations to work
         # - otherwise we could get the same source reference appearing more than once in the reference list
         limit = 10
+        use_tool_for_citations = False
+        split_references = True  # if True, references will be split into cited and uncited retrieved sources
+        # and the numbering reset so that references are numbered in the order they appear in the final list
 
         if mode not in possible_modes:
             raise Exception('Mode must be "chat" or "indiv"')
@@ -391,7 +425,11 @@ if __name__ == "__main__":
         )  # merge cannot be passed through to the retriever via rag_chain kwargs, so set here
         # credit: https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
         history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
-        rag_chain = create_retrieval_chain(history_aware_retriever, chat_qa_chain)
+
+        if use_tool_for_citations:
+            rag_chain = rag_chain_with_citation_tool(history_aware_retriever, llm, qa_prompt, chat_history)
+        else:
+            rag_chain = create_retrieval_chain(history_aware_retriever, chat_qa_chain)
 
         st.set_page_config(layout="wide")
         st.markdown(
