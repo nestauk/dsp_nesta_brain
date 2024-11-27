@@ -21,7 +21,6 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from utils import unique
 
 
 if (
@@ -93,6 +92,8 @@ class Reference:
 
     chunk: LangchainDocument
     index: int
+    reset_index: Optional[int] = None
+    cited: bool = False
 
     def __init__(self, chunk: LangchainDocument, index: int) -> None:
         self.chunk = chunk
@@ -103,21 +104,24 @@ class Reference:
         """Get chunk metadata"""
         return self.chunk.metadata
 
-    def as_html(self) -> str:
+    def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
         test_mode = False
+        index = self.reset_index if reset_index else self.index
         if test_mode:
             if self.index == 1:
                 logger.warning(
                     "Formatting of links for testing retrieval filtering is in use – do not use for production"
                 )
-            return f'<a href="{self.metadata["location"]}">[{self.index}] {self.metadata["title"]} {self.metadata["date_pub"]} {self.metadata["contentType"]} {self.metadata["missions"]}</a>'  # noqa
+            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]} {self.metadata["date_pub"]} {self.metadata["contentType"]} {self.metadata["missions"]}</a>'  # noqa
         else:
-            return f'<a href="{self.metadata["location"]}">[{self.index}] {self.metadata["title"]}</a>'
+            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]}</a>'
 
-    def as_superscript(self) -> str:
+    def as_superscript(self, reset_index: bool = False) -> str:
         """Return index as a clickable link within a superscript, suitable for inline citations"""
-        return f'<sup><a href="{self.metadata["location"]}">{self.index}</a></sup>'
+        return (
+            f'<sup><a href="{self.metadata["location"]}">{self.reset_index if reset_index else self.index}</a></sup>'
+        )
 
 
 class Response:
@@ -128,6 +132,8 @@ class Response:
     references: List[Reference]
     index: Optional[int] = None
     trace_id: Optional[str] = None  # may need trace ids to push feedback to Langfuse
+    split_references: bool = True  # if True, references will be split into cited and uncited retrieved sources
+    # and the numbering reset so that references are numbered in the order they appear in the final list
 
     def __init__(
         self,
@@ -163,6 +169,16 @@ class Response:
         return [reference.as_html() for reference in self.references]
 
     @property
+    def citations(self) -> List[str]:
+        """Return the list of citations in the text, i.e. numbers appearing in square brackets"""
+        return set(re.findall(r"\[\d+\]", self.text))
+
+    @property
+    def cited_references(self) -> List[Reference]:
+        """Return a list of references which are actually cited in the text"""
+        return [reference for reference in self.references if reference.cited]
+
+    @property
     def p_element(self) -> str:
         """Return response text as an HTML paragraph"""
         header = "<b>SUMMARY:</b> " if self.is_summary else (f"({self.index}) " if self.index else "")
@@ -176,8 +192,15 @@ class Response:
     @property
     def references_(self) -> str:
         """Return formatted reference list"""
-        a_elements = self.a_elements
-        return "<br><br><em>References</em><br>" + "<br>".join(unique(a_elements))
+        if self.split_references:
+            cited = [reference.as_html(reset_index=True) for reference in self.cited_references]
+            not_cited = [reference.as_html(reset_index=True) for reference in self.uncited_references]
+            actual_references = "<br><br><em>References:</em><br>" + "<br>".join(cited)
+            the_rest = "<br><em>May be of interest:</em><br>" + "<br>".join(not_cited)
+            return actual_references + the_rest
+        else:
+            a_elements = [reference.as_html() for reference in self.cited_references]
+            return "<br><br><em>References:</em><br>" + "<br>".join(a_elements)
 
     @property
     def text_with_superscript_citations(self) -> str:
@@ -187,13 +210,17 @@ class Response:
         Note: we may encounter problems if for some reason numbers within square brackets appear in the text
         because they are part of the answer
         """
+
+        if self.split_references:
+            self.reset_reference_indices()
+
         text = self.text
         N_references = len(self.references)
-        citations = set(re.findall(r"\[\d+\]", text))
-        for citation in citations:
+        for citation in self.citations:
             citation_index = int(citation[1:-1])  # remove the square brackets
             if citation_index <= N_references:  # citation indices are in the range 1:N rather than 0:(N-1)
-                superscript = self.references[citation_index - 1].as_superscript()
+                reference = self.references[citation_index - 1]
+                superscript = reference.as_superscript(reset_index=self.split_references)
                 text = text.replace(citation, superscript)
             else:
                 logging.warning(f"Citation {citation} contained an index greater than the number of references")
@@ -202,10 +229,25 @@ class Response:
         )  # where there are citations next to each other, merge them into the same superscript and separate them with commas
         return text
 
+    @property
+    def uncited_references(self) -> List[Reference]:
+        """Return a list of references which are not cited in the text"""
+        return [reference for reference in self.references if not reference.cited]
+
     def as_html(self) -> str:
         """Convert the response into HTML"""
         css_class = "response " + ("summary" if self.is_summary else "indiv")
         return f'<div class="{css_class}">{self.p_element}{self.references_}</div>'
+
+    def reset_reference_indices(self) -> None:
+        """Reset how the reference numbering will appear if references are split into cited and uncited sources"""
+        for citation in self.citations:
+            citation_index = int(citation[1:-1])
+            reference = self.references[citation_index - 1]
+            reference.cited = True
+
+        for i, reference in enumerate(self.cited_references + self.uncited_references):
+            reference.reset_index = i + 1
 
 
 def chat_history() -> List[BaseMessage]:
