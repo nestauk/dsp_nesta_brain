@@ -503,11 +503,15 @@ if __name__ == "__main__":
             It searches thousands of webpages and reports to find the most relevant content
             in response to your questions.
             <br/><br/>
-            We aim to support knowledge management by making it easier to locate information
+            We hope this can support knowledge management by making it easier to locate information
             about past projects,
-            and generate new outputs. This is a very early version and we welcome your feedback
+            and generate new outputs.
+            <br/><br/>
+            This is an early version and we welcome your feedback
             very much - please use the
-            emojis below or contact Karlis Kanders or Helen Jackson (Data Science Practice / Discovery Hub)
+            emojis below to highlight specific responses, and <a href='https://forms.gle/TwXqUMHNTaPbYC4e7'>leave
+            us general feedback using this form</a>.
+            You can also contact directly Karlis Kanders or Helen Jackson (Data Science Practice / Discovery Hub)
             on <a href="https://nesta.slack.com/archives/C05BCUZNATG">#proj-nesta-brain</a>.
             <br/><br/>
             The chatbot currently accesses information from <strong>Nesta's public website (up to October 2024)</strong>
