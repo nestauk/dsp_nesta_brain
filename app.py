@@ -498,15 +498,23 @@ if __name__ == "__main__":
         st.markdown(
             # f"<h2>Demo (mode = '{mode}')</h2>",
             """
-            <h2>🧠 Nesta Brain</h2><br/>This is an experimental prototype of a chatbot that "knows" a lot about Nesta.
-            When you ask a question, it searches through thousands of webpages and reports, to find the most relevant content.
+            <h2>🧠 Nesta Brain</h2><br/>
+            This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
+            It searches thousands of webpages and reports to find the most relevant content
+            in response to your questions.
             <br/><br/>
-            We hope this could be helpful for our knowledge management, such as for quickly finding information about
-            our past projects and synthesising it into new outputs.
-            The chatbot has access to information and reports on Nesta's website up to October 2024.
-             </br></br>
-            Use the parameters in the side bar to customise the information accessible to the chatbot (eg, select
-            specific data range or mission team).</br></br>
+            We aim to support knowledge management by making it easier to locate information
+            about past projects,
+            and generate new outputs. This is a very early version and we welcome your feedback
+            very much - please use the
+            emojis below or contact Karlis Kanders or Helen Jackson (Data Science Practice / Discovery Hub)
+            on <a href="https://nesta.slack.com/archives/C05BCUZNATG">#proj-nesta-brain</a>.
+            <br/><br/>
+            The chatbot currently accesses information from <strong>Nesta's public website (up to October 2024)</strong>
+            and does <strong>not</strong> include internal documents or systems like Nesta:Net, Slack, or GitHub.
+            <br/><br/>
+            Use the sidebar to customize the chatbot's search parameters, such as date range or mission team.
+            Note that user queries and responses are saved for chatbot's performance evaluation and improvement.
             """,
             unsafe_allow_html=True,
         )
