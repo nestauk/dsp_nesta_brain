@@ -1,5 +1,7 @@
 # Guide to updating the Nesta Brain knowledge base
 
+[work in progress]
+
 ## Introduction
 
 This document is a guide to updating the knowledge base which Nesta Brain draws from, that is, how to ingest new information into the LanceDB vector database used for retrieval.
