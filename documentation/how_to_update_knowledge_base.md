@@ -50,6 +50,18 @@ A list of settings and options for ingesting text sources is given at the top of
 **`batch_size`**: `int`
 > the number of webpages or PDFs to get embeddings for and ingest at a time. Note that if `batch_size` is too high then you will get error messages back from OpenAI (see **Known issues**). Users are encouraged to experiment with `batch_size`. PDFs can be large and slow to scrape, so a very low batch_size (<5) is recommended if `pdf_mode` is `True`. A `batch_size` of 50 for webpages and 1 for PDFs was used when the DB was originally set up. Batch sizes > 100 for webapges seemed to cause problems.
 
+*Settings relevant to web_search mode*
+
+**`query`**: `str`
+> the web search query (as if doing a Google search)
+
+**`site_url`**: `str`
+> the url of the website which is the target of the search
+
+**`subdirectories`**:`Optional[List[str]]`
+> a list of subdirectories on the website which you wish to limit the search to; note that a separate search will be conducted for each of these subdirectories in turn
+
+*Google Programmable Search limits*: Note that only a 100 search results can be returned from Google Programmable Search for each distinct search, where a distinct search is a combination of query, url and subdirectory. Furthermore, if more than 100 searches a day are required, a billing account will need to be set up. See [this Google webpage](https://developers.google.com/custom-search/v1/overview#:~:text=Custom%20Search%20JSON%20API%20provides,to%2010k%20queries%20per%20day.) for more details.
 
 ## Known issues
 
