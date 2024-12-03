@@ -316,15 +316,15 @@ def llm_response(
     trace_id = str(uuid.uuid4())
     response = {"answer": ""}
 
-    for chunk in chain.stream(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
-        # Process each chunk
-        if "answer" in chunk:
-            response_text = chunk["answer"]
+    for item in chain.stream(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
+        # Process each item
+        if "answer" in item:
+            response_text = item["answer"]
             response["answer"] += str(response_text)
             # Display the response
             message_placeholder.markdown(response["answer"] + "▌")
-        elif "context" in chunk:
-            response["context"] = chunk["context"]
+        elif "context" in item:
+            response["context"] = item["context"]
     # Remove the message placeholder text after all the text has been received, as
     # it will be rendered in a nicer format with references
     message_placeholder.markdown("")
