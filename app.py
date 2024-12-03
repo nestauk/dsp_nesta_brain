@@ -42,6 +42,7 @@ from llm.prompt import basic_question_prompt  # noqa
 from llm.prompt import contextualize_q_prompt  # noqa
 from llm.prompt import qa_prompt  # noqa
 from retrieval.retrieve import CustomRetriever  # noqa
+from streamlit.delta_generator import DeltaGenerator  # noqa
 from streamlit_feedback import streamlit_feedback  # noqa
 
 
@@ -209,7 +210,8 @@ class Response:
             not_cited = [reference.as_html(reset_index=True) for reference in self.uncited_references]
             actual_references = "<br><br><em>Cited references:</em><br>" + "<br>".join(cited) if cited else ""
             the_rest = (
-                f"<br><em>{'May be useful' if cited else 'Sources'}:</em><br>" + "<br>".join(not_cited)
+                # Quick fix to show "May be useful" for uncited references in all situations
+                f"<br><em>{'May be useful' if cited else 'May be useful'}:</em><br>" + "<br>".join(not_cited)
                 if not_cited
                 else ""
             )
@@ -298,20 +300,41 @@ def trace_metadata() -> Dict:
     return metadata
 
 
-def llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, mode: str, **kwargs) -> str:
+def llm_response(
+    chain: LLMChain,
+    docs: List[LangchainDocument],
+    question: str,
+    mode: str,
+    message_placeholder: DeltaGenerator,
+    **kwargs,
+) -> str:
     """Get synchronous LLM response from chain"""
     if mode == "chat":
         input = {"input": question, "chat_history": chat_history()}
     else:
         input = {"context": docs, "question": question}
     trace_id = str(uuid.uuid4())
-    response = chain.invoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, **kwargs)
+    response = {"answer": ""}
+
+    for item in chain.stream(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
+        # Process each item
+        if "answer" in item:
+            response_text = item["answer"]
+            response["answer"] += str(response_text)
+            # Display the response
+            message_placeholder.markdown(response["answer"] + "▌")
+        elif "context" in item:
+            response["context"] = item["context"]
+    # Remove the message placeholder text after all the text has been received, as
+    # it will be rendered in a nicer format with references
+    message_placeholder.markdown("")
     langfuse.trace(id=trace_id, metadata=trace_metadata())
     return response, trace_id
 
 
 async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> str:
     """Get asynchronous LLM response from chain"""
+    # NB: Async streaming is not implemented for now
     input = {"context": docs, "question": question}
     trace_id = str(uuid.uuid4())
     response = await chain.ainvoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, **kwargs)
@@ -326,7 +349,14 @@ async def individual_responses(chain: LLMChain, docs: List[LangchainDocument], q
     return responses_and_trace_ids
 
 
-def respond(chain: Runnable, docs: List[LangchainDocument], question: str, mode: str, **kwargs) -> List[Response]:
+def respond(
+    chain: Runnable,
+    docs: List[LangchainDocument],
+    question: str,
+    mode: str,
+    message_placeholder: DeltaGenerator,
+    **kwargs,
+) -> List[Response]:
     """Get individual and/or summary responses from chain and convert them into Response objects"""
 
     responses = []
@@ -339,11 +369,10 @@ def respond(chain: Runnable, docs: List[LangchainDocument], question: str, mode:
         ]
         responses += [Response(response, doc, mode, index=i + 1) for i, (response, doc) in enumerate(responses_)]
 
-    response, trace_id = llm_response(chain, docs, question, mode)
+    chain_response, trace_id = llm_response(chain, docs, question, mode, message_placeholder)
 
-    response = Response(response, docs, mode)
-    if response.text != "NULL":
-        responses.append(response)
+    if chain_response["answer"] != "NULL":
+        responses.append(Response(chain_response, docs, mode))
     st.session_state["current_trace_id"] = trace_id
 
     # for response in enumerate(responses):
@@ -417,7 +446,9 @@ if __name__ == "__main__":
         if mode not in possible_modes:
             raise Exception('Mode must be "chat" or "indiv"')
 
-        llm = ChatOpenAI(temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini")
+        llm = ChatOpenAI(
+            temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini", streaming=True
+        )
         indiv_qa_chain = create_stuff_documents_chain(llm, basic_question_prompt)
         chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
         retriever = CustomRetriever(
@@ -467,15 +498,27 @@ if __name__ == "__main__":
         st.markdown(
             # f"<h2>Demo (mode = '{mode}')</h2>",
             """
-            <h2>🧠 Nesta Brain</h2><br/>This is an experimental prototype of a chatbot that "knows" a lot about Nesta.
-            When you ask a question, it searches through thousands of webpages and reports, to find the most relevant content.
+            <h2>🧠 Nesta Brain</h2><br/>
+            This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
+            It searches thousands of webpages and reports to find the most relevant content
+            in response to your questions.
             <br/><br/>
-            We hope this could be helpful for our knowledge management, such as for quickly finding information about
-            our past projects and synthesising it into new outputs.
-            The chatbot has access to information and reports on Nesta's website up to October 2024.
-             </br></br>
-            Use the parameters in the side bar to customise the information accessible to the chatbot (eg, select
-            specific data range or mission team).</br></br>
+            We hope this can support knowledge management by making it easier to locate information
+            about past projects,
+            and generate new outputs.
+            <br/><br/>
+            This is an early version and we welcome your feedback
+            very much - please use the
+            emojis below to highlight specific responses, and <a href='https://forms.gle/TwXqUMHNTaPbYC4e7'>leave
+            us general feedback using this form</a>.
+            You can also contact directly Karlis Kanders or Helen Jackson (Data Science Practice / Discovery Hub)
+            on <a href="https://nesta.slack.com/archives/C05BCUZNATG">#proj-nesta-brain</a>.
+            <br/><br/>
+            The chatbot currently accesses information from <strong>Nesta's public website (up to October 2024)</strong>
+            and does <strong>not</strong> include internal documents or systems like Nesta:Net, Slack, or GitHub.
+            <br/><br/>
+            Use the sidebar to customize the chatbot's search parameters, such as date range or mission team.
+            Note that user queries and responses are saved for chatbot's performance evaluation and improvement.
             """,
             unsafe_allow_html=True,
         )
@@ -538,7 +581,9 @@ if __name__ == "__main__":
         # Generate a new response if last message is not from assistant
         responses = []
         if st.session_state.messages[-1]["role"] != "assistant":
-            with st.chat_message("assistant"), st.empty():
+
+            with st.chat_message("assistant"):
+                message_placeholder = st.empty()
 
                 filter_condition = filter_conditions()
                 retriever.filter_condition = filter_condition  # this is not ideal syntax, but kwargs to chain.invoke
@@ -553,12 +598,14 @@ if __name__ == "__main__":
                     chunks = []  # if mode == 'chat', retrieval is already part of the chain
 
                 if mode == "chat" or (mode == "indiv" and chunks):
-                    with st.spinner("Sending retrieved chunks to LLM with query ..."):
-                        responses = respond(rag_chain if mode == "chat" else indiv_qa_chain, chunks, input, mode)
+
+                    responses = respond(
+                        rag_chain if mode == "chat" else indiv_qa_chain, chunks, input, mode, message_placeholder
+                    )
 
                 if responses:
                     for response in responses:
-                        st.markdown(response.as_html(), unsafe_allow_html=True)
+                        message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
                         message = {"role": "assistant", "html": response.as_html(), "content": response.text}
                         st.session_state.messages.append(message)
 
