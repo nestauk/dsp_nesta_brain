@@ -2,28 +2,34 @@
 
 [work in progress]
 
+•NB some of the instructions below will need branch `ingest-corrections` to be merged and are not correct in `dev` as of 04/12/24*
+
 ## Introduction
 
-This document is a guide to updating the knowledge base which Nesta Brain draws from, that is, how to ingest new information into the LanceDB vector database used for retrieval.
+This document is a guide to updating the knowledge base of documents which Nesta Brain uses to answer questions; that is, how to ingest new information into the LanceDB vector database used for retrieval.
 
-Currently, the code is set up to ingest web pages and online PDFs.
+Currently, the code is set up to ingest web pages (from any site) and PDFs from the Nesta website.
 
-The code reflects the data ingestion needs for early prototypes of the Nesta Brain project, written fairly rapidly, and may need to be reviewed and simplified for optimal future maintainability.
+The code reflects the data ingestion needs for early prototypes of the Nesta Brain project, written and deployed fairly rapidly, and with limited time for tidying and rationalisation. It may need to be reviewed and simplified for optimal future maintainability, as well as extended to allow ingestion from other sources.
 
 
 ## Relevant code
 
-Most of the relevant code is in `retrieval/db/ingest.py`. See also `scraping/scrape.py` and `scraping/scrape_pdf.py`.  
+Most of the relevant code is in `retrieval/db/ingest.py`. See also `scraping/scrape.py` and `scraping/scrape_pdf.py` for web and PDF scraping functions.  
 
 ## Embeddings model
 
-OpenAI `text-embedding-3-small`. Note that if the embeddings model is changed in `MODEL_NAME` then the variables encapsulating the rate limits, `RPM_RATE_LIMIT` and `TPM_RATE_LIMIT`, should also be changed.
+OpenAI's `text-embedding-3-small` model was used for the database versions called `full_site_demo_db` and `full_site_demo_db_with_pdfs`. Future users may want to experiment with different embeddings models. The embeddings model can be set in `retrieval/db/ingest.py` via `MODEL_NAME`. Note that if the embeddings model is changed in `MODEL_NAME` then: (i) the variables encapsulating the rate limits, `RPM_RATE_LIMIT` and `TPM_RATE_LIMIT`, may also need to be changed; and (ii) the embeddings model used by the retriever in `retrieval/retrieve.py` should also be changed [*to do – this should be set in `config.py`*].
 
 ## Data
 
 [MENTION ABOUT the DATA DUMP HERE – get from S3]
 
 > [In `web_dump` mode the details of the webpages to scrape are taken from a metadata file with path `METADATA_PATH` and read into a dataframe. with any webpages with a `_status_code` of 200 removed from the dataframe. The dataframe should therefore only contain webpages which have been successfully downloaded.]
+
+## PDF scraping
+
+[details]
 
 ## Settings
 
