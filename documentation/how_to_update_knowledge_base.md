@@ -2,7 +2,7 @@
 
 [work in progress]
 
-•NB some of the instructions below will need branch `ingest-corrections` to be merged and are not correct in `dev` as of 04/12/24*
+**NB some of the instructions below will need branch `ingest-corrections` to be merged and are not correct in `dev` as of 04/12/24**
 
 ## Introduction
 
@@ -19,13 +19,13 @@ Most of the relevant code is in `retrieval/db/ingest.py`. See also `scraping/scr
 
 ## Embeddings model
 
-OpenAI's `text-embedding-3-small` model was used for the database versions called `full_site_demo_db` and `full_site_demo_db_with_pdfs`. Future users may want to experiment with different embeddings models. The embeddings model can be set in `retrieval/db/ingest.py` via `MODEL_NAME`. Note that if the embeddings model is changed in `MODEL_NAME` then: (i) the variables encapsulating the rate limits, `RPM_RATE_LIMIT` and `TPM_RATE_LIMIT`, may also need to be changed; and (ii) the embeddings model used by the retriever in `retrieval/retrieve.py` should also be changed [*to do – this should be set in `config.py`*].
+OpenAI's `text-embedding-3-small` model was used for the database versions called `full_site_demo_db` and `full_site_demo_db_with_pdfs`. Future users may want to experiment with different embeddings models. The embeddings model can be set in `retrieval/db/ingest.py` via `MODEL_NAME`. Note that if the embeddings model is changed in `MODEL_NAME` then: (i) the variables encapsulating the rate limits, `RPM_RATE_LIMIT` and `TPM_RATE_LIMIT`, may also need to be changed; and (ii) the embeddings model used by the retriever in `retrieval/retrieve.py` should also be changed [**to do – this should be set in `config.py`**].
 
 ## Data
 
 [MENTION ABOUT the DATA DUMP HERE – get from S3]
 
-> [In `web_dump` mode the details of the webpages to scrape are taken from a metadata file with path `METADATA_PATH` and read into a dataframe. with any webpages with a `_status_code` of 200 removed from the dataframe. The dataframe should therefore only contain webpages which have been successfully downloaded.]
+In `web_dump` mode (see below) the details of the webpages to scrape are taken from the metadata file with path `METADATA_PATH` and read into a dataframe. with any webpages with a `_status_code` of 200 removed from the dataframe. The dataframe should only contain webpages which have been successfully downloaded.
 
 ## PDF scraping
 
@@ -33,7 +33,7 @@ OpenAI's `text-embedding-3-small` model was used for the database versions calle
 
 ## Settings
 
-A list of settings and options for ingesting text sources is given at the top of \__main__ in retrieval/db/ingest.py.
+A list of settings and options for ingesting text sources is given at the top of `__main__` in retrieval/db/ingest.py.
 
 **`mode`**: `Literal["web_dump","web_search"]` 
 > If the value is `"web_search"` then webpages resulting from a Google programmable search will be ingested (see "settings relevant to web_search mode"). If the value is `"web_dump"` then data which has already been downloaded from the Nesta website and is contained in a directory with path `WEBSITE_DATA_PATH` will be ingested. 
