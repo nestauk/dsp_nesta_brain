@@ -439,7 +439,7 @@ if __name__ == "__main__":
         merge = True  # merge needs to be True from now own for indexed references and inline citations to work
         # - otherwise we could get the same source reference appearing more than once in the reference list
         limit = 10
-        use_tool_for_citations = False
+        use_tool_for_citations = True
         split_references = True  # if True, references will be split into cited and uncited retrieved sources
         # and the numbering reset so that references are numbered in the order they appear in the final list
 
