@@ -175,7 +175,6 @@ class Response:
             not_cited = [reference.as_html(reset_index=True) for reference in self.uncited_references]
             actual_references = "<br><br><em>Cited references:</em><br>" + "<br>".join(cited) if cited else ""
             the_rest = (
-                # Quick fix to show "May be useful" for uncited references in all situations
                 f"<br><em>{'May be useful' if cited else 'May be useful'}:</em><br>" + "<br>".join(not_cited)
                 if not_cited
                 else ""
@@ -245,13 +244,13 @@ def chat_history(*args) -> List[BaseMessage]:
     if (
         "messages" in st.session_state
     ):  # also necessary if using chat_history as an argument in rag_chain_with_citation_tool to avoid an error
-        return [message_class(message)(content=msg["content"]) for msg in st.session_state.messages[1:]]
+        return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
     else:
         return []
 
 
 def trace_metadata() -> Dict:
-    """Compile trace metadata on sidebar parameters and the resulting filter_condition string"""
+    """Compile trace metadata on sidebar parameters and the resulting filter_condition string, as well as settings"""
     sidebar_metadata = {key: st.session_state[key] for key in WIDGET_DEFAULTS.keys()}
     metadata = {"sidebar": sidebar_metadata}
     metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
@@ -354,18 +353,21 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
 
 if __name__ == "__main__":
 
+    # settings
+    # retrieval settings
+    merge = True  # merge needs to be True from now own for indexed references and inline citations to work
+    # - otherwise we could get the same source reference appearing more than once in the reference list
+    limit = 10
+    use_tool_for_citations = False
+    split_references = True  # if True, references will be split into cited and uncited retrieved sources
+    # and the numbering reset so that references are numbered in the order they appear in the final list
+
+    # UI settings
+    initial_message = "Hi, how can I help?"
+
     if check_password():
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
-
-        # settings
-        # retrieval settings
-        merge = True  # merge needs to be True from now own for indexed references and inline citations to work
-        # - otherwise we could get the same source reference appearing more than once in the reference list
-        limit = 10
-        use_tool_for_citations = False
-        split_references = True  # if True, references will be split into cited and uncited retrieved sources
-        # and the numbering reset so that references are numbered in the order they appear in the final list
 
         llm = ChatOpenAI(
             temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini", streaming=True
@@ -470,7 +472,7 @@ if __name__ == "__main__":
         # Store session variables
         if "messages" not in st.session_state.keys():
             st.session_state.messages = [
-                {"role": "assistant", "content": "Hi, how can I help?"},
+                {"role": "assistant", "content": initial_message},
             ]
 
         # Display chat messages
