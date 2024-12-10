@@ -4,8 +4,6 @@ import os
 import re
 
 from collections import OrderedDict
-from typing import TYPE_CHECKING
-from typing import Any
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -20,9 +18,6 @@ from lancedb.table import LanceTable
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_community.vectorstores import LanceDB
 from langchain_core.retrievers import BaseRetriever
-from langchain_core.runnables import RunnableBranch
-from langchain_core.runnables import RunnableParallel
-from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import OpenAIEmbeddings
 from openai import AsyncOpenAI
 from openai import OpenAI
@@ -30,72 +25,7 @@ from retrieval.db.schema import Chunk
 from utils import unique
 
 
-if TYPE_CHECKING:
-    from langchain_core.language_models import LanguageModelLike
-    from langchain_core.prompts import BasePromptTemplate
-    from langchain_core.retrievers import RetrieverLike
-    from langchain_core.retrievers import RetrieverOutputLike
-    from langchain_core.runnables import Runnable
-
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
-
-
-def create_retrieval_chain(
-    retriever: BaseRetriever,
-    combine_docs_chain: Runnable[Dict[str, Any], str],
-) -> Runnable:
-    """
-    Create retrieval chain that retrieves documents and then passes them on.
-
-    Lightly modified version of:
-    https://github.com/langchain-ai/langchain/blob/master/libs/langchain/langchain/chains/retrieval.py
-    The modification is to allow a dict containing the query, filter conditions, and possibly other paramters to be passed through
-    to _get_relevant_documents
-    """
-
-    retrieval_chain = (
-        RunnablePassthrough.assign(
-            context=retriever.with_config(run_name="retrieve_documents"),
-        ).assign(answer=combine_docs_chain)
-    ).with_config(run_name="retrieval_chain")
-
-    return retrieval_chain
-
-
-def create_history_aware_retriever(
-    llm: LanguageModelLike,
-    retriever: RetrieverLike,
-    prompt: BasePromptTemplate,
-) -> RetrieverOutputLike:
-    """Create a chain that takes conversation history and returns documents.
-
-    Modified version of:
-    https://github.com/langchain-ai/langchain/blob/master/libs/langchain/langchain/chains/history_aware_retriever.py
-    As with create_retriever_chain, the modification is to allow a dict containing the query, filter conditions,
-    and possibly other parameters to be passed through to _get_relevant_documents
-    """
-
-    parser = lambda ai_message: ai_message.content  # noqa
-    recontextualisation_chain = prompt | llm | parser
-    recontextualisation_chain = RunnableParallel(
-        input=recontextualisation_chain,
-        filter_condition=lambda x: x.get("filter_condition"),
-        merge=lambda x: x.get("merge") or False,
-    )
-    # unlike in the original version of create_history_aware_retriever, we want filter_condition and merge
-    # to be passed through to the retriever
-
-    retrieve_documents: RetrieverOutputLike = RunnableBranch(
-        (
-            # Both empty string and empty list evaluate to False
-            lambda x: not x.get("chat_history", False),
-            # If no chat history, then we just pass input to retriever
-            retriever,
-        ),
-        # If chat history, then we pass inputs to LLM chain, then to retriever
-        recontextualisation_chain | retriever,
-    ).with_config(run_name="chat_retriever_chain")
-    return retrieve_documents
 
 
 class CustomRetriever(BaseRetriever):

@@ -13,23 +13,15 @@ import streamlit as st
 
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
-
-# from langchain.chains import create_history_aware_retriever
-from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
-from langchain_openai import ChatOpenAI
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from llm.prompt import contextualize_q_prompt
-from llm.prompt import qa_prompt
-from llm.tool import rag_chain_with_citation_tool
-from retrieval.retrieve import CustomRetriever
-from retrieval.retrieve import create_history_aware_retriever
-from retrieval.retrieve import create_retrieval_chain
+from retrieval.chain import history_aware_rag_chain
+from retrieval.chain import history_aware_rag_chain_with_citation_tool
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
 
@@ -366,18 +358,10 @@ if __name__ == "__main__":
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        llm = ChatOpenAI(
-            temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini", streaming=True
-        )
-
-        retriever = CustomRetriever()
-        # credit: https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
-        history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
         if use_tool_for_citations:
-            rag_chain = rag_chain_with_citation_tool(history_aware_retriever, llm, qa_prompt, chat_history)
+            rag_chain = history_aware_rag_chain_with_citation_tool(chat_history)
         else:
-            chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
-            rag_chain = create_retrieval_chain(history_aware_retriever, chat_qa_chain)
+            rag_chain = history_aware_rag_chain
 
         st.set_page_config(layout="wide")
         st.markdown(
