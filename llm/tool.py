@@ -1,11 +1,9 @@
 import os
 
-from operator import itemgetter
 from typing import Callable
 from typing import List
 
 from dotenv import load_dotenv  # noqa
-from dsp_nesta_brain import logger  # noqa
 from langchain.chains import LLMChain  # noqa
 from langchain.chains import create_history_aware_retriever
 from langchain.chains import create_retrieval_chain
@@ -17,7 +15,6 @@ from langchain_core.runnables import RunnableParallel
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.runnables.base import Runnable
 from langchain_openai import ChatOpenAI  # noqa
-from llm.prompt import basic_question_prompt  # noqa
 from llm.prompt import contextualize_q_prompt  # noqa
 from llm.prompt import qa_prompt  # noqa
 from pydantic import BaseModel
@@ -70,6 +67,11 @@ def rag_chain_with_citation_tool(
     retriever: BaseRetriever, llm: BaseChatModel, prompt: PromptTemplate, chat_history_func: Callable
 ) -> Runnable:
     """Return a RAG retrieval chain with incorporating a tool for capturing citations"""
+
+    # the langchain example this is based on (see https://python.langchain.com/v0.1/docs/use_cases/question_answering/citations/)
+    # uses format_docs_with_id here – this is not needed because chunk enumeration is already happening within the retriever
+    # (as long as enumerate_=True in CustomRetriever.chunks_to_docs)
+
     llm_with_tool = llm.bind_tools(
         [quoted_answer],
         tool_choice="quoted_answer",
@@ -78,14 +80,9 @@ def rag_chain_with_citation_tool(
 
     answer = prompt | llm_with_tool | output_parser
     chain = (
-        RunnableParallel(input=RunnablePassthrough(), docs={}, chat_history=chat_history_func)
-        .assign(
-            context=itemgetter("docs")
-        )  # the langchain example documentation in https://python.langchain.com/v0.1/docs/use_cases/question_answering/citations/
-        # uses format_docs_with_id here – this is not needed because chunk enumeration is already happening within the retriever
-        # (as long as enumerate_=True in CustomRetriever.chunks_to_docs)
+        RunnableParallel(input=RunnablePassthrough(), context=RunnablePassthrough(), chat_history=chat_history_func)
         .assign(quoted_answer=answer)
-        .pick(["quoted_answer", "docs"])
+        .pick(["quoted_answer"])
     )
 
     return create_retrieval_chain(retriever, chain)

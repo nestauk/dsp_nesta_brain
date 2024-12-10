@@ -9,7 +9,6 @@ from typing import List
 from typing import Optional
 from typing import Union
 
-import lxml.html  # nosec
 import streamlit as st
 
 from dotenv import load_dotenv
@@ -25,7 +24,6 @@ from langchain_core.runnables.base import Runnable
 from langchain_openai import ChatOpenAI
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from llm.prompt import basic_question_prompt
 from llm.prompt import contextualize_q_prompt
 from llm.prompt import qa_prompt
 from llm.tool import rag_chain_with_citation_tool
@@ -126,7 +124,7 @@ class Response:
     references: List[Reference]
     trace_id: Optional[str] = None  # may need trace ids to push feedback to Langfuse
 
-    def __init__(self, chain_response: Union[str, Dict]) -> None:
+    def __init__(self, chain_response: Dict) -> None:
 
         if type(chain_response["answer"]) is str:
             self.text = chain_response["answer"]
@@ -262,13 +260,13 @@ def trace_metadata() -> Dict:
     return metadata
 
 
-def llm_response(
+def respond(
     chain: Runnable,
     question: str,
     message_placeholder: DeltaGenerator,
     **kwargs,
-) -> str:
-    """Get synchronous LLM response from chain"""
+) -> Response:
+    """Get synchronous LLM response from chain and convert it into a Response object"""
 
     input = {"input": question, "chat_history": chat_history()}
     trace_id = str(uuid.uuid4())
@@ -277,8 +275,21 @@ def llm_response(
     for item in chain.stream(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
         # Process each item
         if "answer" in item:
-            response_text = item["answer"]
-            response["answer"] += str(response_text)
+            if use_tool_for_citations:
+                response_text = (
+                    item["answer"]["quoted_answer"].get("answer") or ""
+                )  # if using tool the answer will be a dict rather than string
+                if response_text and response["answer"] == response_text:
+                    break  # Once the response has been generated it will go on to the other components
+                    # of quoted_answer which we don't actually need, so stop when the answer is complete
+                response["answer"] += response_text[
+                    len(response["answer"]) :
+                ]  # unlike normal streaming, response_text contains the *cumulative* response
+                # this simulates normal streaming
+                # we could set response["answer"] = response_text, but I found this made the streaming look jerky
+            else:
+                response_text = item["answer"]
+                response["answer"] += str(response_text)
             # Display the response
             message_placeholder.markdown(response["answer"] + "▌")
         elif "context" in item:
@@ -287,29 +298,8 @@ def llm_response(
     # it will be rendered in a nicer format with references
     message_placeholder.markdown("")
     langfuse.trace(id=trace_id, metadata=trace_metadata())
-    return response, trace_id
-
-
-def respond(
-    chain: Runnable,
-    question: str,
-    message_placeholder: DeltaGenerator,
-    **kwargs,
-) -> List[Response]:
-    """Get individual and/or summary responses from chain and convert them into Response objects"""
-
-    chain_response, trace_id = llm_response(chain, question, message_placeholder)
-
-    response = Response(chain_response)
     st.session_state["current_trace_id"] = trace_id
-
-    return response
-
-
-def is_html(string: str) -> bool:
-    """Test whether a string is HTML"""
-    # credit: https://stackoverflow.com/questions/24856035/how-to-detect-with-python-if-the-string-contains-html-code
-    return lxml.html.fromstring(string).find(".//*") is not None
+    return Response(response)
 
 
 def filter_conditions() -> Union[str, None]:
@@ -352,15 +342,15 @@ if __name__ == "__main__":
 
     # settings
     # retrieval settings
-    merge = True  # merge needs to be True from now own for indexed references and inline citations to work
+    merge: bool = True  # merge needs to be True from now on for indexed references and inline citations to work
     # - otherwise we could get the same source reference appearing more than once in the reference list
-    limit = 10
-    use_tool_for_citations = False
-    split_references = True  # if True, references will be split into cited and uncited retrieved sources
+    limit: int = 10
+    use_tool_for_citations: bool = True
+    split_references: bool = True  # if True, references will be split into cited and uncited retrieved sources
     # and the numbering reset so that references are numbered in the order they appear in the final list
 
     # UI settings
-    initial_message = "Hi, how can I help?"
+    initial_message: str = "Hi, how can I help?"
 
     if check_password():
         load_dotenv()
@@ -369,17 +359,16 @@ if __name__ == "__main__":
         llm = ChatOpenAI(
             temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini", streaming=True
         )
-        indiv_qa_chain = create_stuff_documents_chain(llm, basic_question_prompt)
-        chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
+
         retriever = CustomRetriever(
             merge=merge
         )  # merge cannot be passed through to the retriever via rag_chain kwargs, so set here
         # credit: https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
         history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
-
         if use_tool_for_citations:
             rag_chain = rag_chain_with_citation_tool(history_aware_retriever, llm, qa_prompt, chat_history)
         else:
+            chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
             rag_chain = create_retrieval_chain(history_aware_retriever, chat_qa_chain)
 
         st.set_page_config(layout="wide")
