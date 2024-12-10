@@ -4,9 +4,9 @@ import os
 import re
 
 from collections import OrderedDict
-from typing import Dict
 from typing import List
 from typing import Optional
+from typing import TypedDict
 
 import lancedb
 
@@ -25,6 +25,14 @@ from retrieval.db.schema import Chunk
 from utils import unique
 
 
+class RetrieverInput(TypedDict):
+    """Class for specifying what the retriever input should be; used as a State class with LangGraph"""
+
+    input: str
+    filter_condition: str
+    merge: bool
+
+
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
 
@@ -37,7 +45,7 @@ class CustomRetriever(BaseRetriever):
     # there have been problems getting Lance DB to work with asynchronous requests
     #    pass
 
-    def _get_relevant_documents(self, input: Dict, limit: int = 10, **kwargs) -> List[LangchainDocument]:
+    def _get_relevant_documents(self, input: RetrieverInput, limit: int = 10, **kwargs) -> List[LangchainDocument]:
         """
         Retrieve chunks related to a search query using a hybrid search strategy
 
@@ -46,6 +54,7 @@ class CustomRetriever(BaseRetriever):
 
         """
 
+        # print(input)
         query = input["input"]
         filter_condition = input.get("filter_condition")
         merge = input.get("merge")

@@ -1,28 +1,12 @@
-import os
-
-from typing import Callable
+from typing import TYPE_CHECKING
 from typing import List
 
-from dotenv import load_dotenv
-from langchain.chains import LLMChain
-
-# from langchain.chains import create_history_aware_retriever
-from langchain.output_parsers.openai_tools import JsonOutputKeyToolsParser
-from langchain.prompts import PromptTemplate
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.retrievers import BaseRetriever
-from langchain_core.runnables import Runnable
-from langchain_core.runnables import RunnableParallel
-from langchain_core.runnables import RunnablePassthrough
-from langchain_openai import ChatOpenAI
-from llm.prompt import contextualize_q_prompt
-from llm.prompt import qa_prompt
 from pydantic import BaseModel
 from pydantic import Field
-from retrieval.retrieve import CustomRetriever
-from retrieval.retrieve import create_history_aware_retriever
-from retrieval.retrieve import create_retrieval_chain
 
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import Runnable
 
 # see https://python.langchain.com/v0.1/docs/use_cases/question_answering/citations/
 
@@ -54,7 +38,7 @@ class quoted_answer(BaseModel):
     citations: List[Citation] = Field(..., description="Citations from the given sources that justify the answer.")
 
 
-def llm_response(chain: LLMChain, question: str, **kwargs) -> str:
+def llm_response(chain: Runnable, question: str, **kwargs) -> str:
     """
     Get synchronous LLM response from chain
 
@@ -63,47 +47,3 @@ def llm_response(chain: LLMChain, question: str, **kwargs) -> str:
     input = {"input": question, "chat_history": []}
     response = chain.invoke(input, **kwargs)
     return response
-
-
-def rag_chain_with_citation_tool(
-    retriever: BaseRetriever, llm: BaseChatModel, prompt: PromptTemplate, chat_history_func: Callable
-) -> Runnable:
-    """Return a RAG retrieval chain with incorporating a tool for capturing citations"""
-
-    # the langchain example this is based on (see https://python.langchain.com/v0.1/docs/use_cases/question_answering/citations/)
-    # uses format_docs_with_id here – this is not needed because chunk enumeration is already happening within the retriever
-    # (as long as enumerate_=True in CustomRetriever.chunks_to_docs)
-
-    llm_with_tool = llm.bind_tools(
-        [quoted_answer],
-        tool_choice="quoted_answer",
-    )
-    output_parser = JsonOutputKeyToolsParser(key_name="quoted_answer", first_tool_only=True)
-
-    answer = prompt | llm_with_tool | output_parser
-    chain = (
-        RunnableParallel(input=RunnablePassthrough(), context=RunnablePassthrough(), chat_history=chat_history_func)
-        .assign(quoted_answer=answer)
-        .pick(["quoted_answer"])
-    )
-
-    return create_retrieval_chain(retriever, chain)
-
-
-if __name__ == "__main__":
-
-    # fot testing
-
-    load_dotenv()
-
-    llm = ChatOpenAI(temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini")
-
-    retriever = CustomRetriever(merge=True)
-    history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
-
-    rag_chain = rag_chain_with_citation_tool(history_aware_retriever, llm, qa_prompt, lambda *args: [])
-
-    resp = llm_response(rag_chain, "What work has Nesta done on climate adaptation")
-
-# print(resp.keys(), "\n\n")
-# print(resp)

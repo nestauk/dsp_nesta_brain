@@ -93,7 +93,7 @@ class Reference:
 
     def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
-        test_mode = False
+        test_mode = True
         index = self.reset_index if reset_index else self.index
         if test_mode:
             if self.index == 1:
@@ -344,6 +344,7 @@ if __name__ == "__main__":
 
     # settings
     # retrieval settings
+    use_langgraph: bool = True
     merge: bool = True  # merge needs to be True from now on for indexed references and inline citations to work
     # - otherwise we could get the same source reference appearing more than once in the reference list
     limit: int = 10
@@ -359,9 +360,9 @@ if __name__ == "__main__":
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
         if use_tool_for_citations:
-            rag_chain = history_aware_rag_chain_with_citation_tool(chat_history)
+            rag_chain = history_aware_rag_chain_with_citation_tool(chat_history, use_langgraph=use_langgraph)
         else:
-            rag_chain = history_aware_rag_chain
+            rag_chain = history_aware_rag_chain(use_langgraph=use_langgraph)
 
         st.set_page_config(layout="wide")
         st.markdown(
