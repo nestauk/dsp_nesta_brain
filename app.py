@@ -34,8 +34,6 @@ from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
 
 
-input_ = input  # only needed for testing
-
 langfuse = Langfuse()
 
 langfuse_handler = CallbackHandler(
