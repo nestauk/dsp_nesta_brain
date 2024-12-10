@@ -298,15 +298,12 @@ def respond(
 ) -> List[Response]:
     """Get individual and/or summary responses from chain and convert them into Response objects"""
 
-    responses = []
-
     chain_response, trace_id = llm_response(chain, question, message_placeholder)
 
-    if chain_response["answer"] != "NULL":
-        responses.append(Response(chain_response))
+    response = Response(chain_response)
     st.session_state["current_trace_id"] = trace_id
 
-    return responses
+    return response
 
 
 def is_html(string: str) -> bool:
@@ -501,16 +498,10 @@ if __name__ == "__main__":
                 # are not passed on to the retriever
                 st.session_state["filter_condition"] = filter_condition
 
-                responses = respond(rag_chain, input, message_placeholder)
-
-                if responses:
-                    for response in responses:
-                        message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
-                        message = {"role": "assistant", "html": response.as_html(), "content": response.text}
-                        st.session_state.messages.append(message)
-
-                else:
-                    st.write("I was not able to answer that question")
+                response = respond(rag_chain, input, message_placeholder)
+                message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
+                message = {"role": "assistant", "html": response.as_html(), "content": response.text}
+                st.session_state.messages.append(message)
 
         # if there is more than one response, the feedback will be pushed to Langfuse with the trace_id of the last one
         feedback = streamlit_feedback(
