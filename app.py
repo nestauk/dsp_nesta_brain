@@ -13,8 +13,8 @@ import streamlit as st
 
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
-from langchain.chains import create_history_aware_retriever
-from langchain.chains import create_retrieval_chain
+
+# from langchain.chains import create_history_aware_retriever
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
@@ -28,9 +28,13 @@ from llm.prompt import contextualize_q_prompt
 from llm.prompt import qa_prompt
 from llm.tool import rag_chain_with_citation_tool
 from retrieval.retrieve import CustomRetriever
+from retrieval.retrieve import create_history_aware_retriever
+from retrieval.retrieve import create_retrieval_chain
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
 
+
+input_ = input  # only needed for testing
 
 langfuse = Langfuse()
 
@@ -241,10 +245,13 @@ def chat_history(*args) -> List[BaseMessage]:
 
     if (
         "messages" in st.session_state
-    ):  # also necessary if using chat_history as an argument in rag_chain_with_citation_tool to avoid an error
-        return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
-    else:
-        return []
+    ):  # necessary if using chat_history as an argument in rag_chain_with_citation_tool to avoid an error
+        if (
+            len(st.session_state.messages) > 2
+        ):  # if the only messages are the initial_message and the first user input, then you don't need the chat history
+            return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
+
+    return []
 
 
 def trace_metadata() -> Dict:
@@ -268,7 +275,12 @@ def respond(
 ) -> Response:
     """Get synchronous LLM response from chain and convert it into a Response object"""
 
-    input = {"input": question, "chat_history": chat_history()}
+    input = {
+        "input": question,
+        "chat_history": chat_history(),
+        "filter_condition": st.session_state["filter_condition"],
+        "merge": merge,
+    }
     trace_id = str(uuid.uuid4())
     response = {"answer": ""}
 
@@ -360,9 +372,7 @@ if __name__ == "__main__":
             temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini", streaming=True
         )
 
-        retriever = CustomRetriever(
-            merge=merge
-        )  # merge cannot be passed through to the retriever via rag_chain kwargs, so set here
+        retriever = CustomRetriever()
         # credit: https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
         history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
         if use_tool_for_citations:
@@ -482,10 +492,7 @@ if __name__ == "__main__":
             with st.chat_message("assistant"):
                 message_placeholder = st.empty()
 
-                filter_condition = filter_conditions()
-                retriever.filter_condition = filter_condition  # this is not ideal syntax, but kwargs to chain.invoke
-                # are not passed on to the retriever
-                st.session_state["filter_condition"] = filter_condition
+                st.session_state["filter_condition"] = filter_conditions()
 
                 response = respond(rag_chain, input, message_placeholder)
                 message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
