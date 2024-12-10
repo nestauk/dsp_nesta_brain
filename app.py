@@ -42,7 +42,7 @@ langfuse_handler = CallbackHandler(
     secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
     public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
     host=os.getenv("LANGFUSE_HOST"),
-    user_id="anon",
+    user_id=os.getenv("LANGFUSE_USER_ID"),
 )
 
 
