@@ -54,7 +54,7 @@ class CustomRetriever(BaseRetriever):
 
         """
 
-        # print(input)
+        #  print('***',input)
         query = input["input"]
         filter_condition = input.get("filter_condition") or None  # if '' then want None
         merge = input.get("merge")

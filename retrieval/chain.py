@@ -14,7 +14,7 @@ from langchain_core.runnables import RunnableBranch
 from langchain_core.runnables import RunnableParallel
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
-from langgraph.langgraph_ import graph
+from lgraph.graph import graph
 from llm.prompt import contextualize_q_prompt
 from llm.prompt import qa_prompt
 from llm.tool import quoted_answer
@@ -127,8 +127,11 @@ def retriever(use_langgraph: bool = False) -> Runnable:
     retriever_ = CustomRetriever()
     if use_langgraph:
         retriever_ = (
-            graph | (lambda x: list(x.values())[0]) | retriever_
-        )  # the lambda ensures the last state value is passed on to the retriever
+            graph | (lambda x: x[-1] if type(x) is list else x) | (lambda d: d.popitem()[1]) | retriever_
+        )  # the lambdas here ensure that whatever comes out of the graph is a dict representing the final state
+        # (it should have the same keys as RetrieverInput)
+        # the format of graph outputs is:
+        # List[{'node_1_name':dict representing state returned by node 1} .. {'node_n_name': state returned by node n}]
     return retriever_
 
 
