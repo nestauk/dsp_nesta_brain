@@ -56,7 +56,7 @@ class CustomRetriever(BaseRetriever):
 
         # print(input)
         query = input["input"]
-        filter_condition = input.get("filter_condition")
+        filter_condition = input.get("filter_condition") or None  # if '' then want None
         merge = input.get("merge")
 
         # the code has been chopped up into bits which can be reused easily in both synchronous and asynchronous versions
