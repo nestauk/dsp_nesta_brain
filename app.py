@@ -20,8 +20,8 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from retrieval.chain import history_aware_rag_chain
-from retrieval.chain import history_aware_rag_chain_with_citation_tool
+from llm.chain import history_aware_rag_chain
+from llm.chain import history_aware_rag_chain_with_citation_tool
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
 
