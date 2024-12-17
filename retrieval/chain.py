@@ -105,9 +105,12 @@ def rag_chain_with_citation_tool(
     )
     output_parser = JsonOutputKeyToolsParser(key_name="quoted_answer", first_tool_only=True)
 
+    # answer = create_stuff_documents_chain(llm_with_tool,prompt,output_parser=output_parser)
     answer = prompt | llm_with_tool | output_parser
     chain = (
-        RunnableParallel(input=RunnablePassthrough(), context=RunnablePassthrough(), chat_history=chat_history_func)
+        RunnableParallel(
+            input=(lambda x: x["input"]), context=(lambda x: x["context"]), chat_history=chat_history_func
+        )
         .assign(quoted_answer=answer)
         .pick(["quoted_answer"])
     )
