@@ -1,5 +1,6 @@
 import asyncio
 
+from config import DEFAULT_START_YEAR
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 
@@ -14,14 +15,33 @@ from llm.tool import year_range
 from retrieval.retrieve import RetrieverInput
 
 
+DEFAULT_FROM_YEAR_FILTER_CONDITION = f"source.date_pub >= to_timestamp('{DEFAULT_START_YEAR}-01-01')"
+
 State = RetrieverInput
 
 
 def append_filter_condition(state: State, new_filter_condition: str) -> State:
-    """Make sure 'and' is appended before the new filter condition if a filter condition already exists"""
-    if state["filter_condition"]:
-        state["filter_condition"] += " and "
-    state["filter_condition"] += new_filter_condition
+
+    """
+    Replace DEFAULT_FROM_YEAR_FILTER_CONDITION if new_filter_condition is attempting to set a new from_year.
+    Otherwise, make sure 'and' is appended before the new filter condition if a filter condition already exists
+    """  # noqa
+
+    if (
+        state["filter_condition"]
+        and "source.date_pub >=" in new_filter_condition
+        and DEFAULT_FROM_YEAR_FILTER_CONDITION in state["filter_condition"]
+    ):
+
+        state["filter_condition"] = state["filter_condition"].replace(
+            DEFAULT_FROM_YEAR_FILTER_CONDITION, new_filter_condition
+        )
+
+    else:
+        if state["filter_condition"]:
+            state["filter_condition"] += " and "
+        state["filter_condition"] += new_filter_condition
+
     return state
 
 
@@ -42,8 +62,13 @@ def decide_if_person_page(state: State) -> State:
 # -------NODES
 def decide_if_need_time_constraint(state: State) -> State:
     """Decide if the publication date of retrieved documents should be constrained by a year range"""
+
+    from_year_widget_has_been_set = (
+        "source.date_pub" in state["filter_condition"]
+        and DEFAULT_FROM_YEAR_FILTER_CONDITION not in state["filter_condition"]
+    )
     if (
-        "source.date_pub" not in state["filter_condition"]
+        not from_year_widget_has_been_set
     ):  # if the user has explicitly set a filter condition via the UI, use that one and ignore the node
         llm_with_tool = llm.bind_tools(
             [year_range],

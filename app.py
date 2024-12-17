@@ -11,6 +11,8 @@ from typing import Union
 
 import streamlit as st
 
+from config import DEFAULT_START_YEAR
+from config import EARLIEST_YEAR
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
@@ -36,8 +38,6 @@ langfuse_handler = CallbackHandler(
 )
 
 
-EARLIEST_YEAR = 2003  # 2003 is the earliest publication date in the DB
-DEFAULT_START_YEAR = 2019
 CURRENT_YEAR = datetime.now().year
 
 WIDGET_DEFAULTS = {"from_year": DEFAULT_START_YEAR, "to_year": CURRENT_YEAR, "include_people": "Yes", "mission": None}
@@ -93,7 +93,7 @@ class Reference:
 
     def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
-        test_mode = True
+        test_mode = False
         index = self.reset_index if reset_index else self.index
         if test_mode:
             if self.index == 1:
