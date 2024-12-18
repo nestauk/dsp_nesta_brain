@@ -17,19 +17,23 @@ The code reflects the data ingestion needs for early prototypes of the Nesta Bra
 
 Most of the relevant code is in `retrieval/db/ingest.py`. See also `scraping/scrape.py` and `scraping/scrape_pdf.py` for web and PDF scraping functions.  
 
-## Embeddings model
-
-OpenAI's `text-embedding-3-small` model was used for the database versions called `full_site_demo_db` and `full_site_demo_db_with_pdfs`. Future users may want to experiment with different embeddings models. The embeddings model can be set in `config.py` via `DEFAULT_EMBEDDINGS_MODEL`. Note that if the embeddings model is changed in `DEFAULT_EMBEDDINGS_MODEL` then: (i) the variables encapsulating the rate limits, `RPM_RATE_LIMIT` and `TPM_RATE_LIMIT`, may also need to be changed; and (ii) the embeddings model used by the retriever in `retrieval/retrieve.py` should also be changed [**to do – this should be set in `config.py`**].
-
 ## Data
 
-[MENTION ABOUT the DATA DUMP HERE – get from S3]
+The database `full_site_demo_db` contains a vectorized version of Nesta's website (as of 29th October 2024), and `full_site_demo_db_with_pdfs` contains the same, but with PDFs (see **PDF scraping** for a description). 
 
-In `web_dump` mode (see below) the details of the webpages to scrape are taken from the metadata file with path `METADATA_PATH` and read into a dataframe. with any webpages with a `_status_code` of 200 removed from the dataframe. The dataframe should only contain webpages which have been successfully downloaded.
+The HTML files and PDFs from the website can be downloaded from the `discovery-iss` bucket on Amazon S3 (`data/nesta_brain`). See also `dsp_nesta_brain/getters/nesta.py` for instructions on downloading it. 
 
-## PDF scraping
+Metadata on each webpage is contained in the file `metadata.jsonl`. In `web_dump` mode (see below) the details of the webpages to scrape are taken from this file and read into a dataframe. with any webpages with a `_status_code` of 200 removed from the dataframe. The dataframe should only contain webpages which have been successfully downloaded.
 
-[details]
+### PDF scraping
+
+As PDFs do not appear on the sitemap, PDFs were identified via links on webpages. Only PDFs which seemed to be major reports or other documents forming the main topic of a webpage were ingested (see `download_button_pdf_only` option below for an explanation).
+
+PDFs were read using the [Unstructured][https://unstructured.io/] open source library. This attempts to recognise different components of a PDF, for example, title, headers and footers, narrative text, etc. The PDFs on Nesta's website include many which are mostly diagrammatic rather than conventional reports, which makes it harder to identify the kind of narrative text we actually want to ingest accurately in an automated fashion. Attempts were made however to automatically identify and remove extraneous text, for example, title pages, tables of contents, reference lists, before ingestion.
+
+## Embeddings model
+
+OpenAI's `text-embedding-3-small` model was used for the database versions called `full_site_demo_db` and `full_site_demo_db_with_pdfs`. Future users may want to experiment with different embeddings models. The embeddings model can be set in `config.py` via `DEFAULT_EMBEDDINGS_MODEL`. Note that if the embeddings model is changed in `DEFAULT_EMBEDDINGS_MODEL` then the variables encapsulating the rate limits, `RPM_RATE_LIMIT` and `TPM_RATE_LIMIT`, may also need to be changed.
 
 ## Settings
 
@@ -77,3 +81,4 @@ The following list of settings and options for ingesting text sources can be fou
 There wasn't time to test and troubleshoot the throttle, and was also getting error messages back from OpenAI when we couldn't have been exceeding the rate limits.
 t work. Also getting error messages back when we can't possibly be exceeding. 
 2. There were some PDFs which didn't scrape successfully and which threw error messages, probably due to size. There wasn't time to investigate and fix this. You may encounter. Can always set start_index following the problem PDF.
+3. document_table in schema
