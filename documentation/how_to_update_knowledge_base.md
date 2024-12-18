@@ -101,7 +101,7 @@ The following list of settings and options for ingesting text sources can be fou
 > One problem we encountered while ingesting PDFs is detecting and inserting their metadata (title, publication date). We found this could not be reliably automatically identified from the PDF itself. For this reason, where a webpage has obviously been created to promote a new report, it is simplest to assume the PDF has the same metadata as the webpage. If `download_button_pdf_only` is True, then only those PDFs linked to by a red 'Download' button on the originating webpage are ingested; if `False`, all PDFs linked to by the originating webpage are looked for an ingested, as long as they are on the Nesta website. Note that if `cautious` (see below) is False, then all PDFs are given the same title and publication date as the originating webpage. If both `download_button_pdf_only` and `cautious` are `False`, this could result in a significant number of PDFs in the database with inaccurate metadata.
 
 **`cautious`**: `bool`
-> if `True` the system will pause to check whether you want to scrape every individual PDF in turn, and will also ask whether metadata guesses are correct. If `False`, the system will scrape each PDF automatically and assume the metadata from the originating webpage is correct, as described above. Setting `cautious` to True is very slow and only intended for testing, or for getting a feel for the available PDFs.
+> if `True` the system will pause to check whether the user wants to scrape every individual PDF in turn, and will also ask whether metadata guesses are correct. If `False`, the system will scrape each PDF automatically and assume the metadata from the originating webpage is correct, as described above. Setting `cautious` to True is very slow and only intended for testing, or for getting a feel for the available PDFs, or for ingesting a small number of PDFs.
 
 **`start_index`**: `int`
 > the row of the metadata dataframe (see **Data** section) to start ingesting from, with the first row at index `0`. `start_index` is taken from the first command line argument, or defaults to `0`.
@@ -109,7 +109,7 @@ The following list of settings and options for ingesting text sources can be fou
 **`batch_size`**: `int`
 > the number of webpages or PDFs to get embeddings for and ingest at a time. Note that if `batch_size` is too high then you will get error messages back from OpenAI (see **Known issues**). Users are encouraged to experiment with `batch_size`. PDFs can be large and slow to scrape, so a very low batch_size (<5) is recommended if `pdf_mode` is `True`. A `batch_size` of 50 for webpages and 1 for PDFs was used when the DB was originally set up. Batch sizes > 100 for webpages seemed to cause problems.
 
-*Settings relevant to web_search mode*
+*Settings relevant to `web_search` mode*
 
 **`query`**: `str`
 > the web search query (as if doing a Google search)
@@ -120,16 +120,16 @@ The following list of settings and options for ingesting text sources can be fou
 **`subdirectories`**:`Optional[List[str]]`
 > a list of subdirectories on the website which you wish to limit the search to; note that a separate search will be conducted for each of these subdirectories in turn
 
-*Note: Google Programmable Search limits*: Note that only a 100 search results can be returned from Google Programmable Search for each distinct search, where a distinct search is a combination of query, url and subdirectory. Furthermore, if more than 100 searches a day are required, a billing account will need to be set up. See [this Google webpage](https://developers.google.com/custom-search/v1/overview#:~:text=Custom%20Search%20JSON%20API%20provides,to%2010k%20queries%20per%20day.) for more details.
+*Google Programmable Search limits*: Note that only a 100 search results can be returned from Google Programmable Search for each distinct search, where a distinct search is a combination of query, url and subdirectory. Furthermore, if more than 100 searches a day are required, a billing account will need to be set up. See [this Google webpage](https://developers.google.com/custom-search/v1/overview#:~:text=Custom%20Search%20JSON%20API%20provides,to%2010k%20queries%20per%20day.) for more details.
 
-*Settings relevant to given_urls mode*
+*Settings relevant to `given_urls` mode*
 
 **`given_urls`**: `List[str]`
 > a specified list of urls pointing to webpages to scrape and ingest
 
 ## Adding new data sets
 
-As the website changes over time, the vector database underlying Nesta Brain will need to reflect this. In addition, it may be desired to add pages from other sites, or offline documents.
+As the website changes over time, the vector database underlying Nesta Brain will need to reflect this. In addition, admins may wish to add pages from other sites, or offline documents.
 
 ### Updates to the Nesta website: adding new pages in `given_urls` mode
 
@@ -141,17 +141,17 @@ If it is necessary to ingest only a relatively small number of pages which have 
 
 ### Updates to the Nesta website: `web_dump` mode
 
-If preferred, `web_dump` mode can be used either to add new pages or to do a completely new reingestion of the whole site. 
+`web_dump` mode can be used either to add new pages or to do a completely new reingestion of the whole site. 
 
 [an explanation of how to derive urls from the site map, download them and add their metadata to `metadata.jsonl` needs to be added here.]
 
-New pages can be added in `web_dump` mode. Only webpages which are not already in the database are added. The code will iterate through the rows of a dataframe representing all webpages, and those already present will be ignored. If PDFs linked to from new pages are wanted as well, then run the code twice, once with `pdf_mode = False` (to ingest the webpages), and once with `pdf_mode = True` (to ingest the PDFs).
+New pages can be added in `web_dump` mode. Only webpages which are not already in the database are added. The code will iterate through the rows of the dataframe representing all webpages, and those already present will be ignored. If any PDFs linked to by new pages are wanted as well, then run the code twice, once with `pdf_mode = False` (to ingest the webpages), and once with `pdf_mode = True` (to ingest the PDFs).
 
 For a completely new reingestion, a new database needs to be created, following these steps:
 
 1. Change DB_PATH in config.py to the path of the new database.
 2. Run `__main__` in `retrieval/db/schema.py` to set up the new database.
-3. Run `__main__` in `retrieval/db/ingest.py` setting `mode = "web_dump"`. Again, if PDFs are wanted as well, then run twice, once with `pdf_mode = False`, and once with `pdf_mode = True`. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, use `start_index` to skip the webpage which caused the error to be thrown.
+3. Run `__main__` in `retrieval/db/ingest.py` setting `mode = "web_dump"`. Again, if PDFs are wanted as well, then run twice, once with `pdf_mode = False`, and once with `pdf_mode = True`. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, investigate and fix the issue, or use `start_index` to skip the webpage which caused the error to be thrown.
 
 ### Adding webpages from other sites
 
@@ -167,10 +167,10 @@ Note that the code which does the website scraping in `scraping/scrape.py` is de
 
 ### Adding offline resources
 
-The code in `retrieval/db/ingest.py` is not currently set up to ingest offline resources (other than webpages and PDFs stored during a data dump of the Nesta website and accessed in `web_dump` mode). Code would need to be written to convert the offline documents into plain text, and then convert the plain text and any metadata to [LangChain `Document`s](https://python.langchain.com/api_reference/core/documents/langchain_core.documents.base.Document.html). A list of LangChain `Document`s can be passed to the `ingest` function via the `documents` argument. The `ingest` function chunks and vectorizes each document and inserts the chunks into the vector database. Note that every `Document` in `documents` must have a `location` (system file path or url) and `title` field in its metadata – all other metadata is optional. `location` is used as a unique identifier for documents to establish whether documents have already been added to the database. \[Note that the LangChain `Document` class is distinct from the `Document` class defined in the DB schema and aliases are used for both these classes in `retrieval/db/ingest.py` to avoid confusion].
+The code in `retrieval/db/ingest.py` is not currently set up to ingest offline resources (other than webpages and PDFs stored during a data dump of the Nesta website and accessed in `web_dump` mode). Code would need to be written to convert the offline documents into plain text, and then convert the plain text and any metadata into the LangChain [`Document`](https://python.langchain.com/api_reference/core/documents/langchain_core.documents.base.Document.html) class. A list of LangChain `Document`s can be passed to the `ingest` function via the `documents` argument. The `ingest` function chunks and vectorizes each document and inserts the chunks into the vector database. Note that every `Document` in `documents` must have a `location` (system file path or url) and `title` field in its metadata – all other metadata is optional. `location` is used as a unique identifier for documents to establish whether documents have already been added to the database. \[Note that the LangChain `Document` class is distinct from the `Document` class defined in the DB schema. The aliases `LangchainDocument` and `LanceDocument` are used for these classes respectively in `retrieval/db/ingest.py` to avoid confusion].
 
 ## Known issues
 
 1. An attempt was made to throttle OpenAI requests and ensure they are kept within rate limits, but this may not have been fully successful. In addition, when `batch_size` is large error messages can be thrown by the API which don't seem to be due to rate limits being exceeded. There wasn't time to troubleshoot and fix these issues, but future users should be aware that if they wish to ingest large volumes of documents simultaneously, they may need to upgrade the code.
 2. There were some PDFs which didn't scrape successfully and which threw error messages, probably due to size. There also wasn't time to investigate and fix this. Future users may encounter the same problem. If a PDF throws an error, it can be skipped by noting the row in the metadata dataframe of the originating webpage and setting `start_index` to the one following it.
-3. Webpage urls act as unique identifiers. It is easy to prevent duplicate scraping of a webpage via the same url. However, the database does currently contain some duplication of webpages where there are URL aliases in the site map. These should be removed from the database, time-permitting, and code added to retrieval/db/ingest.py to prevent this occurring.
+3. As mentioned above, the `location` metadata field is used a as a unique identifier for documents to avoid duplicate scraping of webpages and other documents. However, the database does currently contain some duplication of webpages where there are URL aliases in the site map. These should be removed from the database, time-permitting, and code added to retrieval/db/ingest.py to prevent this occurring.
