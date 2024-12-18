@@ -28,26 +28,36 @@ LanceDB was chosen because it is a free, serverless database which is simple to 
 The fields which each chunk record contains are specified by the Chunk class in `retrieval/db/schema.py`. Note that metadata is contained in the nested `source` field, which represents the document the chunk text is derived from. `source` fields are as follows:
 **`location`**: `str`
 > the url or file system path where the document can be found
+
 **`title`**: `str`
 > document title
+
 **`date_pub`**: `Optional[date]`
 > document publication date
+
 *metadata unique to the data layer on Nesta webpages*
 **`projects`**: `Optional[List[str]]`
 > the projects the webpage relates to
+
 **`units`**: `Optional[List[str]]`
 > the Nesta units the webpage relates to
+
 **`areas_of_work`**: `Optional[List[str]]`
 > the Nesta areas of work the webpage relates to
+
 **`missions`**: `Optional[List[str]]`
 > the Nesta missions the webpage relates to
+
 **`authors`**: `Optional[List[str]]`
 > webpage authors
+
 **`contentType`**: `Optional[str]`
 > content type, e.g. person page, unit page, feature page
+
 *traffic metadata* 
 **`views`**: `Optional[int]`
 > no. views
+
 **`rank`**: `Optional[int]`
 > webpage rank in terms of views (relative to other webpages on the same site)
 
