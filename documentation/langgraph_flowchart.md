@@ -8,6 +8,8 @@ The state represents input to the retriever.
 
 After the user types in their input, the nodes decide whether filter conditions need to be set for retrieval based on the user's input.
 
+This diagram is presented for the purposes of future brainstorming for further nodes which could be added.
+
 ```mermaid
 %%{init: {'flowchart': {'curve': 'linear'}}}%%
 graph TD;
