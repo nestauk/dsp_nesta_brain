@@ -2,7 +2,7 @@
 
 [work in progress]
 
-**NB some of the instructions below will need branch `ingest-corrections` to be merged and are not correct in `dev` as of 04/12/24**
+**NB some of the instructions below will need branch `ingest-corrections` to be merged and are not correct in `dev` as of 18/12/24**
 
 ## Introduction
 
@@ -21,11 +21,12 @@ Most of the relevant code is in `retrieval/db/ingest.py`. See also `scraping/scr
 
 ### DBMS
 
-LanceDB was chosen because it is a free, serverless database which is simple to use and allows developers total flexibility in the metadata associated with each vector.
+LanceDB was chosen because it is a free, serverless database which is simple to use and allows a great deal of flexibility in the metadata associated with each vector.
 
 ### Schema
 
-The fields which each chunk record contains are specified by the Chunk class in `retrieval/db/schema.py`. Note that metadata is contained in the nested `source` field, which represents the document the chunk text is derived from. `source` fields are as follows:
+The records which a LanceDB database contains are defined by a schema made up of Pydantic classes. The fields which each chunk record contains are specified by the Chunk class in `retrieval/db/schema.py`. Note that metadata is contained in the nested `source` field, which represents the document the chunk text is derived from. `source` fields are as follows:
+
 **`location`**: `str`
 > the url or file system path where the document can be found
 
@@ -36,6 +37,7 @@ The fields which each chunk record contains are specified by the Chunk class in 
 > document publication date
 
 *metadata unique to the data layer on Nesta webpages*
+
 **`projects`**: `Optional[List[str]]`
 > the projects the webpage relates to
 
@@ -55,6 +57,7 @@ The fields which each chunk record contains are specified by the Chunk class in 
 > content type, e.g. person page, unit page, feature page
 
 *traffic metadata* 
+
 **`views`**: `Optional[int]`
 > no. views
 
@@ -83,8 +86,8 @@ OpenAI's `text-embedding-3-small` model was used for the database versions calle
 
 The following list of settings and options for ingesting text sources can be found at the top of `__main__` in retrieval/db/ingest.py.
 
-**`mode`**: `Literal["web_dump","web_search"]` 
-> If `"web_dump"`, then webpages/PDFs which have already been downloaded from the Nesta website and are contained in directories with paths `WEBSITE_DATA_PATH` or `PDF_PATH` will be ingested. If `"web_search"`, then webpages resulting from a Google programmable search will be ingested (see "settings relevant to web_search mode").
+**`mode`**: `Literal["web_dump","web_search","given_urls"]` 
+> If `"web_dump"`, then webpages/PDFs which have already been downloaded from the Nesta website and are contained in directories with paths `WEBSITE_DATA_PATH` or `PDF_PATH` will be ingested. If `"web_search"`, then webpages resulting from a Google programmable search will be ingested (see "settings relevant to web_search mode"). If `given_urls`, then webpages derived from a list of urls supplied by the user will be ingested.
 
 **`replace`**: `bool`
 > if `True`, if a document already exists in the DB, any chunks previously derived from it will be deleted and replaced; if `False`, previous chunks will be left but new chunks will not be added. This is to avoid duplication of chunks.
@@ -119,7 +122,46 @@ The following list of settings and options for ingesting text sources can be fou
 
 *Google Programmable Search limits*: Note that only a 100 search results can be returned from Google Programmable Search for each distinct search, where a distinct search is a combination of query, url and subdirectory. Furthermore, if more than 100 searches a day are required, a billing account will need to be set up. See [this Google webpage](https://developers.google.com/custom-search/v1/overview#:~:text=Custom%20Search%20JSON%20API%20provides,to%2010k%20queries%20per%20day.) for more details.
 
+*Settings relevant to given_urls mode*
+
+**`given_urls`**: `List[str]`
+> a specified list of urls pointing to webspages to scrape and ingest
+
+## Adding new data sets
+
+As the website changes over time, the vector database underlying Nesta Brain will need to reflect this. In addition, it may be desired to add pages from other sites, or offline documents.
+
+### Updates to the Nesta website: adding new pages in `given_urls` mode
+
+If it is necessary to ingest only a relatively small number of pages which have been added to the Nesta website since October 2024, then the following steps can be taken:
+
+1. If the urls of the wepages are known, then they can be added by setting `mode` to `'given_urls'` and setting the `given_urls` variable to the list of urls.
+
+2. Note that if `mode == "given_urls"` the code as it stands will not automatically include the full range of metadata contained in the data layer on Nesta webpages, but only the title and publication date. The full range of metadata is currently only added in `web_dump` mode. If future users wish to include the full range of metadata (projects, missions, etc.) in `given_urls` mode, they will need to add code to do this. See the `scrape` and `html_to_text` functions in `scraping/scrape.py`.
+
+### Updates to the Nesta website: `web_dump` mode
+
+If preferred, `web_dump` mode can be used either to add new pages or to do a completely new reingestion of the whole site. 
+
+[an explanation of how to derive urls from the site map, download them abnd add their metadata to `metadata.jsonl` needs to be added here.]
+
+New pages can be added in `web_dump` mode. Only webpages which are not already in the database are added. The code will iterate through the rows of a dataframe representing all webpages, and those already present will be ignored. If PDFs linked to from new pages are wanted as well, then run the code twice, once with `pdf_mode = False` (to ingest the webpages), and once with `pdf_mode = True` (to ingest the PDFs).
+
+For a completely new reingestion, a new database needs to be created, following these steps:
+
+1. Change DB_PATH in config.py to the path of the new database.
+2. Run `\__main__` in `retrieval/db/schema.py` to set up the new database.
+3. Run `\__main__` in `retrieval/db/ingest.py` setting `mode = "web_dump"`. Again, if PDFs are wanted as well, then run twice once with `pdf_mode = False`, and once with `pdf_mode = True`. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, use `start_index` to skip the webpage which caused the error to be thrown.
+
+### Adding webpages from other sites
+
+Note that the code in `scraping/scrape.py` is designed for Nesta webapges and may need some editing to be suitable for other websites, for example, in deriving the publication date and determining which page elements count as text which you wish to ingest. See `scrape` and `html_to_text` functions in `scraping/scrape.py`.
+
+### Adding offline resources
+
+
 ## Known issues
 
 1. An attempt was made to throttle OpenAI requests and ensure they are kept within rate limits, but this may not have been fully successful. In addition, when `batch_size` is large error messages can be thrown by the API which don't seem to be due to rate limits being exceeded. There wasn't time to troubleshoot and fix these issues, but future users should be aware that if they wish to ingest large volumes of documents simultaneously, they may need to upgrade the code.
 2. There were some PDFs which didn't scrape successfully and which threw error messages, probably due to size. There also wasn't time to investigate and fix this. Future users may encounter the same problem. If a PDF throws an error, it can be skipped by noting the row in the metadata dataframe of the originating webpage and setting `start_index` to the one following it.
+3. Webpage urls act as unique identifiers. It is easy to prevent duplicate scraping of a webpage via the same url. However, the database does currently contain some duplication of webpages where there are URL aliases in the site map. These should be removed from the database, time-permitting, and code added to retrieval/db/ingest.py to prevent this occurring.
