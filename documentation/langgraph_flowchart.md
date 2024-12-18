@@ -18,7 +18,7 @@ graph TD;
 	__start__ --> decide_if_person_page;
 	decide_if_need_time_constraint --> __end__;
 	decide_if_person_page --> decide_if_need_time_constraint;
-	classDef default fill:#f2f0ff,line-height:1.2
-	classDef first fill-opacity:0
+	classDef default fill:#f0e181,line-height:1.2,color:black
+	classDef first fill:lightgrey
 	classDef last fill:#bfb6fc
 ```
