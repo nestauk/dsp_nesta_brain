@@ -133,11 +133,11 @@ As the website changes over time, the vector database underlying Nesta Brain wil
 
 ### Updates to the Nesta website: adding new pages in `given_urls` mode
 
-If it is necessary to ingest only a relatively small number of pages which have been added to the Nesta website since October 2024, then the following steps can be taken:
+If it is necessary to ingest only a relatively small number of pages which have been added to the Nesta website since October 2024, then the following step can be taken:
 
 1. If the urls of the webpages are known, then they can be added by setting `mode` to `'given_urls'` and setting the `given_urls` variable to the list of urls.
 
-2. Note that if `mode == "given_urls"` the code as it stands will not automatically include the full range of metadata contained in the data layer on Nesta webpages, but only the title and publication date. The full range of metadata is currently only added in `web_dump` mode. If future users wish to include the full range of metadata (projects, missions, etc.) in `given_urls` mode, they will need to add code to do this. See the `scrape` and `html_to_text` functions in `scraping/scrape.py`.
+Note that if `mode == "given_urls"` scraping of Nesta webpages hould automatically yield the full range of metadata contained in the data layer on each page (although some of the fields are often left blank). 
 
 ### Updates to the Nesta website: `web_dump` mode
 
