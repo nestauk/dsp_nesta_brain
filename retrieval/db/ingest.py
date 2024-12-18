@@ -6,8 +6,10 @@ import sys
 
 from datetime import datetime
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
+from typing import Type
 from typing import Union
 
 import lancedb
@@ -17,6 +19,9 @@ import tiktoken
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 from config import DB_PATH
+from config import DEFAULT_EMBEDDINGS_MODEL
+from config import RPM_RATE_LIMIT
+from config import TPM_RATE_LIMIT
 from dotenv import load_dotenv
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
@@ -28,6 +33,7 @@ from pdf2image.exceptions import PDFInfoNotInstalledError
 from retrieval.db.schema import Chunk
 from retrieval.db.schema import Document as LanceDocument
 from scraping.scrape import html_to_text
+from scraping.scrape import scrape
 from scraping.scrape import search_query_to_scraped_data
 from scraping.scrape_pdf import PDF
 from utils import unique
@@ -36,6 +42,7 @@ from utils import unique
 _prefix = "2024-10-29"
 WEBSITE_DATA_PATH = PROJECT_DIR / f"scraping/data/website_{_prefix}"
 PDF_PATH = WEBSITE_DATA_PATH / "pdf_files"
+METADATA_PATH = WEBSITE_DATA_PATH / "metadata.jsonl"
 NESTA_SITE_URL = "https://nesta.org.uk"
 
 CHUNK_SIZE = 2000
@@ -45,8 +52,6 @@ OPENAI_ENCODING = "cl100k_base"
 
 # OpenAI limits
 request_count = {}
-RPM_RATE_LIMIT = 10000
-TPM_RATE_LIMIT = 5e6
 
 load_dotenv()
 
@@ -148,7 +153,7 @@ async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: Lan
     # using model.VectorField() specified in the schema.
     # This is because I had issues getting the nested schema to work with this method.
     async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    result = await async_client.embeddings.create(model="text-embedding-3-small", input=chunk.page_content)
+    result = await async_client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=chunk.page_content)
     vector = result.data[0].embedding
     return Chunk(text=chunk.page_content, source=source, vector=vector, order_index=order_index)
 
@@ -236,7 +241,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         # If the title of a record in the document table is updated,
         # the source.title for the relevant chunk records remains the same
         # This is a recipe for mess!
-        # I am keeping this in temporarily for purposes of experimentation
+        # This was introduced temporarily for purposes of experimentation
         if chunks:
             logger.info(f"Ingested {len(lance_documents)} Document(s) and {len(chunks)} Chunks to the database")
             document_table.add(lance_documents)
@@ -254,7 +259,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
 def webpages_to_ingested_data(
     uids: Optional[List[str]] = None,
     df: Optional[pd.DataFrame] = None,
-    replace: bool = False,
+    **kwargs,
 ) -> None:
     """Convert dumped Nesta webpages into LangchainDocuments and ingest"""
 
@@ -264,8 +269,8 @@ def webpages_to_ingested_data(
         )
 
     if uids:
-        metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"  # noqa
-        metadata_df = pd.read_json(metadata_path, lines=True)
+        METADATA_PATH = WEBSITE_DATA_PATH / "metadata.jsonl"  # noqa
+        metadata_df = pd.read_json(METADATA_PATH, lines=True)
         rows = [metadata_df[metadata_df["uid"] == uid].iloc[0] for uid in uids]
         df = pd.DataFrame(rows)
 
@@ -301,7 +306,7 @@ def webpages_to_ingested_data(
             )  # this is the case for some types of long read e.g. https://www.nesta.org.uk/feature/mapping-early-years-practice/
 
     if docs:
-        ingest(docs, replace=replace)
+        ingest(docs, **kwargs)
 
     else:
         logger.info("No docs to ingest!")
@@ -361,7 +366,7 @@ def is_good_link(link: str) -> bool:
 
 # if scraping/ingesting PDFs from entire Nesta website data dump
 def pdfs_to_ingested_data(
-    df: pd.DataFrame, replace: bool = False, download_button_pdf_only: bool = False, cautious: bool = False
+    df: pd.DataFrame, download_button_pdf_only: bool = False, cautious: bool = False, **kwargs
 ) -> None:
     """Convert dumped Nesta website PDFs into LangchainDocuments and ingest"""
 
@@ -384,15 +389,16 @@ def pdfs_to_ingested_data(
 
             #   print("\n\n", button_links_doc_titles, "\n\n")
 
-            desirable_file_name_and_link_tuples = [  #stores the file names and links just of the PDFs we're interested in 
-                                                     #according to some criterion – here the criterion is that the link is 
-                                                     #contained in a download button (indicating a major publication)
-                (file_names.get(link), link, title_guess) for link, title_guess in button_links_doc_titles
+            desirable_file_name_and_link_tuples = [  # stores the file names and links just of the PDFs we're interested in
+                # according to some criterion – here the criterion is that the link is
+                # contained in a download button (indicating a major publication)
+                (file_names.get(link), link, title_guess)
+                for link, title_guess in button_links_doc_titles
             ]
 
         else:
-            desirable_file_name_and_link_tuples = [   #see comment above. Here the criterion is simply that the PDF
-                                                    #is on the Nesta website and not an external website
+            desirable_file_name_and_link_tuples = [  # see comment above. Here the criterion is simply that the PDF
+                # is on the Nesta website and not an external website
                 (
                     file_name,
                     link,
@@ -410,9 +416,9 @@ def pdfs_to_ingested_data(
                 else:
                     path = link
 
-                if cautious:   #if being cautious, you will be asked to decide whether you want to scrape the PDF and
-                                #whether the metadata guesses are correct. This opens the PDF and its corresponding
-                                #webpage for examination
+                if cautious:  # if being cautious, you will be asked to decide whether you want to scrape the PDF and
+                    # whether the metadata guesses are correct. This opens the PDF and its corresponding
+                    # webpage for examination
                     logging.info(f"Opening {file_name}")
                     os.system(f"open {path}")  # nosec
                     os.system(f'open {row["url"]}')  # nosec
@@ -455,7 +461,7 @@ def pdfs_to_ingested_data(
             # this gap in the messages helps keep it readable
 
     if docs:
-        ingest(docs, replace=replace)
+        ingest(docs, **kwargs)
 
     else:
         logger.info("No PDF-derived docs to ingest for this batch")
@@ -481,40 +487,74 @@ def search_query_to_ingested_data(query: str, site_url: str, replace: bool = Fal
     return bool(scraped_data)
 
 
+def urls_to_ingested_data(
+    urls: List[str],
+    **kwargs,
+) -> None:
+    """Convert the webpages pointed to by urls into LangchainDocuments and ingest"""
+
+    docs = []
+    for url in urls:
+
+        logger.info(f"Scraping webpage {url}")
+
+        scraped_datum = scrape(url)
+
+        if scraped_datum and scraped_datum["text"]:
+            metadata = {k: v for k, v in scraped_datum.items() if k in ["title", "date_pub"]}
+            metadata["location"] = url
+            doc = LangchainDocument(page_content=scraped_datum["text"], metadata=metadata)
+            docs.append(doc)
+
+        else:
+            logger.info(f"Webpage {url} failed to scrape and/or did not seem to have any text")
+
+    if docs:
+        ingest(docs, **kwargs)
+
+    else:
+        logger.info("No docs to ingest!")
+
+
 if __name__ == "__main__":
 
     # SETTINGS
-    mode = "web_dump"  # if 'web_search', do a web search, scrape and ingest the results
+    mode_type: Type = Literal["web_dump", "web_search", "given_urls"]
+    mode: mode_type = "web_dump"  # if 'web_search', do a web search, scrape and ingest the results  # noqa
     # if 'web_dump', ingest data which has already been downloaded from the Nesta website
-    possible_modes = ["web_dump", "web_search"]
-    replace = False  # if True, if the document already exists in the DB, any chunks derived
+    # if 'given_urls', provide a list of known urls
+    replace: bool = False  # if True, if the document already exists in the DB, any chunks derived
     # from it will be deleted and replaced
 
     # settings relevant to web_dump mode
-    pdf_mode = True  # scrape PDFs rather than webpages
-    download_button_pdf_only = True  # only scrape PDfs if they are a major research output indicated on the page
+    pdf_mode: bool = False  # scrape PDFs rather than webpages
+    download_button_pdf_only: bool = True  # only scrape PDfs if they are a major research output indicated on the page
     # by being downloadable by clicking a big red button
-    cautious = False  # ask whether you want to scrape the PDF and whether the metadata guesses are correct
-    metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"
-    start_index = (
+    cautious: bool = False  # ask whether you want to scrape the PDF and whether the metadata guesses are correct
+    start_index: int = (
         int(sys.argv[1]) if len(sys.argv) > 1 else 0
     )  # the row of metadata.jsonl to start ingesting; everything prior to this will be ignored
-    batch_size = 1  # the number of webpages to ingest at a time
+    batch_size: int = 50  # the number of webpages to ingest at a time
 
     # settings relevant to web_search mode
-    query = "Centre for Collective Intelligence Design"
-    site_url = NESTA_SITE_URL
-    subdirectories = sorted(
+    query: str = "Centre for Collective Intelligence Design"
+    site_url: str = NESTA_SITE_URL
+    subdirectories: Optional[List[str]] = sorted(
         ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
     )  # optional
 
-    if mode not in possible_modes:
-        raise Exception(f"""mode must be one of the following:{', '.join([f"'{mode}'" for mode in possible_modes])}""")
+    # settings relevant to give_urls mode
+    given_urls: List[str] = []
+
+    if mode not in mode_type.__args__:
+        raise Exception(
+            f"""mode must be one of the following:{', '.join([f"'{mode}'" for mode in mode_type.__args__])}"""
+        )
 
     if mode == "web_dump":
         # if scraping/ingesting from entire Nesta website data dump
 
-        metadata_df = pd.read_json(metadata_path, lines=True)
+        metadata_df = pd.read_json(METADATA_PATH, lines=True)
         downloaded = metadata_df["_status_code"].apply(lambda val: val == 200)
         metadata_df = metadata_df[downloaded]
         n_rows = metadata_df.shape[0]
@@ -530,7 +570,7 @@ if __name__ == "__main__":
                 webpages_to_ingested_data(df=df, replace=replace)
 
     elif mode == "web_search":
-        # if scraping from web
+        # if scraping from web via a search
 
         if subdirectories:
             urls = [site_url + "/" + subdirectory for subdirectory in subdirectories]
@@ -547,3 +587,8 @@ if __name__ == "__main__":
                 results_returned = search_query_to_ingested_data(query, url, start=start, replace=replace)
                 if not results_returned:
                     break
+
+    elif mode == "given_urls":
+        # if scraping from web via a list of urls
+
+        urls_to_ingested_data(given_urls, replace=replace)
