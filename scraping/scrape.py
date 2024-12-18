@@ -119,9 +119,9 @@ def scrape(url: str) -> str:
 
         # metadata
         title = soup.find("title").getText().replace(" | Nesta", "")
-        script = soup.find_all("script")[0]  # publication date should be in the first script element of the page
+        data_layer = extract_data_layer(soup)
         try:
-            date_pub = re.search("'publishDate': '(\d{4}-\d{2}-\d{2})'", script.getText()).groups()[0]  # noqa
+            date_pub = data_layer.pop("publishDate")
             date_pub = dt.datetime.strptime(date_pub, "%Y-%m-%d")
         except Exception:
             logger.warning(f"Webpage {url} had no publication date")
@@ -130,7 +130,12 @@ def scrape(url: str) -> str:
     except Exception as e:
         logger.critical(f"The following error was encountered while scraping {url}:\n{e}")
 
-    return {"text": text.strip(), "title": title, "date_pub": date_pub}
+    result = data_layer
+    result["text"] = text.strip()
+    result["title"] = title
+    result["date_pub"] = date_pub
+
+    return result
 
 
 def extract_pdf_links(soup: BeautifulSoup, base: str = "https://www.nesta.org.uk") -> list:

@@ -501,7 +501,7 @@ def urls_to_ingested_data(
         scraped_datum = scrape(url)
 
         if scraped_datum and scraped_datum["text"]:
-            metadata = {k: v for k, v in scraped_datum.items() if k in ["title", "date_pub"]}
+            metadata = {k: v for k, v in scraped_datum.items() if k != "text"}
             metadata["location"] = url
             doc = LangchainDocument(page_content=scraped_datum["text"], metadata=metadata)
             docs.append(doc)
