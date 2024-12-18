@@ -8,9 +8,9 @@
 
 This document is a guide to updating the knowledge base of documents which Nesta Brain uses to answer questions; that is, how to ingest new information into the LanceDB vector database used for retrieval.
 
-Currently, the code is set up to ingest web pages (from any site) and PDFs from the Nesta website.
+Currently, the code is set up to ingest web pages from any site and PDFs from the Nesta website.
 
-The code reflects the data ingestion needs for early prototypes of the Nesta Brain project, written and deployed fairly rapidly, and with limited time for tidying and rationalisation. It may need to be reviewed and simplified for optimal future maintainability, as well as extended to allow ingestion from other sources.
+The code reflects the data ingestion needs for early prototypes of the Nesta Brain project, written and deployed fairly rapidly, and with limited time for tidying and rationalisation. It may need to be reviewed and simplified for optimal future usability and maintainability, as well as extended to allow ingestion from other sources.
 
 
 ## Relevant code
@@ -25,7 +25,7 @@ LanceDB was chosen because it is a free, serverless database which is simple to 
 
 ### Schema
 
-The records which a LanceDB database contains are defined by a schema made up of Pydantic classes. The fields which each chunk record contains are specified by the Chunk class in `retrieval/db/schema.py`. Note that metadata is contained in the nested `source` field, which represents the document the chunk text is derived from. `source` fields are as follows:
+The records which the database contains are defined by a schema made up of two Pydantic classes, `Document` and `Chunk` in `retrieval/db/schema.py`. The fields which each chunk record contains are specified by the Chunk class . Note that metadata is contained in the nested `source` field, which represents the document the chunk text is derived from. `source` fields are as follows:
 
 **`location`**: `str`
 > the url or file system path where the document can be found
@@ -167,7 +167,7 @@ Note that the code which does the website scraping in `scraping/scrape.py` is de
 
 ### Adding offline resources
 
-The code in `retrieval/db/ingest.py` is not currently set up to ingest offline resources (other than webpages and PDFs stored during a data dump of the Nesta website and accessed in `web_dump` mode). Code would need to be written to convert the offline documents into plain text, and then convert the plain text and any metadata to [LangChain `Document`s](https://python.langchain.com/api_reference/core/documents/langchain_core.documents.base.Document.html). A list of LangChain `Document`s can be passed to the `ingest` function via the `documents` argument. The `ingest` function chunks and vectorizes each document and inserts the chunks into the vector database. Note that every `Document` in `documents` must have a `location` (system file path or url) and `title` field in its metadata – all other metadata is optional. `location` is used as a unique identifier for documents to establish whether documents have already been added to the database.
+The code in `retrieval/db/ingest.py` is not currently set up to ingest offline resources (other than webpages and PDFs stored during a data dump of the Nesta website and accessed in `web_dump` mode). Code would need to be written to convert the offline documents into plain text, and then convert the plain text and any metadata to [LangChain `Document`s](https://python.langchain.com/api_reference/core/documents/langchain_core.documents.base.Document.html). A list of LangChain `Document`s can be passed to the `ingest` function via the `documents` argument. The `ingest` function chunks and vectorizes each document and inserts the chunks into the vector database. Note that every `Document` in `documents` must have a `location` (system file path or url) and `title` field in its metadata – all other metadata is optional. `location` is used as a unique identifier for documents to establish whether documents have already been added to the database. \[Note that the LangChain `Document` class is distinct from the `Document` class defined in the DB schema and aliases are used for both these classes in `retrieval/db/ingest.py` to avoid confusion].
 
 ## Known issues
 
