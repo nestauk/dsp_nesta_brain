@@ -19,7 +19,7 @@ Most of the relevant code is in `retrieval/db/ingest.py`. See also `scraping/scr
 
 ## Embeddings model
 
-OpenAI's `text-embedding-3-small` model was used for the database versions called `full_site_demo_db` and `full_site_demo_db_with_pdfs`. Future users may want to experiment with different embeddings models. The embeddings model can be set in `retrieval/db/ingest.py` via `MODEL_NAME`. Note that if the embeddings model is changed in `MODEL_NAME` then: (i) the variables encapsulating the rate limits, `RPM_RATE_LIMIT` and `TPM_RATE_LIMIT`, may also need to be changed; and (ii) the embeddings model used by the retriever in `retrieval/retrieve.py` should also be changed [**to do – this should be set in `config.py`**].
+OpenAI's `text-embedding-3-small` model was used for the database versions called `full_site_demo_db` and `full_site_demo_db_with_pdfs`. Future users may want to experiment with different embeddings models. The embeddings model can be set in `config.py` via `DEFAULT_EMBEDDINGS_MODEL`. Note that if the embeddings model is changed in `DEFAULT_EMBEDDINGS_MODEL` then: (i) the variables encapsulating the rate limits, `RPM_RATE_LIMIT` and `TPM_RATE_LIMIT`, may also need to be changed; and (ii) the embeddings model used by the retriever in `retrieval/retrieve.py` should also be changed [**to do – this should be set in `config.py`**].
 
 ## Data
 
