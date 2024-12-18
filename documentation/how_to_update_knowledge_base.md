@@ -29,7 +29,7 @@ Metadata on each webpage is contained in the file `metadata.jsonl`. In `web_dump
 
 As PDFs do not appear on the sitemap, PDFs were identified via links on webpages. Only PDFs which seemed to be major reports or other documents forming the main topic of a webpage were ingested (see `download_button_pdf_only` option below for an explanation).
 
-PDFs were read using the [Unstructured][https://unstructured.io/] open source library. This attempts to recognise different components of a PDF, for example, title, headers and footers, narrative text, etc. The PDFs on Nesta's website include many which are mostly diagrammatic rather than conventional reports, which makes it harder to identify the kind of narrative text we actually want to ingest accurately in an automated fashion. Attempts were made however to automatically identify and remove extraneous text, for example, title pages, tables of contents, reference lists, before ingestion.
+PDFs were read using the [Unstructured](https://unstructured.io/) open source library. This attempts to recognise different components of a PDF, for example, title, headers and footers, narrative text, etc. The PDFs on Nesta's website include many which are mostly diagrammatic rather than conventional reports, which makes it harder to identify the kind of narrative text we actually want to ingest accurately in an automated fashion. Attempts were made however to automatically identify and remove extraneous text, for example, title pages, tables of contents, reference lists, before ingestion.
 
 ## Embeddings model
 
@@ -77,8 +77,5 @@ The following list of settings and options for ingesting text sources can be fou
 
 ## Known issues
 
-1. An attempt was made to write code to throttle OpenAI requests and ensure they are kept within rate limits, but this may not have been fully successful. In addition, when `batch_size` is 
-There wasn't time to test and troubleshoot the throttle, and was also getting error messages back from OpenAI when we couldn't have been exceeding the rate limits.
-t work. Also getting error messages back when we can't possibly be exceeding. 
-2. There were some PDFs which didn't scrape successfully and which threw error messages, probably due to size. There wasn't time to investigate and fix this. You may encounter. Can always set start_index following the problem PDF.
-3. document_table in schema
+1. An attempt was made to throttle OpenAI requests and ensure they are kept within rate limits, but this may not have been fully successful. In addition, when `batch_size` is large error messages can be thrown by the API which don't seem to be due to rate limits being exceeded. There wasn't time to troubleshoot and fix these issues, but future users should be aware that if they wish to ingest large volumes of documents simultaneously, they may need to upgrade the code.
+2. There were some PDFs which didn't scrape successfully and which threw error messages, probably due to size. There also wasn't time to investigate and fix this. Future users may encounter the same problem. If a PDF throws an error, it can be skipped by noting the row in the metadata dataframe of the originating webpage and setting `start_index` to the one following it.
