@@ -70,7 +70,7 @@ The database `full_site_demo_db` contains a vectorized version of Nesta's websit
 
 A data dump containing the HTML files and PDFs from the website can be downloaded from the `discovery-iss` bucket on Amazon S3 (`data/nesta_brain/website_2024-10-29.zip`). See also `dsp_nesta_brain/getters/nesta.py` for instructions on downloading it. 
 
-Metadata on each webpage is contained in the file `metadata.jsonl`, also included in the data dump. In `web_dump` mode (see below) the details of the webpages to scrape are taken from this file and read into a dataframe. Any webpages with a `_status_code` of 200 are removed from the dataframe. The dataframe should therefore only contain webpages which have been successfully downloaded and included in the data dump.
+Metadata on each webpage is contained in the file `metadata.jsonl`, also included in the data dump. In `web_dump` mode (see below) the details of the webpages to scrape are taken from this file and read into a dataframe. Any webpages with a `_status_code` of not equal to 200 are removed from the dataframe. The dataframe should therefore only contain webpages which have been successfully downloaded and included in the data dump.
 
 ### PDF scraping
 
