@@ -120,7 +120,7 @@ The following list of settings and options for ingesting text sources can be fou
 **`subdirectories`**:`Optional[List[str]]`
 > a list of subdirectories on the website which you wish to limit the search to; note that a separate search will be conducted for each of these subdirectories in turn
 
-*Google Programmable Search limits*: Note that only a 100 search results can be returned from Google Programmable Search for each distinct search, where a distinct search is a combination of query, url and subdirectory. Furthermore, if more than 100 searches a day are required, a billing account will need to be set up. See [this Google webpage](https://developers.google.com/custom-search/v1/overview#:~:text=Custom%20Search%20JSON%20API%20provides,to%2010k%20queries%20per%20day.) for more details.
+*Note: Google Programmable Search limits*: Note that only a 100 search results can be returned from Google Programmable Search for each distinct search, where a distinct search is a combination of query, url and subdirectory. Furthermore, if more than 100 searches a day are required, a billing account will need to be set up. See [this Google webpage](https://developers.google.com/custom-search/v1/overview#:~:text=Custom%20Search%20JSON%20API%20provides,to%2010k%20queries%20per%20day.) for more details.
 
 *Settings relevant to given_urls mode*
 
@@ -143,22 +143,31 @@ If it is necessary to ingest only a relatively small number of pages which have 
 
 If preferred, `web_dump` mode can be used either to add new pages or to do a completely new reingestion of the whole site. 
 
-[an explanation of how to derive urls from the site map, download them abnd add their metadata to `metadata.jsonl` needs to be added here.]
+[an explanation of how to derive urls from the site map, download them and add their metadata to `metadata.jsonl` needs to be added here.]
 
 New pages can be added in `web_dump` mode. Only webpages which are not already in the database are added. The code will iterate through the rows of a dataframe representing all webpages, and those already present will be ignored. If PDFs linked to from new pages are wanted as well, then run the code twice, once with `pdf_mode = False` (to ingest the webpages), and once with `pdf_mode = True` (to ingest the PDFs).
 
 For a completely new reingestion, a new database needs to be created, following these steps:
 
 1. Change DB_PATH in config.py to the path of the new database.
-2. Run `\__main__` in `retrieval/db/schema.py` to set up the new database.
-3. Run `\__main__` in `retrieval/db/ingest.py` setting `mode = "web_dump"`. Again, if PDFs are wanted as well, then run twice once with `pdf_mode = False`, and once with `pdf_mode = True`. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, use `start_index` to skip the webpage which caused the error to be thrown.
+2. Run `__main__` in `retrieval/db/schema.py` to set up the new database.
+3. Run `__main__` in `retrieval/db/ingest.py` setting `mode = "web_dump"`. Again, if PDFs are wanted as well, then run twice, once with `pdf_mode = False`, and once with `pdf_mode = True`. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, use `start_index` to skip the webpage which caused the error to be thrown.
 
 ### Adding webpages from other sites
 
-Note that the code in `scraping/scrape.py` is designed for Nesta webapges and may need some editing to be suitable for other websites, for example, in deriving the publication date and determining which page elements count as text which you wish to ingest. See `scrape` and `html_to_text` functions in `scraping/scrape.py`.
+Webpages from other sites can potentially be added, either in `web_search` or `given_urls` mode. For example, to scrape pages on Medium by the Nesta data science team follow these steps:
+
+1. Set `mode = "web_search"`.
+2. Set `site_url = "https://medium.com/data-analytics-at-nesta"`.
+3. If looking for a particular topic, set `query` to look for related keywords or phrases. Alternatively, set `query` equal to the empty string or `query = "-site:https://medium.com/data-analytics-at-nesta/tagged"` to exclude particular subdirectories.
+4. Set `subdirectories` equal to a list of any desired subdirectories, or set equal to `None` or `[]`.
+5. Run `__main__` in `retrieval/db/ingest.py`.
+
+Note that the code which does the website scraping in `scraping/scrape.py` is designed for Nesta webpages and may need some editing to be suitable for other websites, for example, in deriving the publication date, or determining which page elements count as text and which you wish to ignore. See the `scrape` and `html_to_text` functions in `scraping/scrape.py`.
 
 ### Adding offline resources
 
+The code in `retrieval/db/ingest.py` is not currently set up to ingest offline resources (other than webpages and PDFs stored during a data dump of the Nesta website and accessed in `web_dump` mode). Code would need to be written to convert the offline documents into plain text, and then convert the plain text and any metadata to [LangChain `Document`s](https://python.langchain.com/api_reference/core/documents/langchain_core.documents.base.Document.html). A list of LangChain `Document`s can be passed to the `ingest` function via the `documents` argument. The `ingest` function chunks and vectorizes each document and inserts the chunks into the vector database. Note that every `Document` in `documents` must have a `location` (system file path or url) and `title` field in its metadata – all other metadata is optional. `location` is used as a unique identifier for documents to establish whether documents have already been added to the database.
 
 ## Known issues
 
