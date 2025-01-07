@@ -131,7 +131,7 @@ def test(state: State, writer: StreamWriter) -> State:
             | llm
         )
         response = chain.invoke(state)
-        state["messages"][-1].content += "\n\n" + response.content
+        state["messages"][-1].content += "<br><br>" + response.content
 
     return state
 

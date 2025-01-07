@@ -7,6 +7,8 @@ from typing import Dict
 from typing import List
 from typing import Optional
 
+import markdown
+
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
@@ -75,7 +77,7 @@ class CustomAIMessage(AIMessage):
     def __repr__(self) -> str:
         """Self-explanatory"""
         string = "\n--------------\n" + self.content
-        string += f'\n{self.references[0].chunk.page_content}\n{self.references[0].metadata["location"]}'
+        string += f'\n{self.references[0].page_content}\n{self.references[0].metadata["location"]}'
         string += "\n--------------\n\n"
         return string
 
@@ -104,7 +106,7 @@ class CustomAIMessage(AIMessage):
         """Return formatted reference list"""
         cited = [reference.as_html(reset_index=True) for reference in self.cited_references]
         not_cited = [reference.as_html(reset_index=True) for reference in self.uncited_references]
-        actual_references = "<br><br><em>Cited references:</em><br>" + "<br>".join(cited) if cited else ""
+        actual_references = "<br><em>Cited references:</em><br>" + "<br>".join(cited) if cited else ""
         the_rest = (
             f"<br><em>{'May be useful' if cited else 'May be useful'}:</em><br>" + "<br>".join(not_cited)
             if not_cited
@@ -123,7 +125,7 @@ class CustomAIMessage(AIMessage):
 
         self.reset_reference_indices()
 
-        content = self.content
+        content = markdown.markdown(self.content)
         N_references = len(self.references)
         for citation in self.citations_in_content:
             citation_index = int(citation[1:-1])  # remove the square brackets

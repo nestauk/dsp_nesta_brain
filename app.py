@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
@@ -32,6 +33,7 @@ from streamlit_feedback import streamlit_feedback
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
+    from retrieval.retrieve import RetrieverInput as State
 
 
 langfuse = Langfuse()
@@ -105,7 +107,7 @@ def respond(
     message_placeholder: DeltaGenerator,
     **kwargs,
 ) -> CustomAIMessage:
-    """Get synchronous LLM response from chain and convert it into a CustomAIMessage"""
+    """Get LLM response from chain"""
 
     if use_langfuse:
         trace_id = str(uuid.uuid4())
@@ -119,15 +121,31 @@ def respond(
         "merge": merge,
     }
 
-    if True:
-        final_state = chain.invoke(input, config=config)  # ,stream_mode="custom"):
+    if stream:
+
+        async def stream_() -> State:
+            message_text = ""
+            id = None
+            async for event in chain.astream_events(input, config, version="v1", stream_mode="values"):
+                if event["event"] == "on_chat_model_stream":
+                    ai_message_chunk = event["data"]["chunk"]
+                    if id != ai_message_chunk.id:
+                        if id:
+                            message_text += "\n\n"
+                        id = ai_message_chunk.id
+                    message_text += ai_message_chunk.content
+                    message_placeholder.markdown(message_text + "▌")
+                elif event["event"] == "on_chain_end" and event["name"] == "test":
+                    final_state = event["data"]["input"]
+            return final_state
+
+        final_state = asyncio.run(stream_())
+        # Remove the message placeholder text after all the text has been received, as
+        # it will be rendered in a nicer format with references
+        message_placeholder.markdown("")
 
     else:
-        pass
-    # async for event in chain.astream_events(input, config,version="v1",stream_mode="values"):
-    # Get chat model tokens from a particular node
-    #    if event["event"] in ["on_chat_model_stream","on_chain_end"]:
-    #       print(event)
+        final_state = chain.invoke(input, config=config)
 
     if use_langfuse:
         langfuse.trace(id=trace_id, metadata=trace_metadata())
@@ -176,6 +194,7 @@ if __name__ == "__main__":
 
     # settings
     use_langfuse: bool = False
+    stream: bool = True
     # retrieval settings
     # use_langgraph: bool = False    #for simplification
     merge: bool = True  # merge needs to be True from now on for indexed references and inline citations to work
