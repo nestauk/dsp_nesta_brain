@@ -1,23 +1,35 @@
+from __future__ import annotations
+
 import asyncio
+import importlib
+
+from typing import TYPE_CHECKING
+from typing import Dict
+from typing import List
 
 from config import DEFAULT_START_YEAR
-from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 
 # from langchain_core.runnables.base import RunnableSequence
-from langchain_openai import ChatOpenAI
+from langchain_core.messages import BaseMessage
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
+from langgraph.types import StreamWriter
 from lgraph.prompt import personnel_prompt
 from lgraph.prompt import year_constraint_prompt
+from llm.llm import default_llm as llm
 from llm.tool import year_range
-from retrieval.retrieve import RetrieverInput
+from retrieval.retrieve import RetrieverInput as State
+
+
+if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
 
 
 DEFAULT_FROM_YEAR_FILTER_CONDITION = f"source.date_pub >= to_timestamp('{DEFAULT_START_YEAR}-01-01')"
 
-State = RetrieverInput
+# ----------retrieval graph
 
 
 def append_filter_condition(state: State, new_filter_condition: str) -> State:
@@ -87,25 +99,85 @@ def decide_if_need_time_constraint(state: State) -> State:
 # ------------
 
 
-load_dotenv()
+def create_retrieval_graph() -> CompiledStateGraph:  # doing it as a function to avoid circular imports
+    """Compile and return a graph to assist with retrieval"""
 
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)  # if binding tools then llm must be a ChatModel
+    builder = StateGraph(State)
 
-builder = StateGraph(State)
+    builder.add_node("decide_if_person_page", decide_if_person_page)
+    builder.add_node("decide_if_need_time_constraint", decide_if_need_time_constraint)
+    builder.add_edge(START, "decide_if_person_page")
+    builder.add_edge("decide_if_person_page", "decide_if_need_time_constraint")
+    builder.add_edge("decide_if_need_time_constraint", END)
 
-builder.add_node("decide_if_person_page", decide_if_person_page)
-builder.add_node("decide_if_need_time_constraint", decide_if_need_time_constraint)
-builder.add_edge(START, "decide_if_person_page")
-builder.add_edge("decide_if_person_page", "decide_if_need_time_constraint")
-builder.add_edge("decide_if_need_time_constraint", END)
+    return builder.compile()
 
-graph = builder.compile()
 
 # graph = RunnableSequence(decide_if_person_page, decide_if_need_time_constraint)   #for comparison
 
 
+# ----------chat graph
+
+
+class ChatState(State):
+    """State class for chat graph"""
+
+    chat_history: List[
+        BaseMessage
+    ]  # could possible replace this with messages if ChatState were a subclass of MessagesState?
+    response: List[Dict]
+
+
+# context: List[LangchainDocument]
+
+
+def test(state: ChatState, writer: StreamWriter) -> ChatState:
+    """Trivial test example"""
+
+    state["response"]
+    state["response"][-1]["answer"] += "!!!!!!!!!!!!!!!!!!!!"
+
+    # items = [{'answer':string+' '} for string in re.split(' ',state['response']['answer'])]
+    # items += [{'context': state['response']['context']}]
+    for item in state["response"]:  # streaming looks rushed if this is done here. Consider:
+        # taking a look at
+        # https://colab.research.google.com/github/langchain-ai/langchain-academy/blob/main/module-3/streaming-interruption.ipynb
+        # trying for event in graph.stream(None, thread, stream_mode="updates") syntax:
+        # https://colab.research.google.com/github/langchain-ai/langchain-academy/blob/main/module-4/research-assistant.ipynb#scrollTo=37123ca7-c20b-43c1-9a71-39ba344e7ca6
+        writer(item)
+
+    return state
+
+
+def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
+    """Compile and return a graph to assist with chat"""
+
+    rag_chain = importlib.import_module("llm.chain").history_aware_rag_chain(**kwargs)  # avoiding circular import
+
+    def call_model(
+        state: ChatState,
+    ) -> ChatState:  # ,writer:StreamWriter):   #function defined here to avoid circular import
+
+        stream_generator = rag_chain.stream(state)
+        # for item in stream_generator:    #streaming looks as it did before if done here
+        #    writer(item)
+        state["response"] = list(stream_generator)
+        return state
+
+    builder = StateGraph(ChatState)
+
+    builder.add_node("call_model", call_model)
+    builder.add_node("test", test)
+    builder.add_edge(START, "call_model")
+    builder.add_edge("call_model", "test")
+    builder.add_edge("test", END)
+
+    return builder.compile()
+
+
 if __name__ == "__main__":
 
+    graph = create_retrieval_graph()
     #  input = "What work has Nesta done on heat pumps?"
     # input = "Who has data science skills at Nesta?"
     # input = 'Are you a lemon?'

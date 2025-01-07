@@ -168,40 +168,42 @@ def traces_to_samples(
     answer_history = []
     for i, trace in enumerate(traces):
 
-        is_single_turn_sample = False
+        if type(trace.output) is dict and "answer" in trace.output:  # if str it will be an error message
 
-        next_trace = traces[i + 1] if i < len(traces) - 1 else None
-        if next_trace:
-            input_appears_in_next_trace_chat_history = any(
-                message["content"] == trace.input["input"] for message in next_trace.input["chat_history"]
-            )
-        else:
-            input_appears_in_next_trace_chat_history = False
+            is_single_turn_sample = False
 
-        if input_appears_in_next_trace_chat_history:
-            # if input_appears_in_next_trace_chat_history = True, the message will eventually appear in
-            # the conversation of a MultiTurnSample, so do not instantiate a sample for it
-            # but do retain the answer history for when the MultiTurnSample is eventually instantiated
-            answer_history.append(trace.output["answer"])
-        else:
-            # trace is either a SingleTurnSample or the last trace defining a MultiTurnSample
-            is_single_turn_sample = len(trace.input["chat_history"]) == 1
-
-            if is_single_turn_sample:
-                sample = SingleTurnSample(
-                    user_input=trace.input["input"],
-                    retrieved_contexts=[context["page_content"] for context in trace.output["context"]],
-                    response=trace.output["answer"],
+            next_trace = traces[i + 1] if i < len(traces) - 1 else None
+            if next_trace:
+                input_appears_in_next_trace_chat_history = any(
+                    message["content"] == trace.input["input"] for message in next_trace.input["chat_history"]
                 )
             else:
-                sample = MultiTurnSample(
-                    user_input=trace_to_conversation(
-                        trace, answer_history
-                    ),  # contexts are not passed in to MultiTurnSample objects
-                )
-            samples.append(sample)
-            trace_ids.append(trace.id)
-            answer_history = []
+                input_appears_in_next_trace_chat_history = False
+
+            if input_appears_in_next_trace_chat_history:
+                # if input_appears_in_next_trace_chat_history = True, the message will eventually appear in
+                # the conversation of a MultiTurnSample, so do not instantiate a sample for it
+                # but do retain the answer history for when the MultiTurnSample is eventually instantiated
+                answer_history.append(trace.output["answer"])
+            else:
+                # trace is either a SingleTurnSample or the last trace defining a MultiTurnSample
+                is_single_turn_sample = len(trace.input["chat_history"]) == 1
+
+                if is_single_turn_sample:
+                    sample = SingleTurnSample(
+                        user_input=trace.input["input"],
+                        retrieved_contexts=[context["page_content"] for context in trace.output["context"]],
+                        response=trace.output["answer"],
+                    )
+                else:
+                    sample = MultiTurnSample(
+                        user_input=trace_to_conversation(
+                            trace, answer_history
+                        ),  # contexts are not passed in to MultiTurnSample objects
+                    )
+                samples.append(sample)
+                trace_ids.append(trace.id)
+                answer_history = []
 
     if return_dataset or dataset_path:
         dataset = EvaluationDataset(samples=samples)

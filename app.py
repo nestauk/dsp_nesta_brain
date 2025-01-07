@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import logging
 import os
 import re
 import uuid
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -17,15 +20,20 @@ from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
-from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from llm.chain import history_aware_rag_chain
-from llm.chain import history_aware_rag_chain_with_citation_tool
+
+# from llm.chain import history_aware_rag_chain
+# from llm.chain import history_aware_rag_chain_with_citation_tool
+from lgraph.graph import create_chat_graph
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
+
+
+if TYPE_CHECKING:
+    from langchain_core.messages import BaseMessage
 
 
 langfuse = Langfuse()
@@ -274,7 +282,10 @@ def respond(
     trace_id = str(uuid.uuid4())
     response = {"answer": ""}
 
-    for item in chain.stream(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
+    for item in chain.stream(
+        input, stream_mode="custom"
+    ):  # , config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
+
         # Process each item
         if "answer" in item:
             if use_tool_for_citations:
@@ -299,7 +310,7 @@ def respond(
     # Remove the message placeholder text after all the text has been received, as
     # it will be rendered in a nicer format with references
     message_placeholder.markdown("")
-    langfuse.trace(id=trace_id, metadata=trace_metadata())
+    #  langfuse.trace(id=trace_id, metadata=trace_metadata())
     st.session_state["current_trace_id"] = trace_id
     return Response(response)
 
@@ -359,10 +370,12 @@ if __name__ == "__main__":
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        if use_tool_for_citations:
-            rag_chain = history_aware_rag_chain_with_citation_tool(chat_history, use_langgraph=use_langgraph)
-        else:
-            rag_chain = history_aware_rag_chain(use_langgraph=use_langgraph)
+        # if use_tool_for_citations:
+        #    rag_chain = history_aware_rag_chain_with_citation_tool(chat_history, use_langgraph=use_langgraph)
+        # else:
+        rag_chain = create_chat_graph(
+            use_langgraph=use_langgraph
+        )  # history_aware_rag_chain(use_langgraph=use_langgraph)
 
         st.set_page_config(layout="wide")
         st.markdown(
