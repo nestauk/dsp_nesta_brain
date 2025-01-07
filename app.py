@@ -120,7 +120,7 @@ def respond(
     }
 
     if True:
-        response = chain.invoke(input, config=config)  # ,stream_mode="custom"):
+        final_state = chain.invoke(input, config=config)  # ,stream_mode="custom"):
 
     else:
         pass
@@ -133,7 +133,7 @@ def respond(
         langfuse.trace(id=trace_id, metadata=trace_metadata())
         st.session_state["current_trace_id"] = trace_id
 
-    return CustomAIMessage(response["response"])
+    return final_state["messages"][-1]
 
 
 def filter_conditions() -> Union[str, None]:

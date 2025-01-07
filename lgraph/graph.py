@@ -4,14 +4,10 @@ import asyncio
 import importlib
 
 from typing import TYPE_CHECKING
-from typing import Dict
-from typing import List
 
 from config import DEFAULT_START_YEAR
 from dsp_nesta_brain import logger
-
-# from langchain_core.runnables.base import RunnableSequence
-from langchain_core.messages import BaseMessage
+from langchain_core.runnables.base import RunnableParallel
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
@@ -20,6 +16,7 @@ from lgraph.prompt import personnel_prompt
 from lgraph.prompt import test_prompt
 from lgraph.prompt import year_constraint_prompt
 from llm.llm import default_llm as llm
+from llm.message import CustomAIMessage
 from llm.tool import year_range
 from retrieval.retrieve import RetrieverInput as State
 
@@ -120,23 +117,10 @@ def create_retrieval_graph() -> CompiledStateGraph:  # doing it as a function to
 # ----------chat graph
 
 
-class ChatState(State):
-    """State class for chat graph"""
-
-    chat_history: List[
-        BaseMessage
-    ]  # could possible replace this with messages if ChatState were a subclass of MessagesState?
-    response: List[Dict]
-
-
-# context: List[LangchainDocument]
-
-
-def test(state: ChatState, writer: StreamWriter) -> ChatState:
+def test(state: State, writer: StreamWriter) -> State:
     """Trivial test example"""
 
     if False:
-        state["response"]
         state["response"][-1]["answer"] += "!!!!!!!!!!!!!!!!!!!!"
 
         # items = [{'answer':string+' '} for string in re.split(' ',state['response']['answer'])]
@@ -149,22 +133,26 @@ def test(state: ChatState, writer: StreamWriter) -> ChatState:
             writer(item)
 
     else:
-        state["response"]["answer"] += "!!!!!!!!!!!!!!!!!!!"
+        state["messages"][-1].content += "!!!!!!!!!!!!!!!!!!!"
 
     return state
 
 
-def new_test(state: ChatState, writer: StreamWriter) -> ChatState:
+def new_test(state: State, writer: StreamWriter) -> State:
     """Test example commenting on whether context is current"""
 
     if False:
-        chain = test_prompt | llm
-        input = state
-        input["answer"] = state["response"]["answer"]
-        input["context"] = state["response"]["context"]
-        response = chain.invoke(input)
+        chain = (
+            RunnableParallel(
+                answer=(lambda x: x["messages"][-1]),
+                context=(lambda x: x["context"]),
+            )
+            | test_prompt
+            | llm
+        )
+        response = chain.invoke(state)
         # print(response)
-        state["response"]["answer"] += "\n\n" + response.content
+        state["messages"][-1] += "\n\n" + response.content
 
     return state
 
@@ -175,8 +163,8 @@ def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function
     rag_chain = importlib.import_module("llm.chain").history_aware_rag_chain(**kwargs)  # avoiding circular import
 
     def call_model(
-        state: ChatState,
-    ) -> ChatState:  # ,writer:StreamWriter):   #function defined here to avoid circular import
+        state: State,
+    ) -> State:  # ,writer:StreamWriter):   #function defined here to avoid circular import
 
         if False:
             stream_generator = rag_chain.stream(state)
@@ -184,11 +172,12 @@ def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function
             #    writer(item)
             state["response"] = list(stream_generator)
         else:
-            state["response"] = rag_chain.invoke(state)
+            response = rag_chain.invoke(state)
+            state["messages"].append(CustomAIMessage(response))
 
         return state
 
-    builder = StateGraph(ChatState)
+    builder = StateGraph(State)
 
     builder.add_node("call_model", call_model)
     builder.add_node("test", test)
