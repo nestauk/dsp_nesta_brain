@@ -231,23 +231,14 @@ class Response:
             reference.reset_index = i + 1
 
 
-def chat_history(*args) -> List[BaseMessage]:
-    """
-    Derive chat history from streamlit messages
-
-    args are unused, but necessary if using chat_history as an argument in rag_chain_with_citation_tool to avoid an error
-    """
+def chat_history() -> List[BaseMessage]:
+    """Derive chat history from streamlit messages"""
 
     def message_class(message: Dict) -> type:
         return AIMessage if message["role"] == "assistant" else HumanMessage
 
-    if (
-        "messages" in st.session_state
-    ):  # necessary if using chat_history as an argument in rag_chain_with_citation_tool to avoid an error
-        if (
-            len(st.session_state.messages) > 2
-        ):  # if the only messages are the initial_message and the first user input, then you don't need the chat history
-            return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
+    if len(st.session_state.messages) > 1:  # omit initial_message from chat history
+        return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
 
     return []
 
@@ -280,17 +271,24 @@ def respond(
         config = {}
 
     input = {
-        "input": question,
-        "chat_history": chat_history(),
+        "messages": chat_history(),
         "filter_condition": st.session_state["filter_condition"],
         "merge": merge,
     }
 
-    response = chain.invoke(input, config=config)  # ,stream_mode="custom"):
+    if True:
+        response = chain.invoke(input, config=config)  # ,stream_mode="custom"):
+
+    else:
+        pass
+    # async for event in chain.astream_events(input, config,version="v1",stream_mode="values"):
+    # Get chat model tokens from a particular node
+    #    if event["event"] in ["on_chat_model_stream","on_chain_end"]:
+    #       print(event)
 
     if use_langfuse:
         langfuse.trace(id=trace_id, metadata=trace_metadata())
-    st.session_state["current_trace_id"] = trace_id
+        st.session_state["current_trace_id"] = trace_id
 
     return Response(response)
 
@@ -334,9 +332,9 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
 if __name__ == "__main__":
 
     # settings
-    # retrieval settings
-    use_langgraph: bool = False
     use_langfuse: bool = False
+    # retrieval settings
+    # use_langgraph: bool = False
     merge: bool = True  # merge needs to be True from now on for indexed references and inline citations to work
     # - otherwise we could get the same source reference appearing more than once in the reference list
     limit: int = 10
@@ -351,12 +349,7 @@ if __name__ == "__main__":
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        # if use_tool_for_citations:
-        #    rag_chain = history_aware_rag_chain_with_citation_tool(chat_history, use_langgraph=use_langgraph)
-        # else:
-        rag_chain = create_chat_graph(
-            use_langgraph=use_langgraph
-        )  # history_aware_rag_chain(use_langgraph=use_langgraph)
+        rag_chain = create_chat_graph()
 
         st.set_page_config(layout="wide")
         st.markdown(

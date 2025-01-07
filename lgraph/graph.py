@@ -132,7 +132,7 @@ class ChatState(State):
 # context: List[LangchainDocument]
 
 
-def old_test(state: ChatState, writer: StreamWriter) -> ChatState:
+def test(state: ChatState, writer: StreamWriter) -> ChatState:
     """Trivial test example"""
 
     if False:
@@ -154,7 +154,7 @@ def old_test(state: ChatState, writer: StreamWriter) -> ChatState:
     return state
 
 
-def test(state: ChatState, writer: StreamWriter) -> ChatState:
+def new_test(state: ChatState, writer: StreamWriter) -> ChatState:
     """Test example commenting on whether context is current"""
 
     if False:

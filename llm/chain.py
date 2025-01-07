@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import Callable
 from typing import Dict
 
 from langchain.chains.combine_documents import create_stuff_documents_chain
@@ -45,7 +44,9 @@ def create_retrieval_chain(
 
 
 def rag_chain_with_citation_tool(
-    retriever: BaseRetriever, llm: BaseChatModel, prompt: PromptTemplate, chat_history_func: Callable
+    retriever: BaseRetriever,
+    llm: BaseChatModel,
+    prompt: PromptTemplate,
 ) -> Runnable:
     """Return a RAG retrieval chain with incorporating a tool for capturing citations"""
 
@@ -63,7 +64,9 @@ def rag_chain_with_citation_tool(
     answer = prompt | llm_with_tool | output_parser
     chain = (
         RunnableParallel(
-            input=(lambda x: x["input"]), context=(lambda x: x["context"]), chat_history=chat_history_func
+            input=(lambda x: x["messages"][-1]),
+            context=(lambda x: x["context"]),
+            chat_history=(lambda x: x["messages"][0:-1]),
         )
         .assign(quoted_answer=answer)
         .pick(["quoted_answer"])
@@ -80,6 +83,6 @@ def history_aware_rag_chain(**kwargs) -> Runnable:
     return create_retrieval_chain(history_aware_retriever(**kwargs), chat_qa_chain)
 
 
-def history_aware_rag_chain_with_citation_tool(chat_history_func: Callable, **kwargs) -> Runnable:
+def history_aware_rag_chain_with_citation_tool(**kwargs) -> Runnable:
     """Return a history aware RAG chain with citation tool while passing kwargs through to history_aware_retriever"""
-    return rag_chain_with_citation_tool(history_aware_retriever(**kwargs), llm, qa_prompt, chat_history_func)
+    return rag_chain_with_citation_tool(history_aware_retriever(**kwargs), llm, qa_prompt)
