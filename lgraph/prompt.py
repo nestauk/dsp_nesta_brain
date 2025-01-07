@@ -46,4 +46,21 @@ date_constraint_prompt_template = f"""
     {{input}}
     """  # noqa
 
-date_constraint_prompt = PromptTemplate(template=date_constraint_prompt_template, input_variables=["input"])
+date_constraint_prompt = PromptTemplate(template=date_constraint_prompt_template, input_variables=["input", "answer"])
+
+
+test_prompt_template = f"""
+    You are a helpful RAG system and an expert on the internal administration, personnel and projects of the innovation agency Nesta. The year is currently {datetime.now().year}.
+
+    You were asked to search for documents relevant to the question below and provided an answer and appropriate context.
+
+    Look at the context metadata and comment on whether the answer to your question was likely to be currently correct.
+
+    Question:
+    {{input}}
+
+    Answer:
+    {{answer}}
+    """  # noqa
+
+test_prompt = PromptTemplate(template=test_prompt_template, input_variables=["input"])

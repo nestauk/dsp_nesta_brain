@@ -17,6 +17,7 @@ from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.types import StreamWriter
 from lgraph.prompt import personnel_prompt
+from lgraph.prompt import test_prompt
 from lgraph.prompt import year_constraint_prompt
 from llm.llm import default_llm as llm
 from llm.tool import year_range
@@ -131,20 +132,39 @@ class ChatState(State):
 # context: List[LangchainDocument]
 
 
-def test(state: ChatState, writer: StreamWriter) -> ChatState:
+def old_test(state: ChatState, writer: StreamWriter) -> ChatState:
     """Trivial test example"""
 
-    state["response"]
-    state["response"][-1]["answer"] += "!!!!!!!!!!!!!!!!!!!!"
+    if False:
+        state["response"]
+        state["response"][-1]["answer"] += "!!!!!!!!!!!!!!!!!!!!"
 
-    # items = [{'answer':string+' '} for string in re.split(' ',state['response']['answer'])]
-    # items += [{'context': state['response']['context']}]
-    for item in state["response"]:  # streaming looks rushed if this is done here. Consider:
-        # taking a look at
-        # https://colab.research.google.com/github/langchain-ai/langchain-academy/blob/main/module-3/streaming-interruption.ipynb
-        # trying for event in graph.stream(None, thread, stream_mode="updates") syntax:
-        # https://colab.research.google.com/github/langchain-ai/langchain-academy/blob/main/module-4/research-assistant.ipynb#scrollTo=37123ca7-c20b-43c1-9a71-39ba344e7ca6
-        writer(item)
+        # items = [{'answer':string+' '} for string in re.split(' ',state['response']['answer'])]
+        # items += [{'context': state['response']['context']}]
+        for item in state["response"]:  # streaming looks rushed if this is done here. Consider:
+            # taking a look at
+            # https://colab.research.google.com/github/langchain-ai/langchain-academy/blob/main/module-3/streaming-interruption.ipynb
+            # trying for event in graph.stream(None, thread, stream_mode="updates") syntax:
+            # https://colab.research.google.com/github/langchain-ai/langchain-academy/blob/main/module-4/research-assistant.ipynb#scrollTo=37123ca7-c20b-43c1-9a71-39ba344e7ca6
+            writer(item)
+
+    else:
+        state["response"]["answer"] += "!!!!!!!!!!!!!!!!!!!"
+
+    return state
+
+
+def test(state: ChatState, writer: StreamWriter) -> ChatState:
+    """Test example commenting on whether context is current"""
+
+    if False:
+        chain = test_prompt | llm
+        input = state
+        input["answer"] = state["response"]["answer"]
+        input["context"] = state["response"]["context"]
+        response = chain.invoke(input)
+        # print(response)
+        state["response"]["answer"] += "\n\n" + response.content
 
     return state
 
@@ -158,10 +178,14 @@ def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function
         state: ChatState,
     ) -> ChatState:  # ,writer:StreamWriter):   #function defined here to avoid circular import
 
-        stream_generator = rag_chain.stream(state)
-        # for item in stream_generator:    #streaming looks as it did before if done here
-        #    writer(item)
-        state["response"] = list(stream_generator)
+        if False:
+            stream_generator = rag_chain.stream(state)
+            # for item in stream_generator:    #streaming looks as it did before if done here
+            #    writer(item)
+            state["response"] = list(stream_generator)
+        else:
+            state["response"] = rag_chain.invoke(state)
+
         return state
 
     builder = StateGraph(ChatState)

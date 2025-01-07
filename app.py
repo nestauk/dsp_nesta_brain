@@ -101,7 +101,7 @@ class Reference:
 
     def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
-        test_mode = False
+        test_mode = True
         index = self.reset_index if reset_index else self.index
         if test_mode:
             if self.index == 1:
@@ -128,15 +128,15 @@ class Response:
 
     def __init__(self, chain_response: Dict) -> None:
 
-        if type(chain_response["answer"]) is str:
-            self.text = chain_response["answer"]
+        if type(chain_response["response"]["answer"]) is str:
+            self.text = chain_response["response"]["answer"]
         elif isinstance(
-            chain_response["answer"], dict
+            chain_response["response"]["answer"], dict
         ):  # this will be the case if a tool has been used for citations:
             # see quoted_answer class in llm/tool.py
             # use isinstance, not type
-            self.text = chain_response["answer"]["quoted_answer"]
-        chunks = chain_response["context"]
+            self.text = chain_response["response"]["answer"]["quoted_answer"]
+        chunks = chain_response["response"]["context"]
 
         self.references = [Reference(chunk, i + 1) for i, chunk in enumerate(chunks)]
 
@@ -273,45 +273,25 @@ def respond(
 ) -> Response:
     """Get synchronous LLM response from chain and convert it into a Response object"""
 
+    if use_langfuse:
+        trace_id = str(uuid.uuid4())
+        config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
+    else:
+        config = {}
+
     input = {
         "input": question,
         "chat_history": chat_history(),
         "filter_condition": st.session_state["filter_condition"],
         "merge": merge,
     }
-    trace_id = str(uuid.uuid4())
-    response = {"answer": ""}
 
-    for item in chain.stream(
-        input, stream_mode="custom"
-    ):  # , config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
+    response = chain.invoke(input, config=config)  # ,stream_mode="custom"):
 
-        # Process each item
-        if "answer" in item:
-            if use_tool_for_citations:
-                response_text = (
-                    item["answer"]["quoted_answer"].get("answer") or ""
-                )  # if using tool the answer will be a dict rather than string
-                if response_text and response["answer"] == response_text:
-                    break  # Once the response has been generated it will go on to the other components
-                    # of quoted_answer which we don't actually need, so stop when the answer is complete
-                response["answer"] += response_text[
-                    len(response["answer"]) :
-                ]  # unlike normal streaming, response_text contains the *cumulative* response
-                # this simulates normal streaming
-                # we could set response["answer"] = response_text, but I found this made the streaming look jerky
-            else:
-                response_text = item["answer"]
-                response["answer"] += str(response_text)
-            # Display the response
-            message_placeholder.markdown(response["answer"] + "▌")
-        elif "context" in item:
-            response["context"] = item["context"]
-    # Remove the message placeholder text after all the text has been received, as
-    # it will be rendered in a nicer format with references
-    message_placeholder.markdown("")
-    #  langfuse.trace(id=trace_id, metadata=trace_metadata())
+    if use_langfuse:
+        langfuse.trace(id=trace_id, metadata=trace_metadata())
     st.session_state["current_trace_id"] = trace_id
+
     return Response(response)
 
 
@@ -355,7 +335,8 @@ if __name__ == "__main__":
 
     # settings
     # retrieval settings
-    use_langgraph: bool = True
+    use_langgraph: bool = False
+    use_langfuse: bool = False
     merge: bool = True  # merge needs to be True from now on for indexed references and inline citations to work
     # - otherwise we could get the same source reference appearing more than once in the reference list
     limit: int = 10
@@ -495,10 +476,10 @@ if __name__ == "__main__":
                 message = {"role": "assistant", "html": response.as_html(), "content": response.text}
                 st.session_state.messages.append(message)
 
-        # if there is more than one response, the feedback will be pushed to Langfuse with the trace_id of the last one
-        feedback = streamlit_feedback(
-            feedback_type="faces",
-            optional_text_label="[Optional] Please provide an explanation",
-            key="feedback",
-            on_submit=push_feedback_to_langfuse,
-        )
+        if use_langfuse:
+            feedback = streamlit_feedback(
+                feedback_type="faces",
+                optional_text_label="[Optional] Please provide an explanation",
+                key="feedback",
+                on_submit=push_feedback_to_langfuse,
+            )
