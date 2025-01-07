@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import uuid
 
 from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
-from typing import Optional
 from typing import Union
 
 import streamlit as st
@@ -18,7 +16,6 @@ from config import DEFAULT_START_YEAR
 from config import EARLIEST_YEAR
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
-from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
@@ -28,6 +25,7 @@ from langfuse.callback import CallbackHandler
 # from llm.chain import history_aware_rag_chain
 # from llm.chain import history_aware_rag_chain_with_citation_tool
 from lgraph.graph import create_chat_graph
+from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
 
@@ -77,160 +75,6 @@ def check_password() -> bool:
         return True
 
 
-class Reference:
-    """A class to make inline citations easier"""
-
-    chunk: LangchainDocument
-    index: int
-    reset_index: Optional[int] = None
-    cited: bool = False
-
-    def __init__(self, chunk: LangchainDocument, index: int) -> None:
-        self.chunk = chunk
-        self.index = index
-
-    @property
-    def is_pdf(self) -> bool:
-        """Test whether the underlying source document is a PDF"""
-        return self.metadata["location"].lower()[-4:] == ".pdf"
-
-    @property
-    def metadata(self) -> Dict:
-        """Get chunk metadata"""
-        return self.chunk.metadata
-
-    def as_html(self, reset_index: bool = False) -> str:
-        """Return reference metadata as an anchor element (indexed)"""
-        test_mode = True
-        index = self.reset_index if reset_index else self.index
-        if test_mode:
-            if self.index == 1:
-                logger.warning(
-                    "Formatting of links for testing retrieval filtering is in use – do not use for production"
-                )
-            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]}{" (PDF)" if self.is_pdf else ""} {self.metadata["date_pub"]} {self.metadata["contentType"]} {self.metadata["missions"]}</a>'  # noqa
-        else:
-            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]}{" (PDF)" if self.is_pdf else ""}</a>'  # noqa
-
-    def as_superscript(self, reset_index: bool = False) -> str:
-        """Return index as a clickable link within a superscript, suitable for inline citations"""
-        return (
-            f'<sup><a href="{self.metadata["location"]}">{self.reset_index if reset_index else self.index}</a></sup>'
-        )
-
-
-class Response:
-    """A class just to make things like printing and writing responses to streamlit easier"""
-
-    text: str
-    references: List[Reference]
-    trace_id: Optional[str] = None  # may need trace ids to push feedback to Langfuse
-
-    def __init__(self, chain_response: Dict) -> None:
-
-        if type(chain_response["response"]["answer"]) is str:
-            self.text = chain_response["response"]["answer"]
-        elif isinstance(
-            chain_response["response"]["answer"], dict
-        ):  # this will be the case if a tool has been used for citations:
-            # see quoted_answer class in llm/tool.py
-            # use isinstance, not type
-            self.text = chain_response["response"]["answer"]["quoted_answer"]
-        chunks = chain_response["response"]["context"]
-
-        self.references = [Reference(chunk, i + 1) for i, chunk in enumerate(chunks)]
-
-    def __repr__(self) -> str:
-        """Self-explanatory"""
-        string = "\n--------------\n" + self.text
-        string += f'\n{self.references[0].chunk.page_content}\n{self.references[0].metadata["location"]}'
-        string += "\n--------------\n\n"
-        return string
-
-    @property
-    def a_elements(self) -> str:
-        """Return hyperlink(s) to source document(s)"""
-        return [reference.as_html() for reference in self.references]
-
-    @property
-    def citations_in_text(self) -> List[str]:
-        """Return the set of citations in the text, i.e. numbers appearing in square brackets"""
-        return set(re.findall(r"\[\d+\]", self.text))
-
-    @property
-    def cited_references(self) -> List[Reference]:
-        """Return a list of references which are actually cited in the text"""
-        return [reference for reference in self.references if reference.cited]
-
-    @property
-    def p_element(self) -> str:
-        """Return response text as an HTML paragraph"""
-        return f"<p>{self.text_with_superscript_citations}</p>"
-
-    @property
-    def references_(self) -> str:
-        """Return formatted reference list"""
-        if split_references:
-            cited = [reference.as_html(reset_index=True) for reference in self.cited_references]
-            not_cited = [reference.as_html(reset_index=True) for reference in self.uncited_references]
-            actual_references = "<br><br><em>Cited references:</em><br>" + "<br>".join(cited) if cited else ""
-            the_rest = (
-                f"<br><em>{'May be useful' if cited else 'May be useful'}:</em><br>" + "<br>".join(not_cited)
-                if not_cited
-                else ""
-            )
-            return actual_references + the_rest
-        else:
-            a_elements = [reference.as_html() for reference in self.references]
-            return "<br><br><em>Sources:</em><br>" + "<br>".join(a_elements)
-
-    @property
-    def text_with_superscript_citations(self) -> str:
-        """
-        Return text converting all citations in square brackets to a clickable superscript
-
-        Note: we may encounter problems if for some reason numbers within square brackets appear in the text
-        because they are part of the answer
-        """
-
-        if split_references:
-            self.reset_reference_indices()
-
-        text = self.text
-        N_references = len(self.references)
-        for citation in self.citations_in_text:
-            citation_index = int(citation[1:-1])  # remove the square brackets
-            if citation_index <= N_references:  # citation indices are in the range 1:N rather than 0:(N-1)
-                reference = self.references[citation_index - 1]
-                superscript = reference.as_superscript(reset_index=split_references)
-                text = text.replace(citation, superscript)
-            else:
-                logging.warning(f"Citation {citation} contained an index greater than the number of references")
-        text = text.replace(
-            "</sup><sup>", ","
-        )  # where there are citations next to each other, merge them into the same superscript and separate them with commas
-        return text
-
-    @property
-    def uncited_references(self) -> List[Reference]:
-        """Return a list of references which are not cited in the text"""
-        return [reference for reference in self.references if not reference.cited]
-
-    def as_html(self) -> str:
-        """Convert the response into HTML"""
-        return f'<div class="response">{self.p_element}{self.references_}</div>'
-
-    def reset_reference_indices(self) -> None:
-        """Reset how the reference numbering will appear if references are split into cited and uncited sources"""
-        for citation in self.citations_in_text:
-            citation_index = int(citation[1:-1])
-            reference = self.references[citation_index - 1]
-            reference.cited = True
-
-        for i, reference in enumerate(self.cited_references + self.uncited_references):
-            reference.reset_index = i + 1
-
-
 def chat_history() -> List[BaseMessage]:
     """Derive chat history from streamlit messages"""
 
@@ -258,11 +102,10 @@ def trace_metadata() -> Dict:
 
 def respond(
     chain: Runnable,
-    question: str,
     message_placeholder: DeltaGenerator,
     **kwargs,
-) -> Response:
-    """Get synchronous LLM response from chain and convert it into a Response object"""
+) -> CustomAIMessage:
+    """Get synchronous LLM response from chain and convert it into a CustomAIMessage"""
 
     if use_langfuse:
         trace_id = str(uuid.uuid4())
@@ -290,7 +133,7 @@ def respond(
         langfuse.trace(id=trace_id, metadata=trace_metadata())
         st.session_state["current_trace_id"] = trace_id
 
-    return Response(response)
+    return CustomAIMessage(response["response"])
 
 
 def filter_conditions() -> Union[str, None]:
@@ -334,13 +177,11 @@ if __name__ == "__main__":
     # settings
     use_langfuse: bool = False
     # retrieval settings
-    # use_langgraph: bool = False
+    # use_langgraph: bool = False    #for simplification
     merge: bool = True  # merge needs to be True from now on for indexed references and inline citations to work
     # - otherwise we could get the same source reference appearing more than once in the reference list
     limit: int = 10
     use_tool_for_citations: bool = False
-    split_references: bool = True  # if True, references will be split into cited and uncited retrieved sources
-    # and the numbering reset so that references are numbered in the order they appear in the final list
 
     # UI settings
     initial_message: str = "Hi, how can I help?"
@@ -464,9 +305,9 @@ if __name__ == "__main__":
 
                 st.session_state["filter_condition"] = filter_conditions()
 
-                response = respond(rag_chain, input, message_placeholder)
+                response = respond(rag_chain, message_placeholder)
                 message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
-                message = {"role": "assistant", "html": response.as_html(), "content": response.text}
+                message = {"role": "assistant", "html": response.as_html(), "content": response.content}
                 st.session_state.messages.append(message)
 
         if use_langfuse:
