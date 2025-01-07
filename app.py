@@ -26,6 +26,7 @@ from langfuse.callback import CallbackHandler
 # from llm.chain import history_aware_rag_chain
 # from llm.chain import history_aware_rag_chain_with_citation_tool
 from lgraph.graph import create_chat_graph
+from llm.chain import history_aware_rag_chain
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
@@ -97,6 +98,7 @@ def trace_metadata() -> Dict:
     metadata["settings"] = {
         "merge": merge,
         "use_tool_for_citations": use_tool_for_citations,
+        "use_graph": use_graph,
         "limit": limit,
     }
     return metadata
@@ -193,10 +195,11 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
 if __name__ == "__main__":
 
     # settings
-    use_langfuse: bool = False
+    use_graph: bool = True
+    use_langfuse: bool = True
     stream: bool = True
     # retrieval settings
-    # use_langgraph: bool = False    #for simplification
+    # use_langgraph: bool = False    #for simplification. This was previously the setting to use LangGraph for retrieval
     merge: bool = True  # merge needs to be True from now on for indexed references and inline citations to work
     # - otherwise we could get the same source reference appearing more than once in the reference list
     limit: int = 10
@@ -209,7 +212,13 @@ if __name__ == "__main__":
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        rag_chain = create_chat_graph()
+        if use_tool_for_citations:
+            raise Exception("use_tool_for_citations may no longer work – you need to check")
+
+        if use_graph:
+            rag_chain = create_chat_graph()
+        else:
+            rag_chain = history_aware_rag_chain()
 
         st.set_page_config(layout="wide")
         st.markdown(

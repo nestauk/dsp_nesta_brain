@@ -53,7 +53,6 @@ class CustomAIMessage(AIMessage):
     """An extension of LangChain's AIMessage just to make things like printing and writing responses to streamlit easier"""
 
     references: List[Reference]
-    trace_id: Optional[str] = None  # may need trace ids to push feedback to Langfuse
 
     class Config:  # noqa
         arbitrary_types_allowed = True
