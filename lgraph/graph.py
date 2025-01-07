@@ -117,31 +117,10 @@ def create_retrieval_graph() -> CompiledStateGraph:  # doing it as a function to
 # ----------chat graph
 
 
-def old_test(state: State, writer: StreamWriter) -> State:
-    """Trivial test example"""
-
-    if False:
-        state["response"][-1]["answer"] += "!!!!!!!!!!!!!!!!!!!!"
-
-        # items = [{'answer':string+' '} for string in re.split(' ',state['response']['answer'])]
-        # items += [{'context': state['response']['context']}]
-        for item in state["response"]:  # streaming looks rushed if this is done here. Consider:
-            # taking a look at
-            # https://colab.research.google.com/github/langchain-ai/langchain-academy/blob/main/module-3/streaming-interruption.ipynb
-            # trying for event in graph.stream(None, thread, stream_mode="updates") syntax:
-            # https://colab.research.google.com/github/langchain-ai/langchain-academy/blob/main/module-4/research-assistant.ipynb#scrollTo=37123ca7-c20b-43c1-9a71-39ba344e7ca6
-            writer(item)
-
-    else:
-        state["messages"][-1].content += "!!!!!!!!!!!!!!!!!!!"
-
-    return state
-
-
 def test(state: State, writer: StreamWriter) -> State:
     """Test example commenting on whether context is current"""
 
-    if False:
+    if True:
         chain = (
             RunnableParallel(
                 input=(lambda x: x["messages"][-2]),
@@ -152,8 +131,7 @@ def test(state: State, writer: StreamWriter) -> State:
             | llm
         )
         response = chain.invoke(state)
-        # print(response)
-        state["messages"][-1] += "\n\n" + response.content
+        state["messages"][-1].content += "\n\n" + response.content
 
     return state
 
