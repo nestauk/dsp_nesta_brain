@@ -117,7 +117,7 @@ def create_retrieval_graph() -> CompiledStateGraph:  # doing it as a function to
 # ----------chat graph
 
 
-def test(state: State, writer: StreamWriter) -> State:
+def old_test(state: State, writer: StreamWriter) -> State:
     """Trivial test example"""
 
     if False:
@@ -138,14 +138,15 @@ def test(state: State, writer: StreamWriter) -> State:
     return state
 
 
-def new_test(state: State, writer: StreamWriter) -> State:
+def test(state: State, writer: StreamWriter) -> State:
     """Test example commenting on whether context is current"""
 
     if False:
         chain = (
             RunnableParallel(
+                input=(lambda x: x["messages"][-2]),
                 answer=(lambda x: x["messages"][-1]),
-                context=(lambda x: x["context"]),
+                context=(lambda x: x["messages"][-1].cited_references),
             )
             | test_prompt
             | llm
