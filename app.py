@@ -123,37 +123,78 @@ def respond(
         "merge": merge,
     }
 
-    if stream:
+    if use_graph:
 
-        async def stream_() -> State:
+        if stream:
+
+            async def stream_() -> State:
+                message_text = ""
+                id = None
+                async for event in chain.astream_events(input, config, version="v1", stream_mode="values"):
+                    if event["event"] == "on_chat_model_stream":
+                        ai_message_chunk = event["data"]["chunk"]
+                        if id != ai_message_chunk.id:
+                            if id:
+                                message_text += "\n\n"
+                            id = ai_message_chunk.id
+                        message_text += ai_message_chunk.content
+                        message_placeholder.markdown(message_text + "▌")
+                    elif event["event"] == "on_chain_end" and event["name"] == "test":
+                        final_state = event["data"]["input"]
+                return final_state
+
+            final_state = asyncio.run(stream_())
+
+        else:
+            final_state = chain.invoke(input, config=config)
+
+        return_message = final_state["messages"][-1]
+
+    else:
+
+        if stream:
+
             message_text = ""
-            id = None
-            async for event in chain.astream_events(input, config, version="v1", stream_mode="values"):
-                if event["event"] == "on_chat_model_stream":
-                    ai_message_chunk = event["data"]["chunk"]
-                    if id != ai_message_chunk.id:
-                        if id:
-                            message_text += "\n\n"
-                        id = ai_message_chunk.id
-                    message_text += ai_message_chunk.content
+            for item in chain.stream(input, config=config):
+                # Process each item
+                if "answer" in item:
+                    if use_tool_for_citations:
+                        item_text = (
+                            item["answer"]["quoted_answer"].get("answer") or ""
+                        )  # if using tool the answer will be a dict rather than string
+                        if item_text and item_text == message_text:
+                            break  # Once the response has been generated it will go on to the other components
+                            # of quoted_answer which we don't actually need, so stop when the answer is complete
+                        message_text += item_text[
+                            len(message_text) :
+                        ]  # unlike normal streaming, message_text contains the *cumulative* response
+                        # this simulates normal streaming
+                        # we could set response["answer"] = message_text, but I found this made the streaming look jerky
+                    else:
+                        message_text += str(item["answer"])
+                    # Display the response
                     message_placeholder.markdown(message_text + "▌")
-                elif event["event"] == "on_chain_end" and event["name"] == "test":
-                    final_state = event["data"]["input"]
-            return final_state
 
-        final_state = asyncio.run(stream_())
+                elif "context" in item:
+                    context = item["context"]
+
+            response = {"answer": message_text, "context": context}
+
+        else:
+            response = chain.invoke(input, config=config)
+
+        return_message = CustomAIMessage(response)
+
+    if stream:
         # Remove the message placeholder text after all the text has been received, as
         # it will be rendered in a nicer format with references
         message_placeholder.markdown("")
-
-    else:
-        final_state = chain.invoke(input, config=config)
 
     if use_langfuse:
         langfuse.trace(id=trace_id, metadata=trace_metadata())
         st.session_state["current_trace_id"] = trace_id
 
-    return final_state["messages"][-1]
+    return return_message
 
 
 def filter_conditions() -> Union[str, None]:
@@ -196,7 +237,7 @@ if __name__ == "__main__":
 
     # settings
     use_graph: bool = True
-    use_langfuse: bool = True
+    use_langfuse: bool = False
     stream: bool = True
     # retrieval settings
     # use_langgraph: bool = False    #for simplification. This was previously the setting to use LangGraph for retrieval
@@ -213,7 +254,7 @@ if __name__ == "__main__":
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
         if use_tool_for_citations:
-            raise Exception("use_tool_for_citations may no longer work – you need to check")
+            raise Exception("use_tool_for_citations may no longer work – need to check")
 
         if use_graph:
             rag_chain = create_chat_graph()

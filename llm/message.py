@@ -31,7 +31,7 @@ class Reference(LangchainDocument):
 
     def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
-        test_mode = True
+        test_mode = False
         index = self.reset_index if reset_index else self.index
         if test_mode:
             if self.index == 1:
@@ -50,7 +50,7 @@ class Reference(LangchainDocument):
 
 
 class CustomAIMessage(AIMessage):
-    """An extension of LangChain's AIMessage just to make things like printing and writing responses to streamlit easier"""
+    """An extension of LangChain's AIMessage just to make printing and writing responses to streamlit easier"""
 
     references: List[Reference]
 
