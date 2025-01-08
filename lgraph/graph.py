@@ -71,7 +71,6 @@ def decide_if_person_page(state: State) -> State:
     return state
 
 
-# -------NODES
 def decide_if_need_time_constraint(state: State) -> State:
     """Decide if the publication date of retrieved documents should be constrained by a year range"""
 
