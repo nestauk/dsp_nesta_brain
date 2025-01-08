@@ -3,23 +3,25 @@ import os
 from typing import Callable
 from typing import List
 
-from dotenv import load_dotenv  # noqa
-from langchain.chains import LLMChain  # noqa
-from langchain.chains import create_history_aware_retriever
-from langchain.chains import create_retrieval_chain
+from dotenv import load_dotenv
+from langchain.chains import LLMChain
+
+# from langchain.chains import create_history_aware_retriever
 from langchain.output_parsers.openai_tools import JsonOutputKeyToolsParser
 from langchain.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.retrievers import BaseRetriever
+from langchain_core.runnables import Runnable
 from langchain_core.runnables import RunnableParallel
 from langchain_core.runnables import RunnablePassthrough
-from langchain_core.runnables.base import Runnable
-from langchain_openai import ChatOpenAI  # noqa
-from llm.prompt import contextualize_q_prompt  # noqa
-from llm.prompt import qa_prompt  # noqa
+from langchain_openai import ChatOpenAI
+from llm.prompt import contextualize_q_prompt
+from llm.prompt import qa_prompt
 from pydantic import BaseModel
 from pydantic import Field
-from retrieval.retrieve import CustomRetriever  # noqa
+from retrieval.retrieve import CustomRetriever
+from retrieval.retrieve import create_history_aware_retriever
+from retrieval.retrieve import create_retrieval_chain
 
 
 # see https://python.langchain.com/v0.1/docs/use_cases/question_answering/citations/

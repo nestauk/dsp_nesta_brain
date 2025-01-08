@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 import os
 import re
 
 from collections import OrderedDict
+from typing import TYPE_CHECKING
+from typing import Any
+from typing import Dict
 from typing import List
 from typing import Optional
 
@@ -15,6 +20,9 @@ from lancedb.table import LanceTable
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_community.vectorstores import LanceDB
 from langchain_core.retrievers import BaseRetriever
+from langchain_core.runnables import RunnableBranch
+from langchain_core.runnables import RunnableParallel
+from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import OpenAIEmbeddings
 from openai import AsyncOpenAI
 from openai import OpenAI
@@ -22,39 +30,95 @@ from retrieval.db.schema import Chunk
 from utils import unique
 
 
+if TYPE_CHECKING:
+    from langchain_core.language_models import LanguageModelLike
+    from langchain_core.prompts import BasePromptTemplate
+    from langchain_core.retrievers import RetrieverLike
+    from langchain_core.retrievers import RetrieverOutputLike
+    from langchain_core.runnables import Runnable
+
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+
+
+def create_retrieval_chain(
+    retriever: BaseRetriever,
+    combine_docs_chain: Runnable[Dict[str, Any], str],
+) -> Runnable:
+    """
+    Create retrieval chain that retrieves documents and then passes them on.
+
+    Lightly modified version of:
+    https://github.com/langchain-ai/langchain/blob/master/libs/langchain/langchain/chains/retrieval.py
+    The modification is to allow a dict containing the query, filter conditions, and possibly other paramters to be passed through
+    to _get_relevant_documents
+    """
+
+    retrieval_chain = (
+        RunnablePassthrough.assign(
+            context=retriever.with_config(run_name="retrieve_documents"),
+        ).assign(answer=combine_docs_chain)
+    ).with_config(run_name="retrieval_chain")
+
+    return retrieval_chain
+
+
+def create_history_aware_retriever(
+    llm: LanguageModelLike,
+    retriever: RetrieverLike,
+    prompt: BasePromptTemplate,
+) -> RetrieverOutputLike:
+    """Create a chain that takes conversation history and returns documents.
+
+    Modified version of:
+    https://github.com/langchain-ai/langchain/blob/master/libs/langchain/langchain/chains/history_aware_retriever.py
+    As with create_retriever_chain, the modification is to allow a dict containing the query, filter conditions,
+    and possibly other parameters to be passed through to _get_relevant_documents
+    """
+
+    parser = lambda ai_message: ai_message.content  # noqa
+    recontextualisation_chain = prompt | llm | parser
+    recontextualisation_chain = RunnableParallel(
+        input=recontextualisation_chain,
+        filter_condition=lambda x: x.get("filter_condition"),
+        merge=lambda x: x.get("merge") or False,
+    )
+    # unlike in the original version of create_history_aware_retriever, we want filter_condition and merge
+    # to be passed through to the retriever
+
+    retrieve_documents: RetrieverOutputLike = RunnableBranch(
+        (
+            # Both empty string and empty list evaluate to False
+            lambda x: not x.get("chat_history", False),
+            # If no chat history, then we just pass input to retriever
+            retriever,
+        ),
+        # If chat history, then we pass inputs to LLM chain, then to retriever
+        recontextualisation_chain | retriever,
+    ).with_config(run_name="chat_retriever_chain")
+    return retrieve_documents
 
 
 class CustomRetriever(BaseRetriever):
     """Custom retriever class because I encountered a bug when converting a LanceDB
     vector store into a retriever in the usual way"""  # noqa
 
-    filter_condition: Optional[
-        str
-    ] = None  # added because kwargs to chain.invoke in app.py are not passed on to the retriever
-    merge: bool = False  # if True then where chunks are from the same document they will be merged into a single retrieval result
+    # async def _aget_relevant_documents(self, query: str, limit: int = 3, **kwargs) -> List[LangchainDocument]:
+    # may not be needed
+    # there have been problems getting Lance DB to work with asynchronous requests
+    #    pass
 
-    async def _aget_relevant_documents(self, query: str, limit: int = 3, **kwargs) -> List[LangchainDocument]:
-        """Retrieve chunks related to a search query using a hybrid search strategy"""
-        # doesn't currently include all the asynchronous components that if could – see async_search_loop for explanation
-        #  async_db = await lancedb.connect_async(DB_PATH)
-        db = lancedb.connect(DB_PATH)
-
-        logger.info("Vectorizing query ...")
-        vector_ = await CustomRetriever.async_vector(query)
-        #   chunks = await CustomRetriever.async_retrieve_chunks(db,query,vector_,limit)
-        chunks = CustomRetriever.retrieve_chunks(db, query, vector_, limit, **kwargs)
-        docs = CustomRetriever.chunks_to_docs(chunks, merge=self.merge, enumerate_=True)
-
-        return docs
-
-    def _get_relevant_documents(self, query: str, limit: int = 10, **kwargs) -> List[LangchainDocument]:
+    def _get_relevant_documents(self, input: Dict, limit: int = 10, **kwargs) -> List[LangchainDocument]:
         """
         Retrieve chunks related to a search query using a hybrid search strategy
 
         CAUTION: kwargs are not passed on when the retriever is part of a rag_chain and the rag_chain is invoked
+        workaround – use modified create_retrieval_chain above and pass kwarg-like arguments via an input dict (rather than str)
 
         """
+
+        query = input["input"]
+        filter_condition = input.get("filter_condition")
+        merge = input.get("merge")
 
         # the code has been chopped up into bits which can be reused easily in both synchronous and asynchronous versions
 
@@ -63,13 +127,13 @@ class CustomRetriever(BaseRetriever):
         logger.info("Vectorizing query ...")
         vector_ = CustomRetriever.vector(query)
         chunks = CustomRetriever.retrieve_chunks(
-            db, query, vector_, limit, filter_condition=self.filter_condition, **kwargs
+            db, query, vector_, limit, filter_condition=filter_condition, **kwargs
         )
         # Quick hack to give access for RAG to author and title information (by Karlis)
         for chunk in chunks:
             chunk.text = chunk.text + "; title: " + str(chunk.source.title) + "; authors: " + str(chunk.source.authors)
         # (hack ends)
-        docs = CustomRetriever.chunks_to_docs(chunks, merge=self.merge, enumerate_=True)
+        docs = CustomRetriever.chunks_to_docs(chunks, merge=merge, enumerate_=True)
 
         return docs
 
