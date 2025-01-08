@@ -237,7 +237,7 @@ if __name__ == "__main__":
 
     # settings
     use_graph: bool = True
-    use_langfuse: bool = False
+    use_langfuse: bool = True
     stream: bool = True
     # retrieval settings
     # use_langgraph: bool = False    #for simplification. This was previously the setting to use LangGraph for retrieval
