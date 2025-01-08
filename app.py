@@ -282,7 +282,7 @@ def respond(
     trace_id = str(uuid.uuid4())
     response = {"answer": ""}
 
-    for item in chain.stream(input_, config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
+    for item in chain.stream(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
         # Process each item
         if "answer" in item:
             if use_tool_for_citations:
