@@ -29,10 +29,10 @@ class Reference(LangchainDocument):
         """Test whether the underlying source document is a PDF"""
         return self.metadata["location"].lower()[-4:] == ".pdf"
 
-    def as_html(self, reset_index: bool = False) -> str:
+    def as_html(self, reset_index: bool = False, test_mode: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
-        test_mode = False
-        index = self.reset_index if reset_index else self.index
+        test_mode = True
+        index = self.reset_index if reset_index is not None else self.index
         if test_mode:
             if self.index == 1:
                 logger.warning(
@@ -44,9 +44,8 @@ class Reference(LangchainDocument):
 
     def as_superscript(self, reset_index: bool = False) -> str:
         """Return index as a clickable link within a superscript, suitable for inline citations"""
-        return (
-            f'<sup><a href="{self.metadata["location"]}">{self.reset_index if reset_index else self.index}</a></sup>'
-        )
+        index = self.reset_index if reset_index is not None else self.index
+        return f'<sup><a href="{self.metadata["location"]}">{index}</a></sup>'
 
 
 class CustomAIMessage(AIMessage):
@@ -93,6 +92,8 @@ class CustomAIMessage(AIMessage):
     @property
     def cited_references(self) -> List[Reference]:
         """Return a list of references which are actually cited in the content"""
+        if not self.citations_have_been_flagged:
+            self.flag_citations()
         return [reference for reference in self.references if reference.cited]
 
     @property
@@ -122,7 +123,8 @@ class CustomAIMessage(AIMessage):
         because they are part of the answer
         """
 
-        self.reset_reference_indices()
+        if not self.reference_indices_have_been_reset:
+            self.reset_reference_indices()
 
         content = markdown.markdown(self.content)
         N_references = len(self.references)
@@ -142,18 +144,37 @@ class CustomAIMessage(AIMessage):
     @property
     def uncited_references(self) -> List[Reference]:
         """Return a list of references which are not cited in the content"""
+        if not self.citations_have_been_flagged:
+            self.flag_citations()
         return [reference for reference in self.references if not reference.cited]
+
+    @property
+    def citations_have_been_flagged(self) -> bool:
+        """
+        Test whether any of the references have cited property set to True.
+
+        Also return True if there are no citations
+        """
+
+        return any(reference.cited for reference in self.references) or not self.citations_in_content
+
+    @property
+    def reference_indices_have_been_reset(self) -> bool:
+        """Test whether the references' reset_index has been set"""
+        return all(reference.reset_index is not None for reference in self.references)
 
     def as_html(self) -> str:
         """Convert the response into HTML"""
         return f'<div class="response">{self.p_element}{self.references_}</div>'
 
-    def reset_reference_indices(self) -> None:
-        """Reset how the reference numbering will appear if references are split into cited and uncited sources"""
+    def flag_citations(self) -> None:
+        """Flag references which have been cited"""
         for citation in self.citations_in_content:
             citation_index = int(citation[1:-1])
             reference = self.references[citation_index - 1]
             reference.cited = True
 
+    def reset_reference_indices(self) -> None:
+        """Reset how the reference numbering will appear if references are split into cited and uncited sources"""
         for i, reference in enumerate(self.cited_references + self.uncited_references):
             reference.reset_index = i + 1

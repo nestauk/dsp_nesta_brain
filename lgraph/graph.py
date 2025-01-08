@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 
+from copy import deepcopy
 from typing import TYPE_CHECKING
 
 from config import DEFAULT_START_YEAR
@@ -12,8 +13,8 @@ from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.types import StreamWriter
+from lgraph.prompt import currentness_comment_prompt
 from lgraph.prompt import personnel_prompt
-from lgraph.prompt import test_prompt
 from lgraph.prompt import year_constraint_prompt
 from llm.llm import default_llm as llm
 from llm.message import CustomAIMessage
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 
 
 DEFAULT_FROM_YEAR_FILTER_CONDITION = f"source.date_pub >= to_timestamp('{DEFAULT_START_YEAR}-01-01')"
+LAST_CHAT_GRAPH_NODE_NAME = "currentness_comment"
 
 # ----------retrieval graph
 
@@ -117,20 +119,28 @@ def create_retrieval_graph() -> CompiledStateGraph:  # doing it as a function to
 # ----------chat graph
 
 
-def test(state: State, writer: StreamWriter) -> State:
+currentness_comment_chain = (
+    RunnableParallel(
+        input=(lambda x: x["messages"][-2]),
+        answer=(lambda x: x["messages"][-1]),
+    )
+    | currentness_comment_prompt
+    | llm
+)
+
+
+def currentness_comment(state: State, writer: StreamWriter) -> State:
     """Test example commenting on whether context is current"""
 
-    if True:
-        chain = (
-            RunnableParallel(
-                input=(lambda x: x["messages"][-2]),
-                answer=(lambda x: x["messages"][-1]),
-                context=(lambda x: x["messages"][-1].cited_references),
-            )
-            | test_prompt
-            | llm
-        )
-        response = chain.invoke(state)
+    sub_state = deepcopy(state)
+    # the chain will interpret the references of the last CustomAIMessage as context
+    # overwrite the references with only those which were actually cited in the response
+    # it needs to be a copy as otherwise the references will be changed permanently
+    #  and won't be listed properly at the end of the answer
+    sub_state["messages"][-1].references = sub_state["messages"][-1].cited_references
+
+    response = currentness_comment_chain.invoke(sub_state)
+    if response.content:
         state["messages"][-1].content += "<br><br>" + response.content
 
     return state
@@ -143,26 +153,20 @@ def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function
 
     def call_model(
         state: State,
-    ) -> State:  # ,writer:StreamWriter):   #function defined here to avoid circular import
+    ) -> State:  # function defined here to avoid circular import
 
-        if False:
-            stream_generator = rag_chain.stream(state)
-            # for item in stream_generator:    #streaming looks as it did before if done here
-            #    writer(item)
-            state["response"] = list(stream_generator)
-        else:
-            response = rag_chain.invoke(state)
-            state["messages"].append(CustomAIMessage(response))
+        response = rag_chain.invoke(state)
+        state["messages"].append(CustomAIMessage(response))
 
         return state
 
     builder = StateGraph(State)
 
     builder.add_node("call_model", call_model)
-    builder.add_node("test", test)
+    builder.add_node("currentness_comment", currentness_comment)
     builder.add_edge(START, "call_model")
-    builder.add_edge("call_model", "test")
-    builder.add_edge("test", END)
+    builder.add_edge("call_model", "currentness_comment")
+    builder.add_edge("currentness_comment", END)
 
     return builder.compile()
 

@@ -22,11 +22,11 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-
-# from llm.chain import history_aware_rag_chain
-# from llm.chain import history_aware_rag_chain_with_citation_tool
+from lgraph.graph import LAST_CHAT_GRAPH_NODE_NAME
 from lgraph.graph import create_chat_graph
 from llm.chain import history_aware_rag_chain
+
+# from llm.chain import history_aware_rag_chain_with_citation_tool
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
@@ -139,7 +139,7 @@ def respond(
                             id = ai_message_chunk.id
                         message_text += ai_message_chunk.content
                         message_placeholder.markdown(message_text + "▌")
-                    elif event["event"] == "on_chain_end" and event["name"] == "test":
+                    elif event["event"] == "on_chain_end" and event["name"] == LAST_CHAT_GRAPH_NODE_NAME:
                         final_state = event["data"]["input"]
                 return final_state
 
