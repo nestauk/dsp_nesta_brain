@@ -310,17 +310,30 @@ def llm_response(
 ) -> str:
     """Get synchronous LLM response from chain"""
     if mode == "chat":
-        input = {"input": question, "chat_history": chat_history()}
+        input_ = {"input": question, "chat_history": chat_history()}
     else:
-        input = {"context": docs, "question": question}
+        input_ = {"context": docs, "question": question}
     trace_id = str(uuid.uuid4())
     response = {"answer": ""}
 
-    for item in chain.stream(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
+    for item in chain.stream(input_, config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
         # Process each item
         if "answer" in item:
-            response_text = item["answer"]
-            response["answer"] += str(response_text)
+            if use_tool_for_citations:
+                response_text = (
+                    item["answer"]["quoted_answer"].get("answer") or ""
+                )  # if using tool the answer will be a dict rather than string
+                if response_text and response["answer"] == response_text:
+                    break  # Once the response has been generated it will go on to the other components
+                    # of quoted_answer which we don't actually need, so stop when the answer is complete
+                response["answer"] += response_text[
+                    len(response["answer"]) :
+                ]  # unlike normal streaming, response_text contains the *cumulative* response
+                # this simulates normal streaming
+                # we could set response["answer"] = response_text, but I found this made the streaming look jerky
+            else:
+                response_text = item["answer"]
+                response["answer"] += str(response_text)
             # Display the response
             message_placeholder.markdown(response["answer"] + "▌")
         elif "context" in item:
