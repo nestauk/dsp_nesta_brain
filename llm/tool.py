@@ -118,3 +118,4 @@ def llm_response(chain: Runnable, question: str, **kwargs) -> str:
     input = {"input": question, "chat_history": []}
     response = chain.invoke(input, **kwargs)
     return response
+
