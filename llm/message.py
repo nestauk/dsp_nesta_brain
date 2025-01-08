@@ -29,9 +29,9 @@ class Reference(LangchainDocument):
         """Test whether the underlying source document is a PDF"""
         return self.metadata["location"].lower()[-4:] == ".pdf"
 
-    def as_html(self, reset_index: bool = False, test_mode: bool = False) -> str:
+    def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
-        test_mode = True
+        test_mode = False
         index = self.reset_index if reset_index is not None else self.index
         if test_mode:
             if self.index == 1:
