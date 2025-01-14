@@ -16,9 +16,9 @@ from langgraph.types import StreamWriter
 from lgraph.prompt import currentness_comment_prompt
 from lgraph.prompt import personnel_prompt
 from lgraph.prompt import year_constraint_prompt
+from lgraph.tool import year_range
 from llm.llm import default_llm as llm
 from llm.message import CustomAIMessage
-from llm.tool import year_range
 from retrieval.retrieve import RetrieverInput as State
 
 
