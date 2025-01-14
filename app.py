@@ -236,8 +236,8 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
 if __name__ == "__main__":
 
     # settings
-    use_graph: bool = True
-    use_langfuse: bool = True
+    use_graph: bool = False
+    use_langfuse: bool = False
     stream: bool = True
     # retrieval settings
     # use_langgraph: bool = False    #for simplification. This was previously the setting to use LangGraph for retrieval
