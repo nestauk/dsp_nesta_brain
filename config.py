@@ -1,6 +1,5 @@
 # DB_PATH = "retrieval/db/ccid_demo_db"
 DB_PATH = "retrieval/db/full_site_demo_db_with_pdfs"
-GOOGLE_API_CREDENTIALS_PATH = "google-api/credentials.json"
 
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_EMBEDDINGS_MODEL = "text-embedding-3-small"
