@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 
-from enum import Enum
-
 from pydantic import BaseModel
 from pydantic import Field
+
+
+# from enum import Enum
 
 
 class date_range(BaseModel):
@@ -73,47 +74,3 @@ class year_range(BaseModel):
             for attr in ["start_year", "end_year"]
         ]
         return " and ".join(conditions)
-
-
-class OfficeTemplate(BaseModel):
-    """
-    A class for describing templates for proposals, project updates, etc.
-
-    Note: this class is not used for information extraction but for defining possible templates
-    """
-
-    UID: str = (
-        Field(
-            ...,
-            description="A unique identifier",
-        ),
-    )
-    title: str = (
-        Field(
-            ...,
-            description="The template title",
-        ),
-    )
-    purpose: str = (
-        Field(
-            ...,
-            description="What the template is for",
-        ),
-    )
-    location: str
-
-    def __repr__(self) -> str:
-        """Self-explanatory"""
-        format = "{UID}: {title}. {purpose}"
-        return format.format(**{k: getattr(self, k) for k in self.__class__.dict() if k in format})
-
-
-class PossibleTemplate(Enum):
-    """Specifies which office templates exist"""
-
-    PROJ = OfficeTemplate(
-        UID="PROJ",
-        title="Project Proposal Template",
-        purpose="Help staff write proposals at the Opportunity and Scoping phases",
-        location="https://docs.google.com/document/d/1cOv2vXcIPWQmRPeVDB-JMz8rS1CUIkyUeCFR-_7HyqY",
-    )

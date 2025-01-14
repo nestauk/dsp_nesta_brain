@@ -1,6 +1,8 @@
 from datetime import datetime
 
 from langchain.prompts import PromptTemplate
+from pydantic import BaseModel
+from pydantic import Field
 
 
 personnel_prompt_template = """
@@ -112,15 +114,63 @@ currentness_comment_prompt = PromptTemplate(
 )
 
 
-needs_template_template = """
+class OfficeTemplate(BaseModel):
+    """A class for describing templates for proposals, project updates, etc."""
+
+    UID: str = (
+        Field(
+            ...,
+            description="A unique identifier",
+        ),
+    )
+    title: str = (
+        Field(
+            ...,
+            description="The template title",
+        ),
+    )
+    purpose: str = (
+        Field(
+            ...,
+            description="What the template is for",
+        ),
+    )
+    location: str
+
+    def __repr__(self) -> str:
+        """Self-explanatory"""
+        format_ = "\n\tUID: {UID}\n\ttitle: {title}\n\tpurpose: {purpose}\n"
+        return format_.format(**{k: getattr(self, k) for k in self.__class__.dict(self) if k in format_})
+
+
+office_templates = [
+    OfficeTemplate(
+        UID="PJPROP",
+        title="Project Proposal Template",
+        purpose="Help staff write proposals at the Opportunity and Scoping phases",
+        location="https://docs.google.com/document/d/1cOv2vXcIPWQmRPeVDB-JMz8rS1CUIkyUeCFR-_7HyqY",
+    ),
+    OfficeTemplate(
+        UID="PJUPDT",
+        title="Project Updates Guidance",
+        purpose="Help staff write webpages informing the public about project updates",
+        location="https://docs.google.com/document/d/1cOv2vXcIPWQmRPeVDB-JMz8rS1CUIkyUeCFR-_7HyqY",
+    ),
+]
+
+
+needs_template_template = f"""
     You are a helpful assistant and an expert on the internal administration, personnel and projects of the innovation agency Nesta.
 
-    You have the following document templates
+    You have the following office document templates to help staff do their work: {office_templates}
 
-    Look at the question below and decide whether it is about personnel and best answered by looking at staff biographies and CVs. Answer "YES" or "NO".
+    Look at the question below and decide whether the staff member who asked it needs one of the document templates.
+
+    If so, respond just with the template UID. Otherwise, respond "NULL".
 
     Question:
-    {input}
+    {{input}}
     """  # noqa
+
 
 needs_template_prompt = PromptTemplate(template=needs_template_template, input_variables=["input"])
