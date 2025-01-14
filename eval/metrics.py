@@ -11,7 +11,8 @@ from typing import cast
 import numpy as np
 
 from ragas.embeddings.base import HuggingfaceEmbeddings
-from ragas.metrics import RubricsScoreWithoutReference
+
+# from ragas.metrics import RubricsScoreWithoutReference
 from ragas.metrics import SummarizationScore
 from ragas.metrics.base import MetricType
 from ragas.metrics.base import MetricWithEmbeddings
@@ -36,8 +37,8 @@ rubrics = {
     "score5_description": "The response answers the question fully and is clear and detailed.",
 }
 
-rubrics_metric_1 = RubricsScoreWithoutReference()  # default rubrics
-rubrics_metric_2 = RubricsScoreWithoutReference(rubrics=rubrics)  # bespoke rubrics
+# rubrics_metric_1 = RubricsScoreWithoutReference()  # default rubrics
+# rubrics_metric_2 = RubricsScoreWithoutReference(rubrics=rubrics)  # bespoke rubrics
 
 
 class CorrectedSummarizationScore(SummarizationScore):

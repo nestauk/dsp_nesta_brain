@@ -11,25 +11,19 @@ from typing import Union
 
 import streamlit as st
 
+from config import DEFAULT_START_YEAR
+from config import EARLIEST_YEAR
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
-
-# from langchain.chains import create_history_aware_retriever
-from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
-from langchain_openai import ChatOpenAI
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from llm.prompt import contextualize_q_prompt
-from llm.prompt import qa_prompt
-from llm.tool import rag_chain_with_citation_tool
-from retrieval.retrieve import CustomRetriever
-from retrieval.retrieve import create_history_aware_retriever
-from retrieval.retrieve import create_retrieval_chain
+from llm.chain import history_aware_rag_chain
+from llm.chain import history_aware_rag_chain_with_citation_tool
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
 
@@ -44,8 +38,6 @@ langfuse_handler = CallbackHandler(
 )
 
 
-EARLIEST_YEAR = 2003  # 2003 is the earliest publication date in the DB
-DEFAULT_START_YEAR = 2019
 CURRENT_YEAR = datetime.now().year
 
 WIDGET_DEFAULTS = {"from_year": DEFAULT_START_YEAR, "to_year": CURRENT_YEAR, "include_people": "Yes", "mission": None}
@@ -352,10 +344,11 @@ if __name__ == "__main__":
 
     # settings
     # retrieval settings
+    use_langgraph: bool = True
     merge: bool = True  # merge needs to be True from now on for indexed references and inline citations to work
     # - otherwise we could get the same source reference appearing more than once in the reference list
     limit: int = 10
-    use_tool_for_citations: bool = True
+    use_tool_for_citations: bool = False
     split_references: bool = True  # if True, references will be split into cited and uncited retrieved sources
     # and the numbering reset so that references are numbered in the order they appear in the final list
 
@@ -366,18 +359,10 @@ if __name__ == "__main__":
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        llm = ChatOpenAI(
-            temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini", streaming=True
-        )
-
-        retriever = CustomRetriever()
-        # credit: https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
-        history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
         if use_tool_for_citations:
-            rag_chain = rag_chain_with_citation_tool(history_aware_retriever, llm, qa_prompt, chat_history)
+            rag_chain = history_aware_rag_chain_with_citation_tool(chat_history, use_langgraph=use_langgraph)
         else:
-            chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
-            rag_chain = create_retrieval_chain(history_aware_retriever, chat_qa_chain)
+            rag_chain = history_aware_rag_chain(use_langgraph=use_langgraph)
 
         st.set_page_config(layout="wide")
         st.markdown(
