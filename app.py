@@ -1,8 +1,6 @@
-import asyncio
 import logging
 import os
 import re
-import sys
 import uuid
 
 from datetime import datetime
@@ -11,9 +9,12 @@ from typing import List
 from typing import Optional
 from typing import Union
 
-from langchain.chains import create_history_aware_retriever
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
+import streamlit as st
+
+from config import DEFAULT_START_YEAR
+from config import EARLIEST_YEAR
+from dotenv import load_dotenv
+from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
@@ -21,29 +22,10 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from llm.tool import rag_chain_with_citation_tool
-
-
-if (
-    "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages" in sys.path
-):  # streamlit seems to not like poetry; I had to add these three lines to get it to work
-    sys.path.remove("/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages")
-sys.path.append(
-    "/Users/helen/Library/Caches/pypoetry/virtualenvs/dsp-nesta-brain-2RPY-0NE-py3.11/lib/python3.11/site-packages/"
-)
-import lxml.html  # noqa # nosec
-import streamlit as st  # noqa
-
-from dotenv import load_dotenv  # noqa
-from dsp_nesta_brain import logger  # noqa
-from langchain.chains import LLMChain  # noqa
-from langchain_openai import ChatOpenAI  # noqa
-from llm.prompt import basic_question_prompt  # noqa
-from llm.prompt import contextualize_q_prompt  # noqa
-from llm.prompt import qa_prompt  # noqa
-from retrieval.retrieve import CustomRetriever  # noqa
-from streamlit.delta_generator import DeltaGenerator  # noqa
-from streamlit_feedback import streamlit_feedback  # noqa
+from llm.chain import history_aware_rag_chain
+from llm.chain import history_aware_rag_chain_with_citation_tool
+from streamlit.delta_generator import DeltaGenerator
+from streamlit_feedback import streamlit_feedback
 
 
 langfuse = Langfuse()
@@ -52,12 +34,10 @@ langfuse_handler = CallbackHandler(
     secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
     public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
     host=os.getenv("LANGFUSE_HOST"),
-    user_id="anon",
+    user_id=os.getenv("LANGFUSE_USER_ID"),
 )
 
 
-EARLIEST_YEAR = 2003  # 2003 is the earliest publication date in the DB
-DEFAULT_START_YEAR = 2019
 CURRENT_YEAR = datetime.now().year
 
 WIDGET_DEFAULTS = {"from_year": DEFAULT_START_YEAR, "to_year": CURRENT_YEAR, "include_people": "Yes", "mission": None}
@@ -132,47 +112,30 @@ class Reference:
 
 
 class Response:
-    """A class just to make things like printing and writing to streamlit easier"""
+    """A class just to make things like printing and writing responses to streamlit easier"""
 
     text: str
-    quoted_answer: Optional[Dict] = None  # store quoted_answer instance if a tool has been used to derived citations
-    mode: str
     references: List[Reference]
-    index: Optional[int] = None
     trace_id: Optional[str] = None  # may need trace ids to push feedback to Langfuse
 
-    def __init__(
-        self,
-        chain_response: Union[str, Dict],
-        chunks: Union[LangchainDocument, List[LangchainDocument]],
-        mode: str,
-        index: Optional[int] = None,
-    ) -> None:
+    def __init__(self, chain_response: Dict) -> None:
 
-        if mode == "chat":
-            if type(chain_response["answer"]) is str:
-                self.text = chain_response["answer"]
-            elif isinstance(
-                chain_response["answer"], dict
-            ):  # this will be the case if a tool has been used for citations:
-                # see quoted_answer class in llm/tool.py
-                # use isinstance, not type
-                self.quoted_answer = chain_response["answer"]["quoted_answer"]
-                self.text = self.quoted_answer["answer"]
-            chunks = chain_response["context"]
-        elif mode == "indiv":
-            self.text = chain_response.replace("ANSWER: ", "")
-            if isinstance(chunks, LangchainDocument):
-                chunks = [chunks]
+        if type(chain_response["answer"]) is str:
+            self.text = chain_response["answer"]
+        elif isinstance(
+            chain_response["answer"], dict
+        ):  # this will be the case if a tool has been used for citations:
+            # see quoted_answer class in llm/tool.py
+            # use isinstance, not type
+            self.text = chain_response["answer"]["quoted_answer"]
+        chunks = chain_response["context"]
+
         self.references = [Reference(chunk, i + 1) for i, chunk in enumerate(chunks)]
-        self.index = index
-        self.mode = mode
 
     def __repr__(self) -> str:
         """Self-explanatory"""
         string = "\n--------------\n" + self.text
-        if not self.is_summary:
-            string += f'\n{self.references[0].chunk.page_content}\n{self.references[0].metadata["location"]}'
+        string += f'\n{self.references[0].chunk.page_content}\n{self.references[0].metadata["location"]}'
         string += "\n--------------\n\n"
         return string
 
@@ -183,7 +146,7 @@ class Response:
 
     @property
     def citations_in_text(self) -> List[str]:
-        """Return the list of citations in the text, i.e. numbers appearing in square brackets"""
+        """Return the set of citations in the text, i.e. numbers appearing in square brackets"""
         return set(re.findall(r"\[\d+\]", self.text))
 
     @property
@@ -194,13 +157,7 @@ class Response:
     @property
     def p_element(self) -> str:
         """Return response text as an HTML paragraph"""
-        header = "<b>SUMMARY:</b> " if self.is_summary else (f"({self.index}) " if self.index else "")
-        return f"<p>{header}{self.text_with_superscript_citations}</p>"
-
-    @property
-    def is_summary(self) -> bool:
-        """Determine whether the response should be treated as a summary of other visible responses"""
-        return self.mode == "indiv" and self.index is None
+        return f"<p>{self.text_with_superscript_citations}</p>"
 
     @property
     def references_(self) -> str:
@@ -210,7 +167,6 @@ class Response:
             not_cited = [reference.as_html(reset_index=True) for reference in self.uncited_references]
             actual_references = "<br><br><em>Cited references:</em><br>" + "<br>".join(cited) if cited else ""
             the_rest = (
-                # Quick fix to show "May be useful" for uncited references in all situations
                 f"<br><em>{'May be useful' if cited else 'May be useful'}:</em><br>" + "<br>".join(not_cited)
                 if not_cited
                 else ""
@@ -254,8 +210,7 @@ class Response:
 
     def as_html(self) -> str:
         """Convert the response into HTML"""
-        css_class = "response " + ("summary" if self.is_summary else "indiv")
-        return f'<div class="{css_class}">{self.p_element}{self.references_}</div>'
+        return f'<div class="response">{self.p_element}{self.references_}</div>'
 
     def reset_reference_indices(self) -> None:
         """Reset how the reference numbering will appear if references are split into cited and uncited sources"""
@@ -280,14 +235,17 @@ def chat_history(*args) -> List[BaseMessage]:
 
     if (
         "messages" in st.session_state
-    ):  # also necessary if using chat_history as an argument in rag_chain_with_citation_tool to avoid an error
-        return [message_class(message)(content=msg["content"]) for msg in st.session_state.messages[1:]]
-    else:
-        return []
+    ):  # necessary if using chat_history as an argument in rag_chain_with_citation_tool to avoid an error
+        if (
+            len(st.session_state.messages) > 2
+        ):  # if the only messages are the initial_message and the first user input, then you don't need the chat history
+            return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
+
+    return []
 
 
 def trace_metadata() -> Dict:
-    """Compile trace metadata on sidebar parameters and the resulting filter_condition string"""
+    """Compile trace metadata on sidebar parameters and the resulting filter_condition string, as well as settings"""
     sidebar_metadata = {key: st.session_state[key] for key in WIDGET_DEFAULTS.keys()}
     metadata = {"sidebar": sidebar_metadata}
     metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
@@ -295,28 +253,28 @@ def trace_metadata() -> Dict:
         "merge": merge,
         "use_tool_for_citations": use_tool_for_citations,
         "limit": limit,
-        "mode": mode,
     }
     return metadata
 
 
-def llm_response(
-    chain: LLMChain,
-    docs: List[LangchainDocument],
+def respond(
+    chain: Runnable,
     question: str,
-    mode: str,
     message_placeholder: DeltaGenerator,
     **kwargs,
-) -> str:
-    """Get synchronous LLM response from chain"""
-    if mode == "chat":
-        input_ = {"input": question, "chat_history": chat_history()}
-    else:
-        input_ = {"context": docs, "question": question}
+) -> Response:
+    """Get synchronous LLM response from chain and convert it into a Response object"""
+
+    input = {
+        "input": question,
+        "chat_history": chat_history(),
+        "filter_condition": st.session_state["filter_condition"],
+        "merge": merge,
+    }
     trace_id = str(uuid.uuid4())
     response = {"answer": ""}
 
-    for item in chain.stream(input_, config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
+    for item in chain.stream(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}):
         # Process each item
         if "answer" in item:
             if use_tool_for_citations:
@@ -342,62 +300,8 @@ def llm_response(
     # it will be rendered in a nicer format with references
     message_placeholder.markdown("")
     langfuse.trace(id=trace_id, metadata=trace_metadata())
-    return response, trace_id
-
-
-async def async_llm_response(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> str:
-    """Get asynchronous LLM response from chain"""
-    # NB: Async streaming is not implemented for now
-    input = {"context": docs, "question": question}
-    trace_id = str(uuid.uuid4())
-    response = await chain.ainvoke(input, config={"run_id": trace_id, "callbacks": [langfuse_handler]}, **kwargs)
-    langfuse.trace(id=trace_id, metadata=trace_metadata())
-    return response, trace_id
-
-
-async def individual_responses(chain: LLMChain, docs: List[LangchainDocument], question: str, **kwargs) -> List[str]:
-    """Get asynchronous LLM responses for a number of documents/chunks from chain"""
-    tasks = [asyncio.create_task(async_llm_response(chain, [doc], question, **kwargs)) for doc in docs]
-    responses_and_trace_ids = await asyncio.gather(*tasks)
-    return responses_and_trace_ids
-
-
-def respond(
-    chain: Runnable,
-    docs: List[LangchainDocument],
-    question: str,
-    mode: str,
-    message_placeholder: DeltaGenerator,
-    **kwargs,
-) -> List[Response]:
-    """Get individual and/or summary responses from chain and convert them into Response objects"""
-
-    responses = []
-
-    if mode == "indiv":
-
-        responses_and_trace_ids = asyncio.run(individual_responses(chain, docs, question, **kwargs))
-        responses_ = [
-            (response, docs[i]) for i, (response, _) in enumerate(responses_and_trace_ids) if response != "NULL"
-        ]
-        responses += [Response(response, doc, mode, index=i + 1) for i, (response, doc) in enumerate(responses_)]
-
-    chain_response, trace_id = llm_response(chain, docs, question, mode, message_placeholder)
-
-    if chain_response["answer"] != "NULL":
-        responses.append(Response(chain_response, docs, mode))
     st.session_state["current_trace_id"] = trace_id
-
-    # for response in enumerate(responses):
-    #    logger.info(response)
-
-    return responses
-
-
-def is_html(string: str) -> bool:
-    """Test whether a string is HTML"""
-    # credit: https://stackoverflow.com/questions/24856035/how-to-detect-with-python-if-the-string-contains-html-code
-    return lxml.html.fromstring(string).find(".//*") is not None
+    return Response(response)
 
 
 def filter_conditions() -> Union[str, None]:
@@ -438,42 +342,27 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
 
 if __name__ == "__main__":
 
+    # settings
+    # retrieval settings
+    use_langgraph: bool = True
+    merge: bool = True  # merge needs to be True from now on for indexed references and inline citations to work
+    # - otherwise we could get the same source reference appearing more than once in the reference list
+    limit: int = 10
+    use_tool_for_citations: bool = False
+    split_references: bool = True  # if True, references will be split into cited and uncited retrieved sources
+    # and the numbering reset so that references are numbered in the order they appear in the final list
+
+    # UI settings
+    initial_message: str = "Hi, how can I help?"
+
     if check_password():
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        # settings
-        # retrieval settings
-        possible_modes = ["chat", "indiv"]
-        if sys.argv[1:] and sys.argv[1] in ["chat", "indiv"]:
-            mode = sys.argv[1]
-        else:
-            mode = "chat"  # mode is either 'chat' for a chat with memeory or 'indiv' to return one response per doc
-        merge = True  # merge needs to be True from now own for indexed references and inline citations to work
-        # - otherwise we could get the same source reference appearing more than once in the reference list
-        limit = 10
-        use_tool_for_citations = True
-        split_references = True  # if True, references will be split into cited and uncited retrieved sources
-        # and the numbering reset so that references are numbered in the order they appear in the final list
-
-        if mode not in possible_modes:
-            raise Exception('Mode must be "chat" or "indiv"')
-
-        llm = ChatOpenAI(
-            temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini", streaming=True
-        )
-        indiv_qa_chain = create_stuff_documents_chain(llm, basic_question_prompt)
-        chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
-        retriever = CustomRetriever(
-            merge=merge
-        )  # merge cannot be passed through to the retriever via rag_chain kwargs, so set here
-        # credit: https://medium.com/@eric_vaillancourt/mastering-langchain-rag-integrating-chat-history-part-2-4c80eae11b43
-        history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
-
         if use_tool_for_citations:
-            rag_chain = rag_chain_with_citation_tool(history_aware_retriever, llm, qa_prompt, chat_history)
+            rag_chain = history_aware_rag_chain_with_citation_tool(chat_history, use_langgraph=use_langgraph)
         else:
-            rag_chain = create_retrieval_chain(history_aware_retriever, chat_qa_chain)
+            rag_chain = history_aware_rag_chain(use_langgraph=use_langgraph)
 
         st.set_page_config(layout="wide")
         st.markdown(
@@ -489,18 +378,7 @@ if __name__ == "__main__":
 
             .response {
                 margin: 25px 0 0 0;
-            }
-
-            .indiv {
                 background-color: light-grey;
-            }
-
-            .summary {
-                border-style: solid;
-                border-width: 1px;
-                border-radius: 5px;
-                background-color: #fae5af;
-                border-color: #fae5af;
             }
 
         </style>
@@ -509,7 +387,6 @@ if __name__ == "__main__":
         )
 
         st.markdown(
-            # f"<h2>Demo (mode = '{mode}')</h2>",
             """
             <h2>🧠 Nesta Brain</h2><br/>
             This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
@@ -574,7 +451,7 @@ if __name__ == "__main__":
         # Store session variables
         if "messages" not in st.session_state.keys():
             st.session_state.messages = [
-                {"role": "assistant", "content": "Hi, how can I help?"},
+                {"role": "assistant", "content": initial_message},
             ]
 
         # Display chat messages
@@ -598,32 +475,12 @@ if __name__ == "__main__":
             with st.chat_message("assistant"):
                 message_placeholder = st.empty()
 
-                filter_condition = filter_conditions()
-                retriever.filter_condition = filter_condition  # this is not ideal syntax, but kwargs to chain.invoke
-                # are not passed on to the retriever
-                st.session_state["filter_condition"] = filter_condition
+                st.session_state["filter_condition"] = filter_conditions()
 
-                if mode == "indiv":
-                    if input:
-                        with st.spinner("Fetching documents ..."):
-                            chunks = retriever.invoke(input, limit=limit, enumerate=True)
-                else:
-                    chunks = []  # if mode == 'chat', retrieval is already part of the chain
-
-                if mode == "chat" or (mode == "indiv" and chunks):
-
-                    responses = respond(
-                        rag_chain if mode == "chat" else indiv_qa_chain, chunks, input, mode, message_placeholder
-                    )
-
-                if responses:
-                    for response in responses:
-                        message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
-                        message = {"role": "assistant", "html": response.as_html(), "content": response.text}
-                        st.session_state.messages.append(message)
-
-                else:
-                    st.write("I was not able to answer that question")
+                response = respond(rag_chain, input, message_placeholder)
+                message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
+                message = {"role": "assistant", "html": response.as_html(), "content": response.text}
+                st.session_state.messages.append(message)
 
         # if there is more than one response, the feedback will be pushed to Langfuse with the trace_id of the last one
         feedback = streamlit_feedback(

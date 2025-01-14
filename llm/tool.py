@@ -1,26 +1,16 @@
-import os
+from __future__ import annotations
 
-from typing import Callable
+import re
+
+from typing import TYPE_CHECKING
 from typing import List
 
-from dotenv import load_dotenv  # noqa
-from langchain.chains import LLMChain  # noqa
-from langchain.chains import create_history_aware_retriever
-from langchain.chains import create_retrieval_chain
-from langchain.output_parsers.openai_tools import JsonOutputKeyToolsParser
-from langchain.prompts import PromptTemplate
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.retrievers import BaseRetriever
-from langchain_core.runnables import RunnableParallel
-from langchain_core.runnables import RunnablePassthrough
-from langchain_core.runnables.base import Runnable
-from langchain_openai import ChatOpenAI  # noqa
-from llm.prompt import contextualize_q_prompt  # noqa
-from llm.prompt import qa_prompt  # noqa
 from pydantic import BaseModel
 from pydantic import Field
-from retrieval.retrieve import CustomRetriever  # noqa
 
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import Runnable
 
 # see https://python.langchain.com/v0.1/docs/use_cases/question_answering/citations/
 
@@ -52,7 +42,74 @@ class quoted_answer(BaseModel):
     citations: List[Citation] = Field(..., description="Citations from the given sources that justify the answer.")
 
 
-def llm_response(chain: LLMChain, question: str, **kwargs) -> str:
+class date_range(BaseModel):
+    """
+    A class for capturing date ranges
+
+    I tested this in decide_if_need_time_constraint but the formats of the dates returned was not always reliable.
+    It is safer to use year_range.
+    """
+
+    start_date: int = Field(
+        ...,
+        description="The first date in a range.",
+    )
+    end_date: str = Field(
+        ...,
+        description="The last date in a range.",
+    )
+
+    def get_date_string(self, attr_name: str) -> str:
+        """Check date string is in the right format and return"""
+        date_string = str(getattr(self, attr_name))  # getting an int sometimes
+        if date_string and re.match("[0-9]{8}", date_string):
+            date_string = re.sub("([0-9]{4})([0-9]{2})([0-9]{2})", "\\1-\\2-\\3", date_string)
+        return date_string
+
+    def to_filter_condition(self) -> str:
+        """Compile filter condition from date range"""
+        format_ = "source.date_pub {comparison_operator} to_timestamp('{date_string}')"
+        conditions = [
+            format_.format(
+                comparison_operator=">=" if attr == "start_date" else "<=", date_string=self.get_date_string(attr)
+            )
+            for attr in ["start_date", "end_date"]
+        ]
+        return " and ".join(conditions)
+
+
+class year_range(BaseModel):
+    """A class for capturing year ranges"""
+
+    start_year: int = Field(
+        ...,
+        description="The first year in a range.",
+    )
+    end_year: str = Field(
+        ...,
+        description="The last year in a range.",
+    )
+
+    def get_date_string(self, attr_name: str) -> str:
+        """Return appropriate date string for filter condition for start_year and end_year"""
+        if attr_name == "start_year":
+            return f"{self.start_year}-01-01"
+        else:
+            return f"{self.end_year}-12-31"
+
+    def to_filter_condition(self) -> str:
+        """Compile filter condition from year range"""
+        format_ = "source.date_pub {comparison_operator} to_timestamp('{date_string}')"
+        conditions = [
+            format_.format(
+                comparison_operator=">=" if attr == "start_year" else "<=", date_string=self.get_date_string(attr)
+            )
+            for attr in ["start_year", "end_year"]
+        ]
+        return " and ".join(conditions)
+
+
+def llm_response(chain: Runnable, question: str, **kwargs) -> str:
     """
     Get synchronous LLM response from chain
 
@@ -62,46 +119,3 @@ def llm_response(chain: LLMChain, question: str, **kwargs) -> str:
     response = chain.invoke(input, **kwargs)
     return response
 
-
-def rag_chain_with_citation_tool(
-    retriever: BaseRetriever, llm: BaseChatModel, prompt: PromptTemplate, chat_history_func: Callable
-) -> Runnable:
-    """Return a RAG retrieval chain with incorporating a tool for capturing citations"""
-
-    # the langchain example this is based on (see https://python.langchain.com/v0.1/docs/use_cases/question_answering/citations/)
-    # uses format_docs_with_id here – this is not needed because chunk enumeration is already happening within the retriever
-    # (as long as enumerate_=True in CustomRetriever.chunks_to_docs)
-
-    llm_with_tool = llm.bind_tools(
-        [quoted_answer],
-        tool_choice="quoted_answer",
-    )
-    output_parser = JsonOutputKeyToolsParser(key_name="quoted_answer", first_tool_only=True)
-
-    answer = prompt | llm_with_tool | output_parser
-    chain = (
-        RunnableParallel(input=RunnablePassthrough(), context=RunnablePassthrough(), chat_history=chat_history_func)
-        .assign(quoted_answer=answer)
-        .pick(["quoted_answer"])
-    )
-
-    return create_retrieval_chain(retriever, chain)
-
-
-if __name__ == "__main__":
-
-    # fot testing
-
-    load_dotenv()
-
-    llm = ChatOpenAI(temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini")
-
-    retriever = CustomRetriever(merge=True)
-    history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
-
-    rag_chain = rag_chain_with_citation_tool(history_aware_retriever, llm, qa_prompt, lambda *args: [])
-
-    resp = llm_response(rag_chain, "What work has Nesta done on climate adaptation")
-
-#    print(resp.keys(), "\n\n")
-#   print(resp)

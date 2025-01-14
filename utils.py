@@ -19,3 +19,8 @@ def unique(seq: Union[List, Tuple]) -> List:
         seen[item] = 1
         result.append(item)
     return result
+
+
+def bold(string: str) -> str:
+    """Make a string bold"""
+    return f"\033[1m{string}\033[0m"

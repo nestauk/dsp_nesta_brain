@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
 from typing import Optional
+from typing import Union
 
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
@@ -45,8 +46,34 @@ if TYPE_CHECKING:
     from ragas import BaseSample
     from ragas.messages import Message
 
-# combining langfuse and ragas
 
+class SingleTurnSample(SingleTurnSample):
+    """Redefining just so it has a pretty_repr method, like MultiTurnSample"""
+
+    def pretty_repr(self) -> str:
+        """Print readable input and response"""
+        return f"Human: {self.user_input}\n\nAI: {self.response}"
+
+
+class MultiTurnSample(MultiTurnSample):
+    """Redefining just so it has a better pretty_repr method"""
+
+    def pretty_repr(self) -> str:
+        """Print readable conversation"""
+        format_ = "{actor}: {content}{newlines}"
+        return "\n".join(
+            [
+                format_.format(
+                    actor="AI" if type(message) is AIMessage else "Human",
+                    content=message.content,
+                    newlines="\n\n" if type(message) is AIMessage else "\n",
+                )
+                for message in self.user_input
+            ]
+        )
+
+
+# combining langfuse and ragas
 
 load_dotenv()
 
@@ -105,15 +132,22 @@ def trace_to_conversation(trace: TraceWithDetails, answer_history: List[str]) ->
     """
     conversation = []
     for message in trace.input["chat_history"]:
-        is_ai_message = any(message["content"] == output for output in answer_history)
+        is_ai_message = message["type"] == "ai"  # some of the earlier traces might have mislabelled types.
+        #  previous version of this test worked for them: any(message["content"] == output for output in answer_history)
         message_class = AIMessage if is_ai_message else HumanMessage
         message = message_class(content=message["content"])
         conversation.append(message)
+    output_answer = trace.output["answer"]
+    if type(output_answer) is dict and output_answer.get(
+        "quoted_answer"
+    ):  # this will be the case if the answer was derived when use_tool_for_citations = True in app.py
+        output_answer = output_answer["quoted_answer"]["answer"]
+    conversation.append(AIMessage(content=output_answer))
     return conversation
 
 
 def traces_to_samples(
-    traces: FetchTracesResponse,
+    traces: Union[FetchTracesResponse, List[TraceWithDetails]],
     filter: Optional[Dict] = None,
     return_dataset: bool = False,
     dataset_path: Optional[str] = None,
@@ -125,7 +159,9 @@ def traces_to_samples(
     samples = []
     trace_ids = []  # will need these in order to push scores to langfuse
 
-    traces = traces.data
+    if type(traces) is FetchTracesResponse:
+        traces = traces.data
+    traces = [trace for trace in traces if trace.input["input"]]  # remove empty traces
     if filter:  # filter by user_id, e.g. filter = {'user_id':'helen'} returns only traces with user id helen
         traces = [trace for trace in traces if all(getattr(trace, attr) == value for attr, value in filter.items())]
 

@@ -144,6 +144,7 @@ class Chunk(LanceModel):
         Having this as a separate method to to_LangchainDocument is useful when merging chunks
         """
         if enumeration_index:
+            #   text = f"[Source ID: {enumeration_index}] {text}"
             text = f"[{enumeration_index}] {text}"
         return LangchainDocument(page_content=text, metadata=metadata)
 
