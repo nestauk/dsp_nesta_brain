@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import Optional
+from typing import Tuple
 from typing import Union
 
 from dsp_nesta_brain import logger
@@ -46,27 +47,47 @@ def create_document(body_dict: Dict, creds: Optional[Dict] = None) -> str:
     return document_id
 
 
-def create_document_in_folder_from_markdown(
-    markdown_string: str, file_name: str = "tmp.md", creds: Optional[Dict] = None
-) -> str:
+def create_document_in_folder_from_string(
+    string: str,
+    file_name: str = "tmp.txt",
+    mimetype: str = "text/plain",
+    creds: Optional[Dict] = None,
+    silent: bool = False,
+    **kwargs,
+) -> Tuple[str]:
     """Create a Google Docs document from a string in a specific folder."""
 
     creds = creds or authenticate_service_account()
     service = build("drive", "v3", credentials=creds)
 
-    if not file_name[-3:] == ".md":
-        raise Exception(f'file_name "{file_name}" in create_document_from_markdown did not have .md extension')
+    file_metadata = {"name": file_name, "mimeType": mimetype}
 
-    file_metadata = {"name": file_name, "mimeType": "text/markdown"}
-
-    media = MediaInMemoryUpload(markdown_string.strip().encode("utf-8"), mimetype="text/plain")
+    media = MediaInMemoryUpload(string.strip().encode("utf-8"), mimetype=mimetype)
+    if mimetype == "text/markdown":
+        input("Check this has worked - before mimetype was 'text/plain'")
 
     # Create the file on Google Drive
     file = service.files().create(body=file_metadata, media_body=media, fields="id").execute()
 
-    move_file(file["id"])
+    folder = move_file(file["id"], silent=silent, **kwargs)
 
-    logger.info(f"Markdown file {file['id']} created")
+    if not silent:
+        logger.info(f"File {file['id']} created in folder {folder}")
+
+    return file["id"], folder
+
+
+def create_document_in_folder_from_markdown(markdown_string: str, file_name: str = "tmp.md", **kwargs) -> None:
+    """Create a Google Docs document from a markdown string in a specific folder."""
+
+    if not file_name[-3:] == ".md":
+        raise Exception(f'file_name "{file_name}" in create_document_from_markdown did not have .md extension')
+
+    file_id, folder = create_document_in_folder_from_string(
+        markdown_string, file_name=file_name, mimetype="text/markdown", **kwargs
+    )
+
+    logger.info(f"Markdown file {file_id} created in folder {folder}")
 
 
 def create_document_in_folder(*args, creds: Optional[Dict] = None, **kwargs) -> None:
@@ -121,7 +142,9 @@ def get_file(
     return file
 
 
-def move_file(file_id: str, to_folder: str = DEFAULT_FOLDER_ID, creds: Optional[Dict] = None) -> None:
+def move_file(
+    file_id: str, to_folder: str = DEFAULT_FOLDER_ID, creds: Optional[Dict] = None, silent: bool = False
+) -> None:
     """Move the document to a specific folder."""
 
     creds = creds or authenticate_service_account()
@@ -134,7 +157,10 @@ def move_file(file_id: str, to_folder: str = DEFAULT_FOLDER_ID, creds: Optional[
         fileId=file_id, addParents=to_folder, removeParents=previous_parents, fields="id, parents"
     ).execute()
 
-    logger.info(f"File {file_id} moved to folder {to_folder}")
+    if not silent:
+        logger.info(f"File {file_id} moved to folder {to_folder}")
+
+    return to_folder
 
 
 if __name__ == "__main__":

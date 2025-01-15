@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# import asyncio
 import importlib
 
 from typing import TYPE_CHECKING
@@ -11,8 +10,8 @@ from typing import Literal
 from typing import Optional
 
 from dsp_nesta_brain import logger
-
-# from google_api.drive import create_document_in_folder_from_markdown
+from google_api.drive import create_document_in_folder_from_markdown
+from google_api.drive import create_document_in_folder_from_string
 from google_api.drive import get_document
 from google_api.office_template import office_templates_as_dict
 from googleapiclient.errors import HttpError
@@ -33,6 +32,7 @@ from llm.llm import default_llm as llm
 from llm.message import CustomAIMessage
 from llm.prompt import qa_system_prompt
 from retrieval.retrieve import RetrieverInput as InputState
+from utils import yesno
 
 
 # from utils import yesno
@@ -145,12 +145,25 @@ def apply_template_old(state: OverallState) -> OverallState:
     return state
 
 
-# def upload_router(state:OverallState) -> Literal["upload_output","wash_up"]:
+def upload_output(state: OverallState) -> OverallState:
+    """
+    Upload the content of the last message to Google Drive.
 
-#   if yesno('Upload the output?'):
+    Ideally the output should be in Markdown format
+    """
 
-#      markdown =
-#     create_document_in_folder_from_markdown(markdown)
+    output = state["messages"][-1].content
+    try:
+        start_of_markdown = output.index(
+            "#"
+        )  # this is a bit weak – need a better way of detecting whether the string is Markdown
+        markdown = output[start_of_markdown:]
+        create_document_in_folder_from_markdown(markdown)
+    except ValueError:
+        logger.warning("Markdown not detected in LLM output – output will be uploaded to a text file")
+        create_document_in_folder_from_string(output)
+
+    return state
 
 
 def filter_messages(state: OverallState) -> Dict:
@@ -203,10 +216,15 @@ def template_router(
     return "call_default_chain"
 
 
-# def upload_router(state:OverallState) -> Literal["upload_output","wash_up"]:
+def upload_router(state: OverallState) -> Literal["upload_output", "wash_up"]:
+    """Go the appropriate node, depending on whether the output should be uploaded to Google Drive"""
 
-#   if yesno('Upload the output?'):
-#      return
+    if yesno("Upload the output?"):  # temporary decision process to check it works
+        # – obviously users ultimately won't be interacting with this via the command line
+        return "upload_output"
+
+    return "wash_up"
+
 
 # -----graph
 
@@ -233,15 +251,17 @@ def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function
     # builder.add_node("fetch_template", fetch_template)
     builder.add_node("fetch_template", fetch_template)
     builder.add_node("apply_template", apply_template)
+    builder.add_node("upload_output", upload_output)
     builder.add_node(
         "wash_up", filter_messages
-    )  # this is filter_messages for the moment, but could be something else later
+    )  # this (redundantly) uses the filter_messages function for the moment, but may do something else at a later stage
 
     builder.add_edge(START, "decide_whether_needs_template")
     builder.add_conditional_edges("decide_whether_needs_template", template_router)
     builder.add_edge("fetch_template", "filter_messages")
     builder.add_edge("filter_messages", "apply_template")
-    builder.add_edge("apply_template", "wash_up")
+    builder.add_conditional_edges("apply_template", upload_router)
+    builder.add_edge("upload_output", "wash_up")
     builder.add_edge("call_default_chain", "wash_up")
     builder.add_edge("wash_up", END)
 
@@ -252,7 +272,7 @@ if __name__ == "__main__":
 
     graph = create_chat_graph()
 
-    if True:
+    if False:
         graph.get_graph().draw_mermaid_png(output_file_path="lgraph/mermaid.png")
 
     else:
