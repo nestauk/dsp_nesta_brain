@@ -7,6 +7,11 @@ class GoogleDoc(dict):
     text_: Optional[str] = None
 
     @property
+    def id(self) -> str:
+        """Get the document ID"""
+        return self.get("documentId")
+
+    @property
     def text(self) -> str:
         """Convert contents into a single text string if this has not already been done; return the resulting text"""
 
@@ -22,3 +27,8 @@ class GoogleDoc(dict):
                     self.text_ += element["paragraph"]["elements"][0]["textRun"]["content"]
 
         return self.text_
+
+    @property
+    def title(self) -> str:
+        """Get the document title"""
+        return self.get("title")

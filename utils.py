@@ -11,6 +11,13 @@ def first(seq: Union[List, Tuple], lambda_: Callable) -> object:
     return next((ele for ele in seq if lambda_(ele)), None)
 
 
+def last(seq: Union[List, Tuple], lambda_: Callable) -> object:
+    """Return last element of seq that returns a positive result from the condition specified in lambda_"""
+    seq_ = seq.copy()
+    seq_.reverse()
+    return first(seq_, lambda_)
+
+
 def unique(seq: Union[List, Tuple]) -> List:
     """Find unique elements of a sequence and retain order"""
     seen = {}

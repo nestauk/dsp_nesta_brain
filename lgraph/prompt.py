@@ -1,6 +1,5 @@
 from datetime import datetime
 
-from google_api.office_template import office_templates
 from langchain.prompts import PromptTemplate
 
 
@@ -111,21 +110,3 @@ currentness_comment_prompt_template_4 = f"""
 currentness_comment_prompt = PromptTemplate(
     template=currentness_comment_prompt_template_4, input_variables=["input", "answer"]
 )
-
-
-needs_template_template = f"""
-    You are a helpful assistant and an expert on the internal administration, personnel and projects of the innovation agency Nesta.
-
-    You have the following office document templates to help staff do their work: {office_templates}
-
-    Look at the question below and decide whether the staff member who asked it needs one of the document templates.
-
-    If so, select the appropriate template and respond just with the UID of the template you have selected. Otherwise, respond "NULL".
-
-    Question:
-    {{input}}
-    """  # noqa
-
-# print(needs_template_template,'\n\n')
-
-needs_template_prompt = PromptTemplate(template=needs_template_template, input_variables=["input"])

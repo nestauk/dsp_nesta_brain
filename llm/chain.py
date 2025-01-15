@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Dict
+from typing import Optional
 
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.output_parsers.openai_tools import JsonOutputKeyToolsParser
@@ -75,12 +76,10 @@ def rag_chain_with_citation_tool(
     return create_retrieval_chain(retriever, chain)
 
 
-chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
-
-
-def history_aware_rag_chain(**kwargs) -> Runnable:
+def history_aware_rag_chain(chain: Optional[Runnable] = None, **kwargs) -> Runnable:
     """Return a history aware RAG chain while passing kwargs through to history_aware_retriever"""
-    return create_retrieval_chain(history_aware_retriever(**kwargs), chat_qa_chain)
+    chain = chain or create_stuff_documents_chain(llm, qa_prompt)
+    return create_retrieval_chain(history_aware_retriever(**kwargs), chain)
 
 
 def history_aware_rag_chain_with_citation_tool(**kwargs) -> Runnable:
