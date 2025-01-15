@@ -272,7 +272,7 @@ if __name__ == "__main__":
 
     graph = create_chat_graph()
 
-    if False:
+    if True:
         graph.get_graph().draw_mermaid_png(output_file_path="lgraph/mermaid.png")
 
     else:
