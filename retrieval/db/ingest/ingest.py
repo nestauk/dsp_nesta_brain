@@ -4,7 +4,6 @@ import os
 from datetime import datetime
 from typing import List
 from typing import Optional
-from typing import Union
 
 import lancedb
 import tiktoken
@@ -35,7 +34,7 @@ CHUNK_OVERLAP = 100
 OPENAI_ENCODING = "cl100k_base"
 
 # OpenAI limits
-request_count = {}
+request_counter = {}
 RPM_RATE_LIMIT = 10000
 TPM_RATE_LIMIT = 5e6
 
@@ -47,36 +46,72 @@ db = lancedb.connect(DB_PATH)
 chunk_table = db.open_table(chunk_table_name)
 
 
-def N_tokens(text: str) -> int:
-    """Extimate the number of tokens in text"""
-    return len(tiktoken.get_encoding(OPENAI_ENCODING).encode(text))
+class RequestCounter(dict):
+    """Stores information needed for the throttle"""
+
+    def __init__(self) -> None:
+        self["N_requests"] = []
+        self["N_tokens"] = []
+
+    @staticmethod
+    def N_tokens(text: str) -> int:
+        """Extimate the number of tokens in text"""
+        return len(tiktoken.get_encoding(OPENAI_ENCODING).encode(text))
+
+    @property
+    def about_to_exceed_RPM_RATE_LIMIT(self) -> bool:
+        """Determine whether the RPM rate limit will be exceeded if the batch of embeddings proceeds"""
+        return sum(self["N_requests"]) >= RPM_RATE_LIMIT
+
+    @property
+    def about_to_exceed_TPM_RATE_LIMIT(self) -> bool:
+        """Determine whether the TPM rate limit will be exceeded if the batch of embeddings proceeds"""
+        return sum(self["N_tokens"]) >= TPM_RATE_LIMIT
+
+    @property
+    def hard_exceeds_RPM_RATE_LIMIT(self) -> bool:
+        """Determine whether the RPM rate limit will be exceeded due to a single batch"""
+        return self["N_requests"][-1] >= RPM_RATE_LIMIT
+
+    @property
+    def hard_exceeds_TPM_RATE_LIMIT(self) -> bool:
+        """Determine whether the TPM rate limit will be exceeded due to a single batch"""
+        return self["N_tokens"][-1] >= TPM_RATE_LIMIT
+
+    @property
+    def seconds_since_count_start(self) -> int:
+        """Get seconds since the RequestCounter was set or reset"""
+        if self.get("time"):
+            return (datetime.now() - (self["time"])).seconds
+        else:
+            return 0
+
+    def increment(self, texts: List[str]) -> None:
+        """Increment the number of requests and number of tokens values"""
+        self["N_requests"].append(len(texts))
+        N_tokens_ = sum([self.N_tokens(text) for text in texts])
+        self["N_tokens"].append(N_tokens_)
+
+    def reset(self) -> None:
+        """Reset the request counter"""
+        self["time"] = datetime.now()
+        self["N_requests"] = []
+        self["N_tokens"] = []
+
+    def update(self, texts: List[str]) -> int:
+        """Keep a record of how many requests and tokens have been sent to the embeddings model"""
+
+        seconds_since_count_start = request_counter.seconds_since_count_start
+
+        if seconds_since_count_start >= 60:
+            request_counter.reset()
+
+        request_counter.increment(texts)
+
+        return seconds_since_count_start
 
 
-def update_request_count(texts: List[str]) -> Union[int, None]:
-    """Keep a record of how many requests and tokens have been sent to the embeddings model"""
-    global request_count
-    if request_count:
-        seconds_since_count_start = (datetime.now() - (request_count["time"])).seconds
-
-    if not request_count:
-        request_count = {"time": datetime.now(), "N_requests": [], "N_tokens": [], "cum_N_tokens": 0}
-        seconds_since_count_start = None
-    elif seconds_since_count_start >= 60:
-        request_count["time"] = datetime.now()
-        request_count["N_requests"] = []
-        request_count["N_tokens"] = []
-        # do not reset cum_N_tokens
-        seconds_since_count_start = None
-
-    request_count["N_requests"] += [len(texts)]
-    N_tokens_ = sum([N_tokens(text) for text in texts])
-    request_count["N_tokens"] += [N_tokens_]
-    request_count["cum_N_tokens"] += N_tokens_
-
-    cumulative_cost_estimate = round(request_count["cum_N_tokens"] * 0.02 / 1e6, 2)
-    logger.info(f"Cumulative cost estimate: ${cumulative_cost_estimate}")
-
-    return seconds_since_count_start
+request_counter = RequestCounter()
 
 
 async def throttle(texts: List[str]) -> None:
@@ -85,20 +120,21 @@ async def throttle(texts: List[str]) -> None:
     # I still get API error messages back with batch_size >= 100 but that can't be due to hitting the rate limit
     # future users may want to improve on it
 
-    seconds_since_count_start = update_request_count(texts)
+    seconds_since_count_start = request_counter.update(texts)
 
-    if request_count["N_requests"][-1] >= RPM_RATE_LIMIT:
+    if request_counter.hard_exceeds_RPM_RATE_LIMIT:
         raise Exception(f"You cannot ask for {RPM_RATE_LIMIT} or more requests to the embeddings model in one go")
-    elif request_count["N_tokens"][-1] >= TPM_RATE_LIMIT:
+
+    elif request_counter.hard_exceeds_TPM_RATE_LIMIT:
         raise Exception(
             f"You cannot ask for {TPM_RATE_LIMIT} or more tokens to be sent to the embeddings model in one go"
         )
 
     if seconds_since_count_start and seconds_since_count_start < 60:
         msg = None
-        if sum(request_count["N_requests"]) >= RPM_RATE_LIMIT:
+        if request_counter.about_to_exceed_RPM_RATE_LIMIT:
             msg = "About to exceed OpenAI embeddings requests per minute rate limit ... sleeping for {sleep_time} seconds"
-        elif sum(request_count["N_tokens"]) >= TPM_RATE_LIMIT:
+        elif request_counter.about_to_exceed_TPM_RATE_LIMIT:
             msg = "About to exceed OpenAI embeddings token per minute rate limit ... sleeping for {sleep_time} seconds"
 
         if msg:

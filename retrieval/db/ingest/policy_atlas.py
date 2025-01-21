@@ -1,8 +1,10 @@
 import asyncio
 import logging
 import sys
+import traceback
 
 from typing import List
+from typing import Union
 
 import lancedb
 import pandas as pd
@@ -38,7 +40,10 @@ async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Ch
     (including deriving an embedding for the Chunk)
     """  # noqa
 
-    return await ing.chunk_to_Chunk(chunk, ingestion=ingestion, **chunk.metadata)
+    try:
+        return await ing.chunk_to_Chunk(chunk, ingestion=ingestion, **chunk.metadata)
+    except Exception as e:
+        return e
 
 
 async def documents_to_Chunks(documents: List[LangchainDocument]) -> List[Chunk]:
@@ -47,6 +52,22 @@ async def documents_to_Chunks(documents: List[LangchainDocument]) -> List[Chunk]
     of the Chunk class which can be ingested into the DB
     """  # noqa
 
+    def log_exceptions(task_results: List[Union[Chunk, Exception]]) -> None:
+
+        message_format = (
+            'Task {index} raised an exception "{exception}" within asyncio.gather. \tTraceback:\n\t{traceback}'
+        )
+        exceptions = [(i, ele) for i, ele in enumerate(task_results) if isinstance(ele, Exception)]
+
+        for i, exception in enumerate(exceptions):
+            message = message_format.format(
+                index=i, exception=str(exception), traceback=traceback.format_tb(exception.__traceback__)
+            )
+            logging.error(message)
+
+        if exceptions:
+            raise Exception("Exceptions in documents_to_Chunks")
+
     logger.info(f"Fetching embeddings for {len(documents)} chunks ...")
     tasks = []
     for chunk in documents:  # the variable name 'chunk' is possibly a bit misleading here.
@@ -54,14 +75,19 @@ async def documents_to_Chunks(documents: List[LangchainDocument]) -> List[Chunk]
 
         if chunk_already_in_db(chunk):
 
-            logger.info(f"Skipping chunk {repr(chunk)} as it already seems to be in the DB")
+            logger.info(f"Skipping chunk {chunk.metadata.get('iati_identifier')} as it already seems to be in the DB")
 
         else:
             task = asyncio.create_task(chunk_to_Chunk(chunk))
             tasks.append(task)
 
-    await ing.throttle([chunk.page_content for chunk in documents])
-    return await asyncio.gather(*tasks)
+    if tasks:
+        await ing.throttle([chunk.page_content for chunk in documents])
+        gather_results = await asyncio.gather(*tasks, return_exceptions=True)
+        log_exceptions(gather_results)
+        return gather_results
+
+    return []
 
 
 def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
@@ -97,10 +123,20 @@ def csv_rows_to_ingested_data(start_index: int, batch_size: int) -> None:
 
 if __name__ == "__main__":
 
+    logging.getLogger("asyncio").setLevel(logging.CRITICAL)
+
     # SETTINGS
     start_index = (
         int(sys.argv[1]) if len(sys.argv) > 1 else 0
     )  # the row of the policy data CSV to start ingesting; everything prior to this will be ignored
-    batch_size = 100  # the number of CSV rows to ingest at a time
+    batch_size = (
+        200  # the number of CSV rows to ingest at a time. Batch sizes of 250+ seem to get errors back from OpenAI.
+    )
 
-    csv_rows_to_ingested_data(start_index, batch_size)
+    data = pd.read_csv(DATA_PATH)
+    N_rows = data.shape[0]
+
+    for start_index_ in range(start_index, N_rows, batch_size):
+
+        logger.info(f"Ingesting records {start_index_} to {start_index_ + batch_size - 1} ...")
+        csv_rows_to_ingested_data(start_index_, batch_size)
