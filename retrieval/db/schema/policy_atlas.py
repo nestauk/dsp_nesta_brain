@@ -57,7 +57,7 @@ class Activity(BaseChunk):
     def metadata(self) -> Dict:
         """Activity metadata"""
         metadata = self.__dict__
-        # print("Check metadata:", metadata)
+        #  print("Check metadata:", metadata)
         # input()
         return metadata
 
