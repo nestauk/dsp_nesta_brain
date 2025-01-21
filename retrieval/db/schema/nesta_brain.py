@@ -11,13 +11,8 @@ from typing import Optional
 import lancedb
 
 from config import DB_PATH
-from lancedb.embeddings import get_registry
 from lancedb.pydantic import LanceModel
-from lancedb.pydantic import Vector
-from langchain.docstore.document import Document as LangchainDocument
-
-
-model = get_registry().get("openai").create(name="text-embedding-ada-002")
+from retrieval.db.schema.base import BaseChunk
 
 
 class Document(LanceModel):
@@ -105,15 +100,10 @@ class Document(LanceModel):
         return self.location[-4:].lower() == ".pdf"
 
 
-class Chunk(LanceModel):
+class Chunk(BaseChunk):
     """Defines the fields which a Chunk Record contains in the LanceDB database"""
 
-    text: str  # = model.SourceField()
-    vector: Vector(model.ndims())  # = model.VectorField()
     source: Document
-    order_index: Optional[
-        int
-    ] = None  # Only Optional because Chunks in ccid_demo_db don't have it; shouldn't be Optional in later versions
 
     def __init__(
         self, order_index: Optional[int] = None, **kwargs
@@ -135,42 +125,6 @@ class Chunk(LanceModel):
     def metadata(self) -> Dict:
         """Chunk metadata derived from source"""
         return self.source.as_metadata()
-
-    @staticmethod
-    def to_LangchainDocument_(text: str, metadata: Dict, enumeration_index: Optional[int] = None) -> LangchainDocument:
-        """
-        Convert text into a Langchain Document
-
-        Having this as a separate method to to_LangchainDocument is useful when merging chunks
-        """
-        if enumeration_index:
-            #   text = f"[Source ID: {enumeration_index}] {text}"
-            text = f"[{enumeration_index}] {text}"
-        return LangchainDocument(page_content=text, metadata=metadata)
-
-    def to_LangchainDocument(self, **kwargs) -> LangchainDocument:
-        """Convert a Chunk into a Langchain Document"""
-        return self.to_LangchainDocument_(self.text, self.metadata, **kwargs)
-
-
-if False:
-
-    # to think about another time - Document-Project and Document-Unit are many-to-many relationships
-    # ... which would mean a List[Project] and List[Unit] type specification in Document class
-    # ... which throws an error message
-
-    class Project(LanceModel):
-        """Defines the fields which a Project nested field contains in the LanceDB database"""
-
-        # Experimental – not sure we will ultimately need this, but it might be useful for adding
-        # sophistication to retrievel methods later
-        name: str
-
-    class Unit(LanceModel):
-        """Defines the fields which a Unit nested field contains in the LanceDB database"""
-
-        # As above: experimental
-        name: str
 
 
 if __name__ == "__main__":

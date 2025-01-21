@@ -23,14 +23,14 @@ from langchain_openai import OpenAIEmbeddings
 from openai import AsyncOpenAI
 from openai import OpenAI
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
-from retrieval.db.schema.policy_atlas import Chunk as PolicyAtlasChunk
+from retrieval.db.schema.policy_atlas import Activity
 from utils import unique
 
 
 if PROJECT == "NESTA_BRAIN":
     Chunk = NestaBrainChunk
-elif PROJECT == "NESTA_BRAIN":
-    Chunk = PolicyAtlasChunk
+elif PROJECT == "POLICY_ATLAS":
+    Chunk = Activity
 
 
 class RetrieverInput(TypedDict):

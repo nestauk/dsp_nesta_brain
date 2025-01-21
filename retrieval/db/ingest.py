@@ -28,7 +28,7 @@ from openai import AsyncOpenAI
 from pdf2image.exceptions import PDFInfoNotInstalledError
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
 from retrieval.db.schema.nesta_brain import Document as LanceDocument
-from retrieval.db.schema.policy_atlas import Chunk as PolicyAtlasChunk
+from retrieval.db.schema.policy_atlas import Activity
 from scraping.scrape import html_to_text
 from scraping.scrape import search_query_to_scraped_data
 from scraping.scrape_pdf import PDF
@@ -37,8 +37,8 @@ from utils import unique
 
 if PROJECT == "NESTA_BRAIN":
     Chunk = NestaBrainChunk
-elif PROJECT == "NESTA_BRAIN":
-    Chunk = PolicyAtlasChunk
+elif PROJECT == "POLICY_ATLAS":
+    Chunk = Activity
 
 
 _prefix = "2024-10-29"
