@@ -189,11 +189,15 @@ def traces_to_samples(
                 # trace is either a SingleTurnSample or the last trace defining a MultiTurnSample
                 is_single_turn_sample = len(trace.input["chat_history"]) == 1
 
+                answer = trace.output.get("answer")
+                if isinstance(answer, dict):
+                    answer = answer.get("quoted_answer").get("answer")
+
                 if is_single_turn_sample:
                     sample = SingleTurnSample(
                         user_input=trace.input["input"],
                         retrieved_contexts=[context["page_content"] for context in trace.output["context"]],
-                        response=trace.output["answer"],
+                        response=answer,
                     )
                 else:
                     sample = MultiTurnSample(

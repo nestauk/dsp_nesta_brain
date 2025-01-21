@@ -245,6 +245,7 @@ if __name__ == "__main__":
     # - otherwise we could get the same source reference appearing more than once in the reference list
     limit: int = 10
     use_tool_for_citations: bool = False
+    allow_document_generation: bool = True
 
     # UI settings
     initial_message: str = "Hi, how can I help?"
@@ -257,7 +258,7 @@ if __name__ == "__main__":
             raise Exception("use_tool_for_citations may no longer work – need to check")
 
         if use_graph:
-            rag_chain = create_chat_graph()
+            rag_chain = create_chat_graph(allow_document_generation=allow_document_generation)
         else:
             rag_chain = history_aware_rag_chain()
 

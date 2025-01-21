@@ -229,7 +229,9 @@ def upload_router(state: OverallState) -> Literal["upload_output", "wash_up"]:
 # -----graph
 
 
-def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
+def create_chat_graph(
+    allow_document_generation: bool = False, **kwargs
+) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
     """Compile and return a graph to assist with chat"""
 
     rag_chain = importlib.import_module("llm.chain").history_aware_rag_chain(**kwargs)  # avoiding circular import
@@ -246,24 +248,30 @@ def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function
     builder = StateGraph(OverallState)
 
     builder.add_node("call_default_chain", call_default_chain)
-    builder.add_node("filter_messages", filter_messages)
-    builder.add_node("decide_whether_needs_template", decide_whether_needs_template)
-    # builder.add_node("fetch_template", fetch_template)
-    builder.add_node("fetch_template", fetch_template)
-    builder.add_node("apply_template", apply_template)
-    builder.add_node("upload_output", upload_output)
-    builder.add_node(
-        "wash_up", filter_messages
-    )  # this (redundantly) uses the filter_messages function for the moment, but may do something else at a later stage
+    if allow_document_generation:
+        builder.add_node("filter_messages", filter_messages)
+        builder.add_node("decide_whether_needs_template", decide_whether_needs_template)
+        # builder.add_node("fetch_template", fetch_template)
+        builder.add_node("fetch_template", fetch_template)
+        builder.add_node("apply_template", apply_template)
+        builder.add_node("upload_output", upload_output)
+        builder.add_node(
+            "wash_up", filter_messages
+        )  # this (redundantly) uses the filter_messages function for the moment, but may do something else at a later stage
 
-    builder.add_edge(START, "decide_whether_needs_template")
-    builder.add_conditional_edges("decide_whether_needs_template", template_router)
-    builder.add_edge("fetch_template", "filter_messages")
-    builder.add_edge("filter_messages", "apply_template")
-    builder.add_conditional_edges("apply_template", upload_router)
-    builder.add_edge("upload_output", "wash_up")
-    builder.add_edge("call_default_chain", "wash_up")
-    builder.add_edge("wash_up", END)
+    if allow_document_generation:
+        builder.add_edge(START, "decide_whether_needs_template")
+        builder.add_conditional_edges("decide_whether_needs_template", template_router)
+        builder.add_edge("fetch_template", "filter_messages")
+        builder.add_edge("filter_messages", "apply_template")
+        builder.add_conditional_edges("apply_template", upload_router)
+        builder.add_edge("upload_output", "wash_up")
+        builder.add_edge("call_default_chain", "wash_up")
+        builder.add_edge("wash_up", END)
+
+    else:
+        builder.add_edge(START, "call_default_chain")
+        builder.add_edge("call_default_chain", END)
 
     return builder.compile()
 
