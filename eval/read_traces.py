@@ -38,8 +38,10 @@ def is_admin(trace: TraceWithDetails) -> bool:
 
 
 def collate_traces(ultimate_filters: Dict) -> List[TraceWithDetails]:
-    """Collate all traces between a date range specified by filters, to get round Langfuse's
-    limit on the number of traces it returns"""  # noqa
+    """
+    Collate all traces between a date range specified by filters, to get round Langfuse's
+    limit on the number of traces it returns
+    """  # noqa
 
     filters = ultimate_filters.copy()
     delta = filters["to_timestamp"] - filters["from_timestamp"]
