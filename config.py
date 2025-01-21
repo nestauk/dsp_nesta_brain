@@ -4,7 +4,7 @@ from typing import Literal
 PROJECT: Literal["NESTA_BRAIN", "POLICY_ATLAS"] = "POLICY_ATLAS"
 
 DEFAULT_MODEL = "gpt-4o-mini"
-DEFAULT_EMBEDDINGS_MODEL = "text-embedding-ada-002"
+DEFAULT_EMBEDDINGS_MODEL = "text-embedding-3-small"
 
 if PROJECT == "NESTA_BRAIN":
     DB_PATH = "retrieval/db/full_site_demo_db_with_pdfs"

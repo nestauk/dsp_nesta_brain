@@ -20,9 +20,7 @@ class BaseChunk(LanceModel):
 
     text: str
     vector: Vector(model.ndims())
-    order_index: Optional[
-        int
-    ] = None  # only optional because the very earliest entries in the Nesta Brain project don't have it
+    order_index: Optional[int] = None
     time_added: Optional[datetime] = None
 
     @abstractmethod

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import math
+import re
+
+from datetime import date
 from datetime import datetime
 from typing import Dict
 from typing import List
-from typing import Literal
 from typing import Optional
 
 import lancedb
@@ -22,26 +25,59 @@ class Activity(BaseChunk):
     reporting_org_narrative: str
     participating_org_ref: List[str]
     participating_org_narrative: List[str]
-    recipient_country_code: str
-    sector_narrative: str
-    description_narrative: str
+    recipient_country_code: Optional[str] = None
+    sector_narrative: Optional[str] = None
     activity_status_code: int
-    activity_date_iso_date: List[datetime]
+    activity_date_iso_date: List[date]
     activity_date_type: List[int]
     activity_date_narrative: Optional[str]
-    document_link_url: str
-    document_link_title_narrative: str
-    document_link_description_narrative: str
-    min_date: datetime
-    max_date: datetime
+    document_link_url: Optional[str] = None
+    document_link_title_narrative: Optional[str] = None
+    document_link_description_narrative: Optional[str]
+    min_date: date
+    max_date: date
     min_year: int
     max_year: int
-    activity_status: Literal[
-        "Pipeline/identification", "Implementation", "Finalisation", "Closed", "Cancelled", "Suspended"
-    ]
+    activity_status: str
+    text: str
 
-    order_index: int  # not Optional for Activity
     time_added: datetime  # not Optional for Activity
+
+    def __init__(self, ingestion: bool = False, **kwargs) -> None:
+
+        for k, v in kwargs.items():
+
+            if (type(v) is float and math.isnan(v)) or (type(v) is str and v.lower() == "nan"):
+                kwargs[k] = None
+
+            else:
+
+                field_info = Activity.model_fields.get(k)
+
+                if field_info:
+
+                    type_ = field_info.annotation
+
+                    if "typing.List" in str(type_) and type(v) is str:
+                        list_elements = re.split(",", v)
+                        if "[int]" in str(type_):
+                            list_elements = [int(ele) for ele in list_elements]
+                        elif "[date]" in str(type_):
+                            list_elements = [datetime.fromisoformat(ele).date() for ele in list_elements]
+                        v = list_elements
+
+                    elif type_ is date and type(v) is str:
+                        v = datetime.fromisoformat(v).date()
+
+                    elif type_ is int and type(v) is str:
+                        v = int(v)
+
+                    kwargs[k] = v
+
+        if ingestion:
+            kwargs["time_added"] = datetime.now()
+
+        super().__init__(**kwargs)
 
     def __eq__(self, other: object) -> bool:
         """Self-explanatory"""
@@ -53,18 +89,20 @@ class Activity(BaseChunk):
         """Self-explanatory"""
         return hash(self.iati_identifier)
 
+    def __repr__(self) -> str:
+        """Self-explanatory"""
+        return self.iati_identifier
+
+    @property
+    def description_narrative(self) -> str:
+        """Return description_narrative field dynamically rather than duplicating data"""
+        return self.text.replace(self.title, "", 1).strip()
+
     @property
     def metadata(self) -> Dict:
         """Activity metadata"""
-        metadata = self.__dict__
-        #  print("Check metadata:", metadata)
-        # input()
+        metadata = {k: v for k, v in self.__dict__.items() if k not in ["time_added", "text"]}
         return metadata
-
-    @property
-    def text(self) -> str:
-        """Return text field dynamically rather than duplicating data"""
-        return self.title + " " + self.description_narrative
 
 
 if __name__ == "__main__":
