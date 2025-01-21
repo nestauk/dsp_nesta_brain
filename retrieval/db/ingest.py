@@ -17,6 +17,7 @@ import tiktoken
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 from config import DB_PATH
+from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
@@ -25,12 +26,19 @@ from langchain.text_splitter import CharacterTextSplitter
 from langdetect import detect
 from openai import AsyncOpenAI
 from pdf2image.exceptions import PDFInfoNotInstalledError
-from retrieval.db.schema import Chunk
-from retrieval.db.schema import Document as LanceDocument
+from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
+from retrieval.db.schema.nesta_brain import Document as LanceDocument
+from retrieval.db.schema.policy_atlas import Chunk as PolicyAtlasChunk
 from scraping.scrape import html_to_text
 from scraping.scrape import search_query_to_scraped_data
 from scraping.scrape_pdf import PDF
 from utils import unique
+
+
+if PROJECT == "NESTA_BRAIN":
+    Chunk = NestaBrainChunk
+elif PROJECT == "NESTA_BRAIN":
+    Chunk = PolicyAtlasChunk
 
 
 _prefix = "2024-10-29"
@@ -384,15 +392,16 @@ def pdfs_to_ingested_data(
 
             #   print("\n\n", button_links_doc_titles, "\n\n")
 
-            desirable_file_name_and_link_tuples = [  #stores the file names and links just of the PDFs we're interested in 
-                                                     #according to some criterion – here the criterion is that the link is 
-                                                     #contained in a download button (indicating a major publication)
-                (file_names.get(link), link, title_guess) for link, title_guess in button_links_doc_titles
+            desirable_file_name_and_link_tuples = [  # stores the file names and links just of the PDFs we're interested in
+                # according to some criterion – here the criterion is that the link is
+                # contained in a download button (indicating a major publication)
+                (file_names.get(link), link, title_guess)
+                for link, title_guess in button_links_doc_titles
             ]
 
         else:
-            desirable_file_name_and_link_tuples = [   #see comment above. Here the criterion is simply that the PDF
-                                                    #is on the Nesta website and not an external website
+            desirable_file_name_and_link_tuples = [  # see comment above. Here the criterion is simply that the PDF
+                # is on the Nesta website and not an external website
                 (
                     file_name,
                     link,
@@ -410,9 +419,9 @@ def pdfs_to_ingested_data(
                 else:
                     path = link
 
-                if cautious:   #if being cautious, you will be asked to decide whether you want to scrape the PDF and
-                                #whether the metadata guesses are correct. This opens the PDF and its corresponding
-                                #webpage for examination
+                if cautious:  # if being cautious, you will be asked to decide whether you want to scrape the PDF and
+                    # whether the metadata guesses are correct. This opens the PDF and its corresponding
+                    # webpage for examination
                     logging.info(f"Opening {file_name}")
                     os.system(f"open {path}")  # nosec
                     os.system(f'open {row["url"]}')  # nosec

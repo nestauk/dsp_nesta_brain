@@ -11,6 +11,7 @@ from typing import TypedDict
 import lancedb
 
 from config import DB_PATH
+from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from lancedb.db import LanceDBConnection
@@ -21,8 +22,15 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_openai import OpenAIEmbeddings
 from openai import AsyncOpenAI
 from openai import OpenAI
-from retrieval.db.schema import Chunk
+from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
+from retrieval.db.schema.policy_atlas import Chunk as PolicyAtlasChunk
 from utils import unique
+
+
+if PROJECT == "NESTA_BRAIN":
+    Chunk = NestaBrainChunk
+elif PROJECT == "NESTA_BRAIN":
+    Chunk = PolicyAtlasChunk
 
 
 class RetrieverInput(TypedDict):
