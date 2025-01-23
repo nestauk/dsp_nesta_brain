@@ -74,6 +74,9 @@ class Activity(BaseChunk):
 
                     kwargs[k] = v
 
+            if k == "reporting_org_narrative":
+                v = v.replace("\\,", ",")
+
         if ingestion:
             kwargs["time_added"] = datetime.now()
 
@@ -92,6 +95,14 @@ class Activity(BaseChunk):
     def __repr__(self) -> str:
         """Self-explanatory"""
         return self.iati_identifier
+
+    @staticmethod
+    def reference_metadata(**metadata) -> Dict:
+        """Metadata useful to presentation of references"""
+        iati_url_format = "https://datastore.iatistandard.org/activity/{iati_identifier}"
+        metadata["url"] = iati_url_format.format(**metadata)
+        metadata["reporting_org_narrative"] = metadata["reporting_org_narrative"].replace("\\,", ",")
+        return metadata
 
     @property
     def description_narrative(self) -> str:

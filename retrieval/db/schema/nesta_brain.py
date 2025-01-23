@@ -121,6 +121,13 @@ class Chunk(BaseChunk):
         """Self-explanatory"""
         return hash(self.source.location + self.text)
 
+    @staticmethod
+    def reference_metadata(**metadata) -> Dict:
+        """Metadata useful to presentation of references"""
+        metadata["url"] = metadata.get("location")
+        metadata["pdf"] = " (PDF)" if metadata["location"].lower()[-4:] == ".pdf" else ""
+        return metadata
+
     @property
     def metadata(self) -> Dict:
         """Chunk metadata derived from source"""

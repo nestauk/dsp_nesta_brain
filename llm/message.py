@@ -13,18 +13,17 @@ from config import PROJECT
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
+from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
+from retrieval.db.schema.policy_atlas import Activity
 
 
 if PROJECT == "NESTA_BRAIN":
-    contains_PDFs = True
+    Chunk = NestaBrainChunk
     reference_html_format = '<a href="{url}">[{index}] {title}{pdf}</a>'
-    superscript_html_format = '<sup><a href="{url}">{index}</a></sup>'
+
 elif PROJECT == "POLICY_ATLAS":
-    contains_PDFs = False
-    reference_html_format = (
-        "[{index}] <b>{iati_identifier}</b>: {title_narrative} ({min_year}-{max_year}), {reporting_org_narrative}"
-    )
-    superscript_html_format = "<sup>{index}</sup>"
+    Chunk = Activity
+    reference_html_format = '[{index}] <b>{iati_identifier}</b>: <a href="{url}">{title_narrative}</a> ({min_year}-{max_year}), {reporting_org_narrative}'  # noqa
 
 
 class Reference(LangchainDocument):
@@ -35,15 +34,9 @@ class Reference(LangchainDocument):
     cited: bool = False
 
     def __init__(self, chunk: LangchainDocument, index: int) -> None:
-        super().__init__(page_content=chunk.page_content, metadata=chunk.metadata, index=index)
-
-    @property
-    def is_pdf(self) -> bool:
-        """Test whether the underlying source document is a PDF"""
-        if contains_PDFs:
-            return self.metadata["location"].lower()[-4:] == ".pdf"
-        else:
-            return False
+        super().__init__(
+            page_content=chunk.page_content, metadata=Chunk.reference_metadata(**chunk.metadata), index=index
+        )
 
     def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
@@ -60,12 +53,11 @@ class Reference(LangchainDocument):
                 )
             reference_html_format_ = reference_html_format.replace("</a>", "{date_pub} {contentType} {missions}</a>")
 
-        return reference_html_format_.format(
-            url=self.metadata.get("location"), pdf=" (PDF)" if self.is_pdf else "", index=index, **self.metadata
-        )
+        return reference_html_format_.format(index=index, **self.metadata)
 
     def as_superscript(self, reset_index: bool = False) -> str:
         """Return index as a (usually) clickable link within a superscript, suitable for inline citations"""
+        superscript_html_format = '<sup><a href="{url}">{index}</a></sup>'
         index = self.reset_index if reset_index is not None else self.index
         return superscript_html_format.format(url=self.metadata.get("location"), index=index)
 
