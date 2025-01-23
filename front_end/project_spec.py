@@ -47,7 +47,11 @@ if PROJECT == "NESTA_BRAIN":
 
 elif PROJECT == "POLICY_ATLAS":
 
-    intro = "Policy Atlas intro"
+    intro = """
+            <h2>Policy Atlas</h2><br/>
+            This is a prototype AI chatbot designed to help you find information relating to activities in the
+            International Aid Transparency Initiative Datastore.
+            """
 
     WIDGET_SPEC = {
         "from_year": {
