@@ -47,7 +47,7 @@ class Activity(BaseChunk):
 
         for k, v in kwargs.items():
 
-            if (type(v) is float and math.isnan(v)) or (type(v) is str and v.lower() == "nan"):
+            if (type(v) is float and math.isnan(v)) or str(v).lower() == "nan":
                 kwargs[k] = None
 
             else:
@@ -107,11 +107,11 @@ class Activity(BaseChunk):
 
 if __name__ == "__main__":
 
-    # creata a database
+    # create a database
     db = lancedb.connect(DB_PATH)
 
     # creating tables
-    if True:
+    if False:
         table = db.create_table("activity", schema=Activity)
         table.create_fts_index("text")
 
@@ -119,3 +119,8 @@ if __name__ == "__main__":
     if False:
         table = db.open_table("activity")
         table.create_fts_index("text")
+
+    if False:
+        id = "GB-CHC-270901-GB-CHC-270901-WWW-P1"
+        table = db.open_table("activity")
+        table.delete(f'iati_identifier = "{id}"')

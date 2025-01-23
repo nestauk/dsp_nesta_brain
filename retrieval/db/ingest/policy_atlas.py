@@ -34,7 +34,7 @@ def chunk_already_in_db(chunk: LangchainDocument) -> bool:
 
 async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Chunk:
     """
-    Convert a Langchain chunk (as returned from a text splitter) into an object
+    Convert a Langchain document into an object
     of the Chunk class which can be ingested into the DB
     (including deriving an embedding for the Chunk)
     """  # noqa

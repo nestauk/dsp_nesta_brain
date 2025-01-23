@@ -11,6 +11,7 @@ from typing import TypedDict
 import lancedb
 
 from config import DB_PATH
+from config import DEFAULT_EMBEDDINGS_MODEL
 from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
@@ -29,8 +30,12 @@ from utils import unique
 
 if PROJECT == "NESTA_BRAIN":
     Chunk = NestaBrainChunk
+    chunk_table_name = "chunk"
+    default_merge = True
 elif PROJECT == "POLICY_ATLAS":
     Chunk = Activity
+    chunk_table_name = "activity"
+    default_merge = False  # activity records were not split into separate chunks,so no need to merge
 
 
 class RetrieverInput(TypedDict):
@@ -74,16 +79,23 @@ class CustomRetriever(BaseRetriever):
         chunks = CustomRetriever.retrieve_chunks(
             db, query, vector_, limit, filter_condition=filter_condition, **kwargs
         )
-        # Quick hack to give access for RAG to author and title information (by Karlis)
-        for chunk in chunks:
-            chunk.text = chunk.text + "; title: " + str(chunk.source.title) + "; authors: " + str(chunk.source.authors)
-        # (hack ends)
+
+        if PROJECT == "NestaBrain":
+            # Quick hack to give access for RAG to author and title information (by Karlis)
+            for chunk in chunks:
+                chunk.text = (
+                    chunk.text + "; title: " + str(chunk.source.title) + "; authors: " + str(chunk.source.authors)
+                )
+            # (hack ends)
+
         docs = CustomRetriever.chunks_to_docs(chunks, enumerate_=True)
 
         return docs
 
     @staticmethod
-    def chunks_to_docs(chunks: List[Chunk], merge: bool = True, enumerate_: bool = False) -> List[LangchainDocument]:
+    def chunks_to_docs(
+        chunks: List[Chunk], merge: bool = default_merge, enumerate_: bool = False
+    ) -> List[LangchainDocument]:
         """Convert Chunk objects to LangchainDocument objects, with the option to merge"""
         if merge:
             docs = CustomRetriever.merge_chunks(chunks, enumerate_=enumerate_)
@@ -129,7 +141,7 @@ class CustomRetriever(BaseRetriever):
         db: LanceDBConnection, query: str, vector_: List[float], limit: int, **kwargs
     ) -> List[Chunk]:
         """Retrieve chunks asynchroously"""
-        chunk_table = await db.open_table("chunk")
+        chunk_table = await db.open_table(chunk_table_name)
         logger.info("Retrieving most relevant chunks ...")
         chunks = await CustomRetriever.async_search_loop(chunk_table, query, vector_, limit, **kwargs)
         chunks = chunks[0:limit]
@@ -139,7 +151,7 @@ class CustomRetriever(BaseRetriever):
     @staticmethod
     def retrieve_chunks(db: LanceDBConnection, query: str, vector_: List[float], limit: int, **kwargs) -> List[Chunk]:
         """Retrieve chunks synchroously"""
-        chunk_table = db.open_table("chunk")
+        chunk_table = db.open_table(chunk_table_name)
         logger.info("Retrieving most relevant chunks ...")
         chunks = CustomRetriever.search_loop(chunk_table, query, vector_, limit, **kwargs)
         chunks = chunks[0:limit]
@@ -166,7 +178,7 @@ class CustomRetriever(BaseRetriever):
         table: LanceTable, query: str, vector_: List[float], limit: int, filter_condition: Optional[str] = None
     ) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are limit unique chunks (synchronous)"""
-        # query = query.encode("ascii", "ignore").decode("ascii")
+
         query = re.sub(r"\W+", " ", query)
         iteration_required = True
         while iteration_required:  # iteration only necessary if there are duplicates, for example,
@@ -198,7 +210,7 @@ class CustomRetriever(BaseRetriever):
     async def async_vector(string: str) -> List[float]:
         """Calculate the embedding vector of string"""
         async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        result = await async_client.embeddings.create(model="text-embedding-3-small", input=string)
+        result = await async_client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=string)
         vector = result.data[0].embedding
         return vector
 
@@ -206,7 +218,7 @@ class CustomRetriever(BaseRetriever):
     def vector(string: str) -> List[float]:
         """Calculate the embedding vector of string"""
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        vector = client.embeddings.create(model="text-embedding-3-small", input=string).data[0].embedding
+        vector = client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=string).data[0].embedding
         return vector
 
 
@@ -220,7 +232,7 @@ if __name__ == "__main__":
 
     db = lancedb.connect(DB_PATH)
     doc_table = db.open_table("document")
-    chunk_table = db.open_table("chunk")
+    chunk_table = db.open_table(chunk_table_name)
 
     # code below is just for testing and experimenting
 
@@ -245,7 +257,7 @@ if __name__ == "__main__":
         # lancedb's neater syntax for handling embeddings doesn't work because of the way the schema has been specified
 
         query = "HACID project"
-        vector_ = client.embeddings.create(model="text-embedding-3-small", input=query).data[0].embedding
+        vector_ = client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=query).data[0].embedding
         # chunk_table.create_fts_index("text")
         # chunk_results = chunk_table.search()
         #                   .where('source.location = "https://www.nesta.org.uk/project/centre-collective-intelligence-design/"')
@@ -262,7 +274,7 @@ if __name__ == "__main__":
         vector_store = LanceDB(
             uri=DB_PATH,
             embedding=OpenAIEmbeddings(),
-            table_name="chunk",
+            table_name=chunk_table_name,
         )
 
         retriever = vector_store.as_retriever()

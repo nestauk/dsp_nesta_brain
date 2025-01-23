@@ -9,9 +9,22 @@ from typing import Optional
 
 import markdown
 
+from config import PROJECT
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
+
+
+if PROJECT == "NESTA_BRAIN":
+    contains_PDFs = True
+    reference_html_format = '<a href="{url}">[{index}] {title}{pdf}</a>'
+    superscript_html_format = '<sup><a href="{url}">{index}</a></sup>'
+elif PROJECT == "POLICY_ATLAS":
+    contains_PDFs = False
+    reference_html_format = (
+        "[{index}] <b>{iati_identifier}</b>: {title_narrative} ({min_year}-{max_year}), {reporting_org_narrative}"
+    )
+    superscript_html_format = "<sup>{index}</sup>"
 
 
 class Reference(LangchainDocument):
@@ -27,10 +40,17 @@ class Reference(LangchainDocument):
     @property
     def is_pdf(self) -> bool:
         """Test whether the underlying source document is a PDF"""
-        return self.metadata["location"].lower()[-4:] == ".pdf"
+        if contains_PDFs:
+            return self.metadata["location"].lower()[-4:] == ".pdf"
+        else:
+            return False
 
     def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
+        reference_html_format_ = (
+            reference_html_format  # otherwise get "cannot access local variable 'reference_html_format'" message
+        )
+
         test_mode = False
         index = self.reset_index if reset_index is not None else self.index
         if test_mode:
@@ -38,14 +58,16 @@ class Reference(LangchainDocument):
                 logger.warning(
                     "Formatting of links for testing retrieval filtering is in use – do not use for production"
                 )
-            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]}{" (PDF)" if self.is_pdf else ""} {self.metadata["date_pub"]} {self.metadata["contentType"]} {self.metadata["missions"]}</a>'  # noqa
-        else:
-            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]}{" (PDF)" if self.is_pdf else ""}</a>'  # noqa
+            reference_html_format_ = reference_html_format.replace("</a>", "{date_pub} {contentType} {missions}</a>")
+
+        return reference_html_format_.format(
+            url=self.metadata.get("location"), pdf=" (PDF)" if self.is_pdf else "", index=index, **self.metadata
+        )
 
     def as_superscript(self, reset_index: bool = False) -> str:
-        """Return index as a clickable link within a superscript, suitable for inline citations"""
+        """Return index as a (usually) clickable link within a superscript, suitable for inline citations"""
         index = self.reset_index if reset_index is not None else self.index
-        return f'<sup><a href="{self.metadata["location"]}">{index}</a></sup>'
+        return superscript_html_format.format(url=self.metadata.get("location"), index=index)
 
 
 class CustomAIMessage(AIMessage):
@@ -165,7 +187,7 @@ class CustomAIMessage(AIMessage):
 
     def as_html(self) -> str:
         """Convert the response into HTML"""
-        return f'<div class="response">{self.p_element}{self.references_}</div>'
+        return f'<div class="response">{self.p_element}{self.references_ if self.references else ""}</div>'
 
     def flag_citations(self) -> None:
         """Flag references which have been cited"""
