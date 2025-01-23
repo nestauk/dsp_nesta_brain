@@ -78,7 +78,6 @@ async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[
 
     docs_split = ing.split_documents(documents)
 
-    logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
     tasks = []
     for i, chunk in enumerate(docs_split):
 
@@ -110,6 +109,7 @@ async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[
             order_index += 1
 
     await ing.throttle(request_counter, [chunk.page_content for chunk in docs_split])
+    logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
     return await asyncio.gather(*tasks)
 
 

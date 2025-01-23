@@ -76,11 +76,11 @@ class RequestCounter(list):
 
     def exceeds_RPM_rate_limit(self, *args) -> bool:
         """Determine whether the RPM rate limit will be exceeded if the batch of embeddings proceeds"""
-        return request_counter.N_requests_since(*args) >= RPM_RATE_LIMIT
+        return self.N_requests_since(*args) >= RPM_RATE_LIMIT
 
     def exceeds_TPM_rate_limit(self, *args) -> bool:
         """Determine whether the TPM rate limit will be exceeded if the batch of embeddings proceeds"""
-        return request_counter.N_tokens_since(*args) >= TPM_RATE_LIMIT
+        return self.N_tokens_since(*args) >= TPM_RATE_LIMIT
 
     def N_requests_since(self, since_time: datetime) -> int:
         """Calculate the number of requests since the time stated"""
@@ -92,7 +92,7 @@ class RequestCounter(list):
 
     def report(self, since_time: datetime, **kwargs) -> None:
         """Log report on requests/tokens since time stated"""
-        report_format = f"\nThrottle report: {self.N_requests_since(since_time)}/{RPM_RATE_LIMIT} requests, {self.N_tokens_since(since_time)}/{TPM_RATE_LIMIT} tokens since {since_time}: {{N_limits}} limits breached: sleep time = {{sleep_time}}"  # noqa
+        report_format = f"\nThrottle report: {self.N_requests_since(since_time)}/{RPM_RATE_LIMIT} requests, {self.N_tokens_since(since_time)}/{TPM_RATE_LIMIT} tokens since {since_time}: {{N_limits}} limit(s) breached: sleep time = {{sleep_time}}"  # noqa
         report = report_format.format(**kwargs)
         logger.info(report)
 
@@ -104,17 +104,17 @@ class RequestCounter(list):
         """Calculate the sleep time"""
 
         sleep_time = 0
-        exceedance_request_batch = None
+        batch_at_start_of_exceedance = None
         for i in range(1, len(self)):
             sub_request_counter = RequestCounter(self[-(i + 1) :])
             if sub_request_counter.exceeds_RPM_rate_limit(since_time) or sub_request_counter.exceeds_TPM_rate_limit(
                 since_time
             ):
-                exceedance_request_batch = self[-(i + 1)]
+                batch_at_start_of_exceedance = self[-(i + 1)]
                 break
 
-        if exceedance_request_batch:
-            sleep_time = 60 - (datetime.now() - exceedance_request_batch.time).seconds
+        if batch_at_start_of_exceedance:
+            sleep_time = 60 - (datetime.now() - batch_at_start_of_exceedance.time).seconds
 
         return sleep_time
 
@@ -123,20 +123,24 @@ request_counter = RequestCounter()
 
 
 async def throttle(request_counter: RequestCounter, texts: List[str]) -> None:
-    """If embeddings model rate limits are exceeded, wait until sufficient time has passed"""
-    # this won't work well for larger batch sizes, but unfortunately there isn't really time to troubleshoot and improve it
-    # I still get API error messages back with batch_size >= 100 but that can't be due to hitting the rate limit
-    # future users may want to improve on it
+    """If embeddings model rate limits are exceeded, wait until sufficient time has passed, then proceed"""
 
     request_batch = RequestCounter.RequestBatchData(texts)
     request_counter.append(request_batch)
 
+    error_message_format = "You cannot ask for {number} or more {rate_limit_name}s to the embeddings model in one go as this exceeds the {rate_limit} {rate_limit_name}s-per-minute rate limit"  # noqa
     if request_counter[-1].exceeds_RPM_rate_limit:
-        raise Exception(f"You cannot ask for {RPM_RATE_LIMIT} or more requests to the embeddings model in one go")
+        raise Exception(
+            error_message_format.format(
+                number=request_counter[-1].N_requests, rate_limit=RPM_RATE_LIMIT, rate_limit_name="request"
+            )
+        )
 
     elif request_counter[-1].exceeds_TPM_rate_limit:
         raise Exception(
-            f"You cannot ask for {TPM_RATE_LIMIT} or more tokens to be sent to the embeddings model in one go"
+            error_message_format.format(
+                number=request_counter[-1].N_tokens, rate_limit=TPM_RATE_LIMIT, rate_limit_name="token"
+            )
         )
 
     else:
@@ -147,20 +151,24 @@ async def throttle(request_counter: RequestCounter, texts: List[str]) -> None:
 
         if exceeds_RPM_rate_limit or exceeds_TPM_rate_limit:
 
-            message_format = "About to exceed OpenAI embeddings {rate_limit} per minute rate limit ... sleeping for {{sleep_time}} seconds"  # noqa
+            message_format = "About to exceed OpenAI embeddings {rate_limit_name}s per minute rate limit ... sleeping for {{sleep_time}} seconds"  # noqa
             if exceeds_RPM_rate_limit:
-                message_format = message_format.format(rate_limit="requests")
+                message_format = message_format.format(rate_limit_name="request")
             elif exceeds_TPM_rate_limit:
-                message_format = message_format.format(rate_limit="tokens")
+                message_format = message_format.format(rate_limit_name="token")
 
-            sleep_time = request_counter.sleep_time
-            logger.info(message_format.format(sleep_time=sleep_time))
+            sleep_time = request_counter.sleep_time(since_time)
 
         request_counter.report(
             since_time, sleep_time=sleep_time, N_limits=sum([exceeds_RPM_rate_limit, exceeds_TPM_rate_limit])
         )
 
-        await asyncio.sleep(sleep_time)
+        if sleep_time:
+            logger.info(message_format.format(sleep_time=sleep_time))
+
+        await asyncio.sleep(
+            sleep_time
+        )  # do this even if sleep_time = 0 because the function needs to return a coroutine
 
 
 def chunk_already_in_db(chunk: LangchainDocument, where_condition: Optional[str] = None) -> bool:

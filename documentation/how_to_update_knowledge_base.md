@@ -2,7 +2,6 @@
 
 [work in progress]
 
-**NB some of the instructions below will need branch `ingest-corrections` to be merged and are not correct in `dev` as of 18/12/24**
 
 ## Introduction
 
@@ -107,7 +106,7 @@ The following list of settings and options for ingesting text sources can be fou
 > the row of the metadata dataframe (see **Data** section) to start ingesting from, with the first row at index `0`. `start_index` is taken from the first command line argument, or defaults to `0`.
 
 **`batch_size`**: `int`
-> the number of webpages or PDFs to get embeddings for and ingest at a time. Note that if `batch_size` is too high then you will get error messages back from OpenAI (see **Known issues**). Users are encouraged to experiment with `batch_size`. PDFs can be large and slow to scrape, so a very low batch_size (<5) is recommended if `pdf_mode` is `True`. A `batch_size` of 50 for webpages and 1 for PDFs was used when the DB was originally set up. Batch sizes > 100 for webpages seemed to cause problems.
+> the number of webpages or PDFs to get embeddings for and ingest at a time. Note that if `batch_size` is too high then you will get error messages back from OpenAI (see **Known issues**). Users are encouraged to experiment with `batch_size`. PDFs can be large and slow to scrape, so a very low batch_size (<5) is recommended if `pdf_mode` is `True`. A `batch_size` of 50 for webpages and 1 for PDFs was used when the DB was originally set up. Batch sizes > 100 for webpages seemed to cause problems. (Note that this in document when the word 'batch' is used this is not with reference to OpenAI's Batch API, which is not used.)
 
 *Settings relevant to `web_search` mode*
 
@@ -171,6 +170,6 @@ The code in `retrieval/db/ingest/nesta_brain.py` is not currently set up to inge
 
 ## Known issues
 
-1. An attempt was made to throttle OpenAI requests and ensure they are kept within rate limits, but this may not have been fully successful. In addition, when `batch_size` is large error messages can be thrown by the API which don't seem to be due to rate limits being exceeded. There wasn't time to troubleshoot and fix these issues, but future users should be aware that if they wish to ingest large volumes of documents simultaneously, they may need to upgrade the code.
+1. A throttle should (theoretically) ensure OpenAI requests are kept within rate limits. However, when `batch_size` is large error messages can be thrown by the API which are not due to rate limits being exceeded, or by the lancedb package. Accordingly, users may find that the rate limits are not in danger of being breached because the batch sizes need to be relatively small to avoid these latter errors. There wasn't time to troubleshoot and fix these issues, but future users should be aware that if they wish to ingest large volumes of documents simultaneously, they may need to investigate the causes of these errors and upgrade the code.
 2. There were some PDFs which didn't scrape successfully and which threw error messages, probably due to size. There also wasn't time to investigate and fix this. Future users may encounter the same problem. If a PDF throws an error, it can be skipped by noting the row in the metadata dataframe of the originating webpage and setting `start_index` to the one following it.
 3. As mentioned above, the `location` metadata field is used a as a unique identifier for documents to avoid duplicate scraping of webpages and other documents. However, the database does currently contain some duplication of webpages where there are URL aliases in the site map. These should be removed from the database, time-permitting, and code added to retrieval/db/ingest/nesta_brain.py to prevent this occurring.

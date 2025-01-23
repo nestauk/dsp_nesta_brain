@@ -63,7 +63,6 @@ async def documents_to_Chunks(documents: List[LangchainDocument]) -> List[Chunk]
         if exceptions:
             raise Exception("Exceptions in documents_to_Chunks")
 
-    logger.info(f"Fetching embeddings for {len(documents)} chunks ...")
     chunks = []
     for chunk in documents:  # the variable name 'chunk' is possibly a bit misleading here.
         # There should be no need to split documents into chunks as activity texts aren't long enough
@@ -78,6 +77,7 @@ async def documents_to_Chunks(documents: List[LangchainDocument]) -> List[Chunk]
     if chunks:
         tasks = [asyncio.create_task(chunk_to_Chunk(chunk)) for chunk in chunks]
         await ing.throttle(request_counter, [chunk.page_content for chunk in chunks])
+        logger.info(f"Fetching embeddings for {len(documents)} chunks ...")
         gather_results = await asyncio.gather(*tasks, return_exceptions=True)
         log_exceptions(gather_results)
         return gather_results
