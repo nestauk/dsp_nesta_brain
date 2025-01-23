@@ -109,7 +109,7 @@ async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[
             tasks.append(task)
             order_index += 1
 
-    await ing.throttle([chunk.page_content for chunk in docs_split])
+    await ing.throttle(request_counter, [chunk.page_content for chunk in docs_split])
     return await asyncio.gather(*tasks)
 
 
@@ -422,6 +422,9 @@ if __name__ == "__main__":
     subdirectories = sorted(
         ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
     )  # optional
+
+    # global variable
+    request_counter = ing.RequestCounter()
 
     if mode not in possible_modes:
         raise Exception(f"""mode must be one of the following:{', '.join([f"'{mode}'" for mode in possible_modes])}""")

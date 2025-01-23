@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import sys
-import traceback
 
 from typing import List
 from typing import Union
@@ -54,22 +53,18 @@ async def documents_to_Chunks(documents: List[LangchainDocument]) -> List[Chunk]
 
     def log_exceptions(task_results: List[Union[Chunk, Exception]]) -> None:
 
-        message_format = (
-            'Task {index} raised an exception "{exception}" within asyncio.gather. \tTraceback:\n\t{traceback}'
-        )
+        message_format = 'Task {index} raised an exception "{exception}" within asyncio.gather'
         exceptions = [(i, ele) for i, ele in enumerate(task_results) if isinstance(ele, Exception)]
 
-        for i, exception in enumerate(exceptions):
-            message = message_format.format(
-                index=i, exception=str(exception), traceback=traceback.format_tb(exception.__traceback__)
-            )
+        for index, exception in exceptions:
+            message = message_format.format(index=index, exception=str(exception))
             logging.error(message)
 
         if exceptions:
             raise Exception("Exceptions in documents_to_Chunks")
 
     logger.info(f"Fetching embeddings for {len(documents)} chunks ...")
-    tasks = []
+    chunks = []
     for chunk in documents:  # the variable name 'chunk' is possibly a bit misleading here.
         # There should be no need to split documents into chunks as activity texts aren't long enough
 
@@ -78,11 +73,11 @@ async def documents_to_Chunks(documents: List[LangchainDocument]) -> List[Chunk]
             logger.info(f"Skipping chunk {chunk.metadata.get('iati_identifier')} as it already seems to be in the DB")
 
         else:
-            task = asyncio.create_task(chunk_to_Chunk(chunk))
-            tasks.append(task)
+            chunks.append(chunk)
 
-    if tasks:
-        await ing.throttle([chunk.page_content for chunk in documents])
+    if chunks:
+        tasks = [asyncio.create_task(chunk_to_Chunk(chunk)) for chunk in chunks]
+        await ing.throttle(request_counter, [chunk.page_content for chunk in chunks])
         gather_results = await asyncio.gather(*tasks, return_exceptions=True)
         log_exceptions(gather_results)
         return gather_results
@@ -130,8 +125,11 @@ if __name__ == "__main__":
         int(sys.argv[1]) if len(sys.argv) > 1 else 0
     )  # the row of the policy data CSV to start ingesting; everything prior to this will be ignored
     batch_size = (
-        200  # the number of CSV rows to ingest at a time. Batch sizes of 250+ seem to get errors back from OpenAI.
+        225  # the number of CSV rows to ingest at a time. Batch sizes of 230+ seem to get errors back from OpenAI.
     )
+
+    # global variable
+    request_counter = ing.RequestCounter()
 
     data = pd.read_csv(DATA_PATH)
     N_rows = data.shape[0]
