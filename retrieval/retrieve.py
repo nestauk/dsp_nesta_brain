@@ -38,7 +38,6 @@ class RetrieverInput(TypedDict):
 
     input: str
     filter_condition: str
-    merge: bool
 
 
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
@@ -65,7 +64,6 @@ class CustomRetriever(BaseRetriever):
         logger.info(f"Input to retriever: {input}")
         query = input["input"]
         filter_condition = input.get("filter_condition") or None  # if '' then want None
-        merge = input.get("merge")
 
         # the code has been chopped up into bits which can be reused easily in both synchronous and asynchronous versions
 
@@ -80,12 +78,12 @@ class CustomRetriever(BaseRetriever):
         for chunk in chunks:
             chunk.text = chunk.text + "; title: " + str(chunk.source.title) + "; authors: " + str(chunk.source.authors)
         # (hack ends)
-        docs = CustomRetriever.chunks_to_docs(chunks, merge=merge, enumerate_=True)
+        docs = CustomRetriever.chunks_to_docs(chunks, enumerate_=True)
 
         return docs
 
     @staticmethod
-    def chunks_to_docs(chunks: List[Chunk], merge: bool = False, enumerate_: bool = False) -> List[LangchainDocument]:
+    def chunks_to_docs(chunks: List[Chunk], merge: bool = True, enumerate_: bool = False) -> List[LangchainDocument]:
         """Convert Chunk objects to LangchainDocument objects, with the option to merge"""
         if merge:
             docs = CustomRetriever.merge_chunks(chunks, enumerate_=enumerate_)

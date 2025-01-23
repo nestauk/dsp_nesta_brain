@@ -24,7 +24,7 @@ class Activity(BaseChunk):
     reporting_org_ref: str
     reporting_org_narrative: str
     participating_org_ref: List[str]
-    participating_org_narrative: List[str]
+    participating_org_narrative: Optional[List[str]]
     recipient_country_code: Optional[str] = None
     sector_narrative: Optional[str] = None
     activity_status_code: int

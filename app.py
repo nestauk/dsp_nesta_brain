@@ -250,7 +250,6 @@ def trace_metadata() -> Dict:
     metadata = {"sidebar": sidebar_metadata}
     metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
     metadata["settings"] = {
-        "merge": merge,
         "use_tool_for_citations": use_tool_for_citations,
         "limit": limit,
     }
@@ -269,7 +268,6 @@ def respond(
         "input": question,
         "chat_history": chat_history(),
         "filter_condition": st.session_state["filter_condition"],
-        "merge": merge,
     }
     trace_id = str(uuid.uuid4())
     response = {"answer": ""}
@@ -343,10 +341,6 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
 if __name__ == "__main__":
 
     # settings
-    # retrieval settings
-    use_langgraph: bool = True
-    merge: bool = True  # merge needs to be True from now on for indexed references and inline citations to work
-    # - otherwise we could get the same source reference appearing more than once in the reference list
     limit: int = 10
     use_tool_for_citations: bool = False
     split_references: bool = True  # if True, references will be split into cited and uncited retrieved sources
@@ -360,9 +354,9 @@ if __name__ == "__main__":
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
         if use_tool_for_citations:
-            rag_chain = history_aware_rag_chain_with_citation_tool(chat_history, use_langgraph=use_langgraph)
+            rag_chain = history_aware_rag_chain_with_citation_tool(chat_history)
         else:
-            rag_chain = history_aware_rag_chain(use_langgraph=use_langgraph)
+            rag_chain = history_aware_rag_chain()
 
         st.set_page_config(layout="wide")
         st.markdown(
