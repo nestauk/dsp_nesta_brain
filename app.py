@@ -13,6 +13,7 @@ import streamlit as st
 
 from config import DEFAULT_START_YEAR
 from config import EARLIEST_YEAR
+from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from langchain_core.messages import AIMessage
@@ -40,7 +41,57 @@ langfuse_handler = CallbackHandler(
 
 CURRENT_YEAR = datetime.now().year
 
-WIDGET_DEFAULTS = {"from_year": DEFAULT_START_YEAR, "to_year": CURRENT_YEAR, "include_people": "Yes", "mission": None}
+if PROJECT == "NESTA_BRAIN":
+
+    intro = """
+            <h2>🧠 Nesta Brain</h2><br/>
+            This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
+            It searches thousands of webpages and reports to find the most relevant content
+            in response to your questions.
+            <br/><br/>
+            We hope this can support knowledge management by making it easier to locate information
+            about past projects,
+            and generate new outputs.
+            <br/><br/>
+            This is an early version and we welcome your feedback
+            very much - please use the
+            emojis below to highlight specific responses, and <a href='https://forms.gle/TwXqUMHNTaPbYC4e7'>leave
+            us general feedback using this form</a>.
+            You can also contact directly Karlis Kanders or Helen Jackson (Data Science Practice / Discovery Hub)
+            on <a href="https://nesta.slack.com/archives/C05BCUZNATG">#proj-nesta-brain</a>.
+            <br/><br/>
+            The chatbot currently accesses information from <strong>Nesta's public website (up to October 2024)</strong>
+            and does <strong>not</strong> include internal documents or systems like Nesta:Net, Slack, or GitHub.
+            <br/><br/>
+            Use the sidebar to customize the chatbot's search parameters, such as date range or mission team.
+            Note that user queries and responses are saved for chatbot's performance evaluation and improvement.
+            """
+
+    WIDGET_SPEC = {
+        "from_year": {
+            "default": DEFAULT_START_YEAR,
+            "filter_condition_format": "source.date_pub >= to_timestamp('{current_value}-01-01')",
+        },
+        "to_year": {
+            "default": CURRENT_YEAR,
+            "filter_condition_format": "source.date_pub <= to_timestamp('{current_value}-12-31')",
+        },
+        "include_people": {"default": "Yes", "filter_condition_format": "source.contentType != 'person page'"},
+        "mission": {"default": None, "filter_condition_format": "array_contains(source.missions,'{current_value}')"},
+    }
+
+elif PROJECT == "POLICY_ATLAS":
+
+    WIDGET_SPEC = {
+        "from_year": {
+            "default": DEFAULT_START_YEAR,
+            "filter_condition_format": "min_year <= {current_value} and max_year >= {current_value}",
+        },
+        "to_year": {
+            "default": CURRENT_YEAR,
+            "filter_condition_format": "min_year <= {current_value} and max_year >= {current_value}",
+        },
+    }
 
 
 def check_password() -> bool:
@@ -92,7 +143,7 @@ def chat_history(*args) -> List[BaseMessage]:
 
 def trace_metadata() -> Dict:
     """Compile trace metadata on sidebar parameters and the resulting filter_condition string, as well as settings"""
-    sidebar_metadata = {key: st.session_state[key] for key in WIDGET_DEFAULTS.keys()}
+    sidebar_metadata = {key: st.session_state[key] for key in WIDGET_SPEC.keys()}
     metadata = {"sidebar": sidebar_metadata}
     metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
     metadata["settings"] = {
@@ -161,23 +212,27 @@ def respond(
 
 def filter_conditions() -> Union[str, None]:
     """Compute what the filter conditions are from widget values"""
+
     filter_conditions = []
-    for key, default in WIDGET_DEFAULTS.items():
+    for key, spec in WIDGET_SPEC.items():
+
+        default = spec["default"]
+        filter_condition_format = spec["filter_condition_format"]
+
         current_value = st.session_state[key]
-        if key == "from_year" and current_value != EARLIEST_YEAR:
-            filter_conditions.append(f"source.date_pub >= to_timestamp('{current_value}-01-01')")
-        elif (
-            current_value != default
-        ):  # caution: if the rest of the widgets are at their default value then no filter is required
+        if key == "from_year":
+            append_filter_condition = current_value != EARLIEST_YEAR
+        else:
+            append_filter_condition = current_value != default
+            # caution: if the rest of the widgets are at their default value then no filter is required
             # if the defaults change, the logic here may also need to change
-            if key == "to_year":
-                filter_conditions.append(f"source.date_pub <= to_timestamp('{current_value}-12-31')")
-            elif key == "include_people" and current_value == "No":
-                filter_conditions.append("source.contentType != 'person page'")
-            elif key == "mission":
-                filter_conditions.append(f"array_contains(source.missions,'{current_value}')")
+
+        if append_filter_condition:
+            filter_conditions.append(filter_condition_format.format(current_value=current_value))
+
     if filter_conditions:
         return " and ".join(filter_conditions)
+
     return None
 
 
@@ -239,66 +294,48 @@ if __name__ == "__main__":
         )
 
         st.markdown(
-            """
-            <h2>🧠 Nesta Brain</h2><br/>
-            This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
-            It searches thousands of webpages and reports to find the most relevant content
-            in response to your questions.
-            <br/><br/>
-            We hope this can support knowledge management by making it easier to locate information
-            about past projects,
-            and generate new outputs.
-            <br/><br/>
-            This is an early version and we welcome your feedback
-            very much - please use the
-            emojis below to highlight specific responses, and <a href='https://forms.gle/TwXqUMHNTaPbYC4e7'>leave
-            us general feedback using this form</a>.
-            You can also contact directly Karlis Kanders or Helen Jackson (Data Science Practice / Discovery Hub)
-            on <a href="https://nesta.slack.com/archives/C05BCUZNATG">#proj-nesta-brain</a>.
-            <br/><br/>
-            The chatbot currently accesses information from <strong>Nesta's public website (up to October 2024)</strong>
-            and does <strong>not</strong> include internal documents or systems like Nesta:Net, Slack, or GitHub.
-            <br/><br/>
-            Use the sidebar to customize the chatbot's search parameters, such as date range or mission team.
-            Note that user queries and responses are saved for chatbot's performance evaluation and improvement.
-            """,
+            intro,
             unsafe_allow_html=True,
         )
 
         # widgets for filter conditions
         with st.sidebar:
-            from_year = st.number_input(
-                label="From year",
-                min_value=EARLIEST_YEAR,
-                max_value=CURRENT_YEAR,
-                key="from_year",
-                value=WIDGET_DEFAULTS["from_year"],
-            )
-            to_year = st.number_input(
-                label="To year",
-                min_value=from_year,
-                max_value=CURRENT_YEAR,
-                key="to_year",
-                value=WIDGET_DEFAULTS["to_year"],
-            )
-            include_people_options = ("Yes", "No")
-            include_people = st.radio(
-                "Include people pages",
-                include_people_options,
-                key="include_people",
-                index=include_people_options.index(WIDGET_DEFAULTS["include_people"]),
-            )
-            mission_options = ("A fairer start", "A healthy life", "A sustainable future", None)
-            mission = st.radio(
-                "Mission-specific content",
-                mission_options,
-                key="mission",
-                index=mission_options.index(WIDGET_DEFAULTS["mission"]),
-            )
+            if "from_year" in WIDGET_SPEC:
+                from_year = st.number_input(
+                    label="From year",
+                    min_value=EARLIEST_YEAR,
+                    max_value=CURRENT_YEAR,
+                    key="from_year",
+                    value=WIDGET_SPEC["from_year"]["default"],
+                )
+            if "to_year" in WIDGET_SPEC:
+                to_year = st.number_input(
+                    label="To year",
+                    min_value=from_year,
+                    max_value=CURRENT_YEAR,
+                    key="to_year",
+                    value=WIDGET_SPEC["to_year"]["default"],
+                )
+            if "include_people" in WIDGET_SPEC:
+                include_people_options = ("Yes", "No")
+                include_people = st.radio(
+                    "Include people pages",
+                    include_people_options,
+                    key="include_people",
+                    index=include_people_options.index(WIDGET_SPEC["include_people"]["default"]),
+                )
+            if "mission" in WIDGET_SPEC:
+                mission_options = ("A fairer start", "A healthy life", "A sustainable future", None)
+                mission = st.radio(
+                    "Mission-specific content",
+                    mission_options,
+                    key="mission",
+                    index=mission_options.index(WIDGET_SPEC["mission"]["default"]),
+                )
 
-            for key, default in WIDGET_DEFAULTS.items():
+            for key, spec in WIDGET_SPEC.items():
                 if key not in st.session_state:
-                    st.session_state[key] = default
+                    st.session_state[key] = spec["default"]
 
         # Store session variables
         if "messages" not in st.session_state.keys():

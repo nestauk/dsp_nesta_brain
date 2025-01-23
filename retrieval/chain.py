@@ -34,11 +34,9 @@ def create_history_aware_retriever(
     parser = lambda ai_message: ai_message.content  # noqa
     recontextualisation_chain = prompt | llm | parser
     recontextualisation_chain = RunnableParallel(
-        input=recontextualisation_chain,
-        filter_condition=lambda x: x.get("filter_condition"),
-        merge=lambda x: x.get("merge") or False,
+        input=recontextualisation_chain, filter_condition=lambda x: x.get("filter_condition")
     )
-    # unlike in the original version of create_history_aware_retriever, we want filter_condition and merge
+    # unlike in the original version of create_history_aware_retriever, we want filter_condition
     # to be passed through to the retriever
 
     retrieve_documents: RetrieverOutputLike = RunnableBranch(

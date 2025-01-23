@@ -13,3 +13,5 @@ if PROJECT == "NESTA_BRAIN":
 
 if PROJECT == "POLICY_ATLAS":
     DB_PATH = "retrieval/db/policy_atlas"
+    EARLIEST_YEAR = 1900
+    DEFAULT_START_YEAR = 2019
