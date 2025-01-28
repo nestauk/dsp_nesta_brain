@@ -12,6 +12,7 @@ from typing import Optional
 import lancedb
 
 from config import DB_PATH
+from dsp_nesta_brain import logger
 from retrieval.db.schema.base import BaseChunk
 
 
@@ -39,7 +40,6 @@ class Activity(BaseChunk):
     min_year: int
     max_year: int
     activity_status: str
-    text: str
 
     time_added: datetime  # not Optional for Activity
 
@@ -102,6 +102,10 @@ class Activity(BaseChunk):
         iati_url_format = "https://datastore.iatistandard.org/activity/{iati_identifier}"
         metadata["url"] = iati_url_format.format(**metadata)
         metadata["reporting_org_narrative"] = metadata["reporting_org_narrative"].replace("\\,", ",")
+        if metadata["min_year"] == metadata["min_year"]:
+            metadata["years"] = metadata["min_year"]
+        else:
+            metadata["years"] = f"{metadata['min_year']}-{metadata['max_year']}"
         return metadata
 
     @property
@@ -131,6 +135,13 @@ if __name__ == "__main__":
         table = db.open_table("activity")
         table.create_fts_index("text")
 
+    # getting a sample of records
+    if False:
+        table = db.open_table("activity")
+        records = table.search().limit(100).to_pydantic(Activity)
+        logger.info(len(records))
+
+    # deleting a record
     if False:
         id = "GB-CHC-270901-GB-CHC-270901-WWW-P1"
         table = db.open_table("activity")

@@ -23,7 +23,7 @@ if PROJECT == "NESTA_BRAIN":
 
 elif PROJECT == "POLICY_ATLAS":
     Chunk = Activity
-    reference_html_format = '[{index}] <b>{iati_identifier}</b>: <a href="{url}">{title_narrative}</a> ({min_year}-{max_year}), {reporting_org_narrative}'  # noqa
+    reference_html_format = '[{index}] <b>{iati_identifier}</b>: <a href="{url}">{title_narrative}</a> ({years}), {reporting_org_narrative}'  # noqa
 
 
 class Reference(LangchainDocument):
