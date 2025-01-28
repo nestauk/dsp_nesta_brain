@@ -6,7 +6,6 @@ import re
 from collections import OrderedDict
 from typing import List
 from typing import Optional
-from typing import TypedDict
 
 import lancedb
 
@@ -21,6 +20,7 @@ from langchain.docstore.document import Document as LangchainDocument
 from langchain_community.vectorstores import LanceDB
 from langchain_core.retrievers import BaseRetriever
 from langchain_openai import OpenAIEmbeddings
+from langgraph.graph import MessagesState
 from openai import AsyncOpenAI
 from openai import OpenAI
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
@@ -38,10 +38,9 @@ elif PROJECT == "POLICY_ATLAS":
     default_merge = False  # activity records were not split into separate chunks,so no need to merge
 
 
-class RetrieverInput(TypedDict):
+class RetrieverInput(MessagesState):
     """Class for specifying what the retriever input should be; used as a State class with LangGraph"""
 
-    input: str
     filter_condition: str
 
 
@@ -67,7 +66,7 @@ class CustomRetriever(BaseRetriever):
         """
 
         logger.info(f"Input to retriever: {input}")
-        query = input["input"]
+        query = input["messages"][-1].content
         filter_condition = input.get("filter_condition") or None  # if '' then want None
 
         # the code has been chopped up into bits which can be reused easily in both synchronous and asynchronous versions
