@@ -102,7 +102,7 @@ class Activity(BaseChunk):
         iati_url_format = "https://datastore.iatistandard.org/activity/{iati_identifier}"
         metadata["url"] = iati_url_format.format(**metadata)
         metadata["reporting_org_narrative"] = metadata["reporting_org_narrative"].replace("\\,", ",")
-        if metadata["min_year"] == metadata["min_year"]:
+        if metadata["min_year"] == metadata["max_year"]:
             metadata["years"] = metadata["min_year"]
         else:
             metadata["years"] = f"{metadata['min_year']}-{metadata['max_year']}"
