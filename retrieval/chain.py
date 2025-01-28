@@ -58,15 +58,22 @@ def retriever(use_langgraph: bool = False) -> Runnable:
     """Return a CustomRetriever with the option of chaining it with a graph in order to make retrieval more sophisticated"""
     retriever_ = CustomRetriever()
     if use_langgraph:
+
+        # the output of the graph is a list of dicts in this format:
+        # List[{'node_1_name':dict representing state returned by node 1} .. {'node_n_name': state returned by node n}]
+        # the intermediate steps in the chain here transform this graph output into a useful input for retriever_,
+        # that is a single dict representing the final graph state
+        # This final state should have the same keys as RetrieverInput
+
         retriever_ = (
             create_retrieval_graph()
-            | (lambda x: x[-1] if type(x) is list else x)
-            | (lambda d: d.popitem()[1])
+            | (
+                lambda x: x[-1] if type(x) is list else x
+            )  # The output of this is this dict: {'node_n_name': state returned by node n}
+            | (lambda d: d.popitem()[1])  # This output of this is a dict representing the state returned by node n
             | retriever_
-        )  # the lambdas here ensure that whatever comes out of the graph is a dict representing the final state
-        # (it should have the same keys as RetrieverInput)
-        # the format of graph outputs is:
-        # List[{'node_1_name':dict representing state returned by node 1} .. {'node_n_name': state returned by node n}]
+        )
+
     return retriever_
 
 
