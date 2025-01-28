@@ -109,10 +109,7 @@ def respond(
     else:
         config = {}
 
-    input = {
-        "messages": chat_history(),
-        "filter_condition": st.session_state["filter_condition"],
-    }
+    input = {"messages": chat_history(), "filter_condition": st.session_state["filter_condition"], "limit": limit}
 
     if stream:
 
