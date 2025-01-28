@@ -18,6 +18,7 @@ from lancedb.db import LanceDBConnection
 from lancedb.table import LanceTable
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_community.vectorstores import LanceDB
+from langchain_core.messages import AIMessage
 from langchain_core.retrievers import BaseRetriever
 from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import MessagesState
@@ -37,9 +38,18 @@ elif PROJECT == "POLICY_ATLAS":
     default_merge = False  # activity records were not split into separate chunks,so no need to merge
 
 
-class RetrieverInput(MessagesState):
-    """Class for specifying what the retriever input should be; used as a State class with LangGraph"""
+class IntermediateMessage(AIMessage):
+    """tmp docstring"""
 
+    pass
+
+
+class RetrieverInput(MessagesState):
+    """Class for specifying what the retriever input should be; can be used as a State class with LangGraph"""
+
+    # it is not necessary for this to inherit from MessagesState if we're not using LangGraph
+    # however, it allows the option in future and there is a neatness about it
+    # RetrieverInput inherits a `messages` property from MessagesState
     limit: int
     filter_condition: str
 

@@ -60,8 +60,7 @@ elif PROJECT == "POLICY_ATLAS":
 qa_prompt = ChatPromptTemplate.from_messages(
     [
         ("system", qa_system_prompt),
-        MessagesPlaceholder("chat_history"),
-        ("human", "{input}"),
+        MessagesPlaceholder("messages"),
     ]
 )
 
@@ -76,7 +75,6 @@ just reformulate it if needed and otherwise return it as is."""
 contextualize_q_prompt = ChatPromptTemplate.from_messages(
     [
         ("system", contextualize_q_system_prompt),
-        MessagesPlaceholder("chat_history"),
-        ("human", "{input}"),
+        MessagesPlaceholder("messages"),
     ]
 )
