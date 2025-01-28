@@ -18,7 +18,6 @@ from lancedb.db import LanceDBConnection
 from lancedb.table import LanceTable
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_community.vectorstores import LanceDB
-from langchain_core.messages import AIMessage
 from langchain_core.retrievers import BaseRetriever
 from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import MessagesState
@@ -36,12 +35,6 @@ elif PROJECT == "POLICY_ATLAS":
     Chunk = Activity
     chunk_table_name = "activity"
     default_merge = False  # activity records were not split into separate chunks,so no need to merge
-
-
-class IntermediateMessage(AIMessage):
-    """tmp docstring"""
-
-    pass
 
 
 class RetrieverInput(MessagesState):
