@@ -21,7 +21,6 @@ from langchain_community.vectorstores import LanceDB
 from langchain_core.retrievers import BaseRetriever
 from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import MessagesState
-from openai import AsyncOpenAI
 from openai import OpenAI
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
 from retrieval.db.schema.policy_atlas import Activity
@@ -41,6 +40,7 @@ elif PROJECT == "POLICY_ATLAS":
 class RetrieverInput(MessagesState):
     """Class for specifying what the retriever input should be; used as a State class with LangGraph"""
 
+    limit: int
     filter_condition: str
 
 
@@ -56,7 +56,7 @@ class CustomRetriever(BaseRetriever):
     # there have been problems getting Lance DB to work with asynchronous requests
     #    pass
 
-    def _get_relevant_documents(self, input: RetrieverInput, limit: int = 10, **kwargs) -> List[LangchainDocument]:
+    def _get_relevant_documents(self, input: RetrieverInput, **kwargs) -> List[LangchainDocument]:
         """
         Retrieve chunks related to a search query using a hybrid search strategy
 
@@ -66,18 +66,10 @@ class CustomRetriever(BaseRetriever):
         """
 
         logger.info(f"Input to retriever: {input}")
-        query = input["messages"][-1].content
-        filter_condition = input.get("filter_condition") or None  # if '' then want None
-
-        # the code has been chopped up into bits which can be reused easily in both synchronous and asynchronous versions
 
         db = lancedb.connect(DB_PATH)
 
-        logger.info("Vectorizing query ...")
-        vector_ = CustomRetriever.vector(query)
-        chunks = CustomRetriever.retrieve_chunks(
-            db, query, vector_, limit, filter_condition=filter_condition, **kwargs
-        )
+        chunks = CustomRetriever.retrieve_chunks(db, input, **kwargs)
 
         if PROJECT == "NestaBrain":
             # Quick hack to give access for RAG to author and title information (by Karlis)
@@ -136,41 +128,24 @@ class CustomRetriever(BaseRetriever):
         return docs
 
     @staticmethod
-    async def async_retrieve_chunks(
-        db: LanceDBConnection, query: str, vector_: List[float], limit: int, **kwargs
-    ) -> List[Chunk]:
-        """Retrieve chunks asynchroously"""
-        chunk_table = await db.open_table(chunk_table_name)
-        logger.info("Retrieving most relevant chunks ...")
-        chunks = await CustomRetriever.async_search_loop(chunk_table, query, vector_, limit, **kwargs)
-        chunks = chunks[0:limit]
-        logger.info(f"Retreived {len(chunks)} chunks")
-        return chunks
+    def retrieve_chunks(db: LanceDBConnection, input: RetrieverInput, **kwargs) -> List[Chunk]:
+        """Retrieve chunks synchrously"""
 
-    @staticmethod
-    def retrieve_chunks(db: LanceDBConnection, query: str, vector_: List[float], limit: int, **kwargs) -> List[Chunk]:
-        """Retrieve chunks synchroously"""
         chunk_table = db.open_table(chunk_table_name)
+
+        query = input["messages"][-1].content
+        limit = input["limit"]
+        filter_condition = input.get("filter_condition") or None  # if '' then want None
+        logger.info("Vectorizing query ...")
+        vector_ = CustomRetriever.vector(query)
+
         logger.info("Retrieving most relevant chunks ...")
-        chunks = CustomRetriever.search_loop(chunk_table, query, vector_, limit, **kwargs)
+        chunks = CustomRetriever.search_loop(
+            chunk_table, query, vector_, limit, filter_condition=filter_condition, **kwargs
+        )
         chunks = chunks[0:limit]
         logger.info(f"Retreived {len(chunks)} chunks")
         return chunks
-
-    @staticmethod
-    async def async_search_loop(
-        table: LanceTable, query: str, vector_: List[float], limit: int, filter_condition: Optional[str] = None
-    ) -> List[Chunk]:
-        """Search LanceDB table, omit duplicate chunks, repeat the action until there are
-        limit unique chunks (should be asynchronous – see comment below)"""  # noqa
-        # query = query.encode("ascii", "ignore").decode("ascii")
-        # keep only alphanumeric characters in the query
-        query = re.sub(r"\W+", " ", query)
-        chunks = []
-        orig_limit = limit
-        while len(chunks) < orig_limit:
-            # THIS DOESN'T WORK: #I can't see a way of doing asynchronous hybrid search at the moment
-            pass
 
     @staticmethod
     def search_loop(
@@ -204,14 +179,6 @@ class CustomRetriever(BaseRetriever):
             else:
                 chunks = unique_chunks
         return chunks
-
-    @staticmethod
-    async def async_vector(string: str) -> List[float]:
-        """Calculate the embedding vector of string"""
-        async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        result = await async_client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=string)
-        vector = result.data[0].embedding
-        return vector
 
     @staticmethod
     def vector(string: str) -> List[float]:
