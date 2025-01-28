@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from datetime import datetime
 
 from config import DEFAULT_START_YEAR
@@ -8,7 +9,7 @@ CURRENT_YEAR = datetime.now().year
 
 if PROJECT == "NESTA_BRAIN":
 
-    intro = """
+    INTRO = """
             <h2>🧠 Nesta Brain</h2><br/>
             This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
             It searches thousands of webpages and reports to find the most relevant content
@@ -32,34 +33,46 @@ if PROJECT == "NESTA_BRAIN":
             Note that user queries and responses are saved for chatbot's performance evaluation and improvement.
             """
 
-    WIDGET_SPEC = {
-        "from_year": {
-            "default": DEFAULT_START_YEAR,
-            "filter_condition_format": "source.date_pub >= to_timestamp('{current_value}-01-01')",
-        },
-        "to_year": {
-            "default": CURRENT_YEAR,
-            "filter_condition_format": "source.date_pub <= to_timestamp('{current_value}-12-31')",
-        },
-        "include_people": {"default": "Yes", "filter_condition_format": "source.contentType != 'person page'"},
-        "mission": {"default": None, "filter_condition_format": "array_contains(source.missions,'{current_value}')"},
-    }
+    WIDGET_SPEC = OrderedDict(
+        {
+            "from_year": {
+                "default": DEFAULT_START_YEAR,
+                "filter_condition_format": "source.date_pub >= to_timestamp('{current_value}-01-01')",
+            },
+            "to_year": {
+                "default": CURRENT_YEAR,
+                "filter_condition_format": "source.date_pub <= to_timestamp('{current_value}-12-31')",
+            },
+            "include_people": {
+                "default": "Yes",
+                "filter_condition_format": "source.contentType != 'person page'",
+                "options": ("Yes", "No"),
+            },
+            "mission": {
+                "default": None,
+                "filter_condition_format": "array_contains(source.missions,'{current_value}')",
+                "options": ("A fairer start", "A healthy life", "A sustainable future", None),
+            },
+        }
+    )
 
 elif PROJECT == "POLICY_ATLAS":
 
-    intro = """
+    INTRO = """
             <h2>Policy Atlas</h2><br/>
             This is a prototype AI chatbot designed to help you find information relating to activities in the
             International Aid Transparency Initiative Datastore.
             """
 
-    WIDGET_SPEC = {
-        "from_year": {
-            "default": DEFAULT_START_YEAR,
-            "filter_condition_format": "min_year <= {current_value} and max_year >= {current_value}",
-        },
-        "to_year": {
-            "default": CURRENT_YEAR,
-            "filter_condition_format": "min_year <= {current_value} and max_year >= {current_value}",
-        },
-    }
+    WIDGET_SPEC = OrderedDict(
+        {
+            "from_year": {
+                "default": DEFAULT_START_YEAR,
+                "filter_condition_format": "min_year <= {current_value} and max_year >= {current_value}",
+            },
+            "to_year": {
+                "default": CURRENT_YEAR,
+                "filter_condition_format": "min_year <= {current_value} and max_year >= {current_value}",
+            },
+        }
+    )

@@ -97,6 +97,11 @@ class Activity(BaseChunk):
         return self.iati_identifier
 
     @staticmethod
+    def reference_html_format() -> str:
+        """Return format for references in HTML"""
+        return '[{index}] <b>{iati_identifier}</b>: <a href="{url}">{title_narrative}</a> ({years}), {reporting_org_narrative}'  # noqa
+
+    @staticmethod
     def reference_metadata(**metadata) -> Dict:
         """Metadata useful to presentation of references"""
         iati_url_format = "https://datastore.iatistandard.org/activity/{iati_identifier}"

@@ -15,8 +15,9 @@ from config import EARLIEST_YEAR
 from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
+from front_end.project_spec import INTRO
 from front_end.project_spec import WIDGET_SPEC
-from front_end.project_spec import intro
+from front_end.sidebar import sidebar
 from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
@@ -244,44 +245,14 @@ if __name__ == "__main__":
         )
 
         st.markdown(
-            intro,
+            INTRO,
             unsafe_allow_html=True,
         )
 
         # widgets for filter conditions
         with st.sidebar:
-            if "from_year" in WIDGET_SPEC:
-                from_year = st.number_input(
-                    label="From year",
-                    min_value=EARLIEST_YEAR,
-                    max_value=CURRENT_YEAR,
-                    key="from_year",
-                    value=WIDGET_SPEC["from_year"]["default"],
-                )
-            if "to_year" in WIDGET_SPEC:
-                to_year = st.number_input(
-                    label="To year",
-                    min_value=from_year,
-                    max_value=CURRENT_YEAR,
-                    key="to_year",
-                    value=WIDGET_SPEC["to_year"]["default"],
-                )
-            if "include_people" in WIDGET_SPEC:
-                include_people_options = ("Yes", "No")
-                include_people = st.radio(
-                    "Include people pages",
-                    include_people_options,
-                    key="include_people",
-                    index=include_people_options.index(WIDGET_SPEC["include_people"]["default"]),
-                )
-            if "mission" in WIDGET_SPEC:
-                mission_options = ("A fairer start", "A healthy life", "A sustainable future", None)
-                mission = st.radio(
-                    "Mission-specific content",
-                    mission_options,
-                    key="mission",
-                    index=mission_options.index(WIDGET_SPEC["mission"]["default"]),
-                )
+
+            sidebar()
 
             for key, spec in WIDGET_SPEC.items():
                 if key not in st.session_state:

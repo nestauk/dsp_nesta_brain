@@ -18,7 +18,12 @@ from sklearn.metrics.pairwise import cosine_similarity
 from umap import UMAP
 
 
-# credit: https://ai.plainenglish.io/revolutionizing-topic-modeling-with-gpt-3-5-from-text-embedding-to-contextual-titles-1b9fa187b76b  # noqa
+# might need for cluster labelling:
+# from sklearn.feature_extraction.text import TfidfVectorizer
+# result = tfidf.fit_transform(s)
+# https://www.geeksforgeeks.org/understanding-tf-idf-term-frequency-inverse-document-frequency/
+
+# based on: https://ai.plainenglish.io/revolutionizing-topic-modeling-with-gpt-3-5-from-text-embedding-to-contextual-titles-1b9fa187b76b  # noqa
 
 DATA_PATH = PROJECT_DIR / "data/policy_atlas/fcdo_iati_data_2025_01_17.csv"
 
@@ -35,7 +40,7 @@ class Cluster:
         self.activities = []
 
     @staticmethod
-    def clustering_to_Clusters(hdbscan_model_results: HDBSCAN, activities: List[Activity]) -> List[Cluster]:
+    def hdbscan_to_Clusters(hdbscan_model_results: HDBSCAN, activities: List[Activity]) -> List[Cluster]:
         """Derive a list of Clusters from the results of HDBSCAN"""
 
         clusters = {}
@@ -83,16 +88,11 @@ if __name__ == "__main__":
     embeddings = [activity.vector for activity in activities]
 
     umap_model = UMAP(n_neighbors=10, n_components=5, min_dist=0.0, metric="cosine")
-    reduced_embeddings = umap_model.fit_transform(embeddings)
-
     hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", min_samples=2, prediction_data=False)
 
-    clustering = hdbscan_model.fit(reduced_embeddings)
-    clusters = Cluster.clustering_to_Clusters(clustering, activities)
-
-    # top_n = 3
-    # diversity = 0.5
-    cluster_dict = {}
+    reduced_embeddings = umap_model.fit_transform(embeddings)
+    hdbscan_model_results = hdbscan_model.fit(reduced_embeddings)
+    clusters = Cluster.hdbscan_to_Clusters(hdbscan_model_results, activities)
 
     for cluster in clusters:
 

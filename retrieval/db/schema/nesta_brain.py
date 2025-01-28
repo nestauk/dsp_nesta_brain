@@ -122,6 +122,11 @@ class Chunk(BaseChunk):
         return hash(self.source.location + self.text)
 
     @staticmethod
+    def reference_html_format() -> str:
+        """Return format for references in HTML"""
+        return '<a href="{url}">[{index}] {title}{pdf}</a>'
+
+    @staticmethod
     def reference_metadata(**metadata) -> Dict:
         """Metadata useful to presentation of references"""
         metadata["url"] = metadata.get("location")

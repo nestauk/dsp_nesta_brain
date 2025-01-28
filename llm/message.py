@@ -19,11 +19,9 @@ from retrieval.db.schema.policy_atlas import Activity
 
 if PROJECT == "NESTA_BRAIN":
     Chunk = NestaBrainChunk
-    reference_html_format = '<a href="{url}">[{index}] {title}{pdf}</a>'
 
 elif PROJECT == "POLICY_ATLAS":
     Chunk = Activity
-    reference_html_format = '[{index}] <b>{iati_identifier}</b>: <a href="{url}">{title_narrative}</a> ({years}), {reporting_org_narrative}'  # noqa
 
 
 class Reference(LangchainDocument):
@@ -40,9 +38,8 @@ class Reference(LangchainDocument):
 
     def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
-        reference_html_format_ = (
-            reference_html_format  # otherwise get "cannot access local variable 'reference_html_format'" message
-        )
+
+        reference_html_format = Chunk.reference_html_format()
 
         test_mode = False
         index = self.reset_index if reset_index is not None else self.index
@@ -51,9 +48,9 @@ class Reference(LangchainDocument):
                 logger.warning(
                     "Formatting of links for testing retrieval filtering is in use – do not use for production"
                 )
-            reference_html_format_ = reference_html_format.replace("</a>", "{date_pub} {contentType} {missions}</a>")
+            reference_html_format = reference_html_format.replace("</a>", "{date_pub} {contentType} {missions}</a>")
 
-        return reference_html_format_.format(index=index, **self.metadata)
+        return reference_html_format.format(index=index, **self.metadata)
 
     def as_superscript(self, reset_index: bool = False) -> str:
         """Return index as a (usually) clickable link within a superscript, suitable for inline citations"""
