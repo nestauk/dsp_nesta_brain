@@ -70,23 +70,14 @@ def check_password() -> bool:
         return True
 
 
-def chat_history(*args) -> List[BaseMessage]:
-    """
-    Derive chat history from streamlit messages
-
-    args are unused, but necessary if using chat_history as an argument in rag_chain_with_citation_tool to avoid an error
-    """
+def chat_history() -> List[BaseMessage]:
+    """Derive chat history from streamlit messages"""
 
     def message_class(message: Dict) -> type:
         return AIMessage if message["role"] == "assistant" else HumanMessage
 
-    if (
-        "messages" in st.session_state
-    ):  # necessary if using chat_history as an argument in rag_chain_with_citation_tool to avoid an error
-        if (
-            len(st.session_state.messages) > 2
-        ):  # if the only messages are the initial_message and the first user input, then you don't need the chat history
-            return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
+    if len(st.session_state.messages) > 1:  # omit initial_message from chat history
+        return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
 
     return []
 
@@ -105,7 +96,6 @@ def trace_metadata() -> Dict:
 
 def respond(
     chain: Runnable,
-    question: str,
     message_placeholder: DeltaGenerator,
     **kwargs,
 ) -> CustomAIMessage:
@@ -120,44 +110,53 @@ def respond(
         config = {}
 
     input = {
-        "input": question,
-        "chat_history": chat_history(),
+        "messages": chat_history(),
         "filter_condition": st.session_state["filter_condition"],
     }
 
-    response = {"answer": ""}
+    if stream:
 
-    for item in chain.stream(input, config=config):
-        # Process each item
-        if "answer" in item:
-            if use_tool_for_citations:
-                response_text = (
-                    item["answer"]["quoted_answer"].get("answer") or ""
-                )  # if using tool the answer will be a dict rather than string
-                if response_text and response["answer"] == response_text:
-                    break  # Once the response has been generated it will go on to the other components
-                    # of quoted_answer which we don't actually need, so stop when the answer is complete
-                response["answer"] += response_text[
-                    len(response["answer"]) :
-                ]  # unlike normal streaming, response_text contains the *cumulative* response
-                # this simulates normal streaming
-                # we could set response["answer"] = response_text, but I found this made the streaming look jerky
-            else:
-                response_text = item["answer"]
-                response["answer"] += str(response_text)
-            # Display the response
-            message_placeholder.markdown(response["answer"] + "▌")
-        elif "context" in item:
-            response["context"] = item["context"]
-    # Remove the message placeholder text after all the text has been received, as
-    # it will be rendered in a nicer format with references
-    message_placeholder.markdown("")
+        message_text = ""
+        for item in chain.stream(input, config=config):
+            # Process each item
+            if "answer" in item:
+                if use_tool_for_citations:
+                    item_text = (
+                        item["answer"]["quoted_answer"].get("answer") or ""
+                    )  # if using tool the answer will be a dict rather than string
+                    if item_text and item_text == message_text:
+                        break  # Once the response has been generated it will go on to the other components
+                        # of quoted_answer which we don't actually need, so stop when the answer is complete
+                    message_text += item_text[
+                        len(message_text) :
+                    ]  # unlike normal streaming, message_text contains the *cumulative* response
+                    # this simulates normal streaming
+                    # we could set response["answer"] = message_text, but I found this made the streaming look jerky
+                else:
+                    message_text += str(item["answer"])
+                # Display the response
+                message_placeholder.markdown(message_text + "▌")
+
+            elif "context" in item:
+                context = item["context"]
+
+        response = {"answer": message_text, "context": context}
+
+    else:
+        response = chain.invoke(input, config=config)
+
+    return_message = CustomAIMessage(response)
+
+    if stream:
+        # Remove the message placeholder text after all the text has been received, as
+        # it will be rendered in a nicer format with references
+        message_placeholder.markdown("")
 
     if use_langfuse:
         langfuse.trace(id=trace_id, metadata=trace_metadata())
         st.session_state["current_trace_id"] = trace_id
 
-    return CustomAIMessage(response)
+    return return_message
 
 
 def filter_conditions() -> Union[str, None]:
@@ -206,6 +205,7 @@ if __name__ == "__main__":
     limit: int = 10
     use_langfuse: bool = False and PROJECT == "NESTA_BRAIN"  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
+    stream: bool = True
     use_tool_for_citations: bool = False
     split_references: bool = True  # if True, references will be split into cited and uncited retrieved sources
     # and the numbering reset so that references are numbered in the order they appear in the final list
@@ -214,6 +214,7 @@ if __name__ == "__main__":
     initial_message: str = "Hi, how can I help?"
 
     if check_password():
+
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
@@ -287,7 +288,7 @@ if __name__ == "__main__":
 
                 st.session_state["filter_condition"] = filter_conditions()
 
-                response = respond(rag_chain, input, message_placeholder)
+                response = respond(rag_chain, message_placeholder)
                 message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
                 message = {"role": "assistant", "html": response.as_html(), "content": response.content}
                 st.session_state.messages.append(message)
