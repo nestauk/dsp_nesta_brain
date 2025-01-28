@@ -200,7 +200,7 @@ if __name__ == "__main__":
 
     # settings
     limit: int = 10
-    use_langfuse: bool = False and PROJECT == "NESTA_BRAIN"  # Langfuse is not currently set up for other projects –
+    use_langfuse: bool = PROJECT == "NESTA_BRAIN"  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
     stream: bool = True
     use_tool_for_citations: bool = False
