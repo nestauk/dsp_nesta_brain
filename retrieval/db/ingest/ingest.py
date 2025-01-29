@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 
 from datetime import datetime
 from datetime import timedelta
+from typing import Callable
 from typing import List
 from typing import Optional
+from typing import Union
 
 import lancedb
+import pandas as pd
 import tiktoken
 
 from config import DB_PATH
@@ -199,6 +203,83 @@ async def chunk_to_Chunk(chunk: LangchainDocument, **kwargs) -> Chunk:
     result = await async_client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=chunk.page_content)
     vector = result.data[0].embedding
     return Chunk(text=chunk.page_content, vector=vector, **kwargs)
+
+
+def csv_rows_to_ingested_data(path: str, start_index: int, batch_size: Union[int, None], **kwargs) -> None:
+    """Ingest data from the rows of a CSV file"""
+
+    data = pd.read_csv(path)
+    rows = data[start_index : (start_index + batch_size) if batch_size else None].to_dict(orient="records")
+
+    docs = [LangchainDocument(page_content=row.pop("text"), metadata=row) for row in rows]
+
+    ingest(docs, **kwargs)
+
+
+async def documents_to_Chunks(
+    documents: List[LangchainDocument],
+    identifier: Optional[str] = None,
+    Chunk_func: Callable = chunk_to_Chunk,
+    chunk_presence_test=chunk_already_in_db,  # noqa
+) -> List[Chunk]:
+    """
+    Convert Langchain Documents into objects of the Chunk class which can be ingested into the DB.
+    N.B. This basic version of documents_to_Chunks is only for documents which are too short to need splitting/chunking.
+    See project-specific files in ingest directory for versions of documents_to_Chunks which involve splitting/chunking.
+    """  # noqa
+
+    def log_exceptions(task_results: List[Union[Chunk, Exception]]) -> None:
+
+        message_format = 'Task {index} raised an exception "{exception}" within asyncio.gather'
+        exceptions = [(i, ele) for i, ele in enumerate(task_results) if isinstance(ele, Exception)]
+
+        for index, exception in exceptions:
+            message = message_format.format(index=index, exception=str(exception))
+            logging.error(message)
+
+        if exceptions:
+            raise Exception("Exceptions in documents_to_Chunks")
+
+    chunks = []
+    for chunk in documents:  # the variable name 'chunk' is possibly a bit misleading here.
+        # There should be no need to split documents into chunks as activity texts aren't long enough
+
+        if chunk_presence_test(chunk):
+
+            logger.info(f"Skipping chunk {chunk.metadata.get(identifier)} as it already seems to be in the DB")
+
+        else:
+            chunks.append(chunk)
+
+    if chunks:
+        tasks = [asyncio.create_task(Chunk_func(chunk)) for chunk in chunks]
+        await throttle(request_counter, [chunk.page_content for chunk in chunks])
+        logger.info(f"Fetching embeddings for {len(documents)} chunks ...")
+        gather_results = await asyncio.gather(*tasks, return_exceptions=True)
+        log_exceptions(gather_results)
+        return gather_results
+
+    return []
+
+
+def ingest(documents: List[LangchainDocument], **kwargs) -> None:
+    """
+    Find out which documents are not already in the database, convert them into
+    Chunk data in accordance with the db schema
+    and insert this into the database
+    """  # noqa
+
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    chunks = asyncio.run(documents_to_Chunks(documents), **kwargs)
+
+    if chunks:
+        logger.info(f"Ingested {len(chunks)} Chunks into the database")
+        chunk_table.add(chunks)
+    else:
+        logger.info("No chunks to ingest into the database")
+
+    logging.getLogger("httpx").setLevel(logging.INFO)
 
 
 def split_documents(documents: List[LangchainDocument]) -> List[LangchainDocument]:

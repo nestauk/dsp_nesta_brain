@@ -5,9 +5,11 @@ import re
 import sys
 
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
 from typing import Union
+from typing import get_args
 
 import lancedb
 import pandas as pd
@@ -23,6 +25,7 @@ from langdetect import detect
 from pdf2image.exceptions import PDFInfoNotInstalledError
 from retrieval.db.schema.nesta_brain import Chunk
 from retrieval.db.schema.nesta_brain import Document as LanceDocument
+from retrieval.db.schema.nesta_brain import MissionProject
 from scraping.scrape import html_to_text
 from scraping.scrape import search_query_to_scraped_data
 from scraping.scrape_pdf import PDF
@@ -178,8 +181,8 @@ def webpages_to_ingested_data(
         )
 
     if uids:
-        metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"  # noqa
-        metadata_df = pd.read_json(metadata_path, lines=True)
+        METADATA_PATH = WEBSITE_DATA_PATH / "metadata.jsonl"  # noqa
+        metadata_df = pd.read_json(METADATA_PATH, lines=True)
         rows = [metadata_df[metadata_df["uid"] == uid].iloc[0] for uid in uids]
         df = pd.DataFrame(rows)
 
@@ -399,9 +402,10 @@ def search_query_to_ingested_data(query: str, site_url: str, replace: bool = Fal
 if __name__ == "__main__":
 
     # SETTINGS
-    mode = "web_dump"  # if 'web_search', do a web search, scrape and ingest the results
+    mode_literal = Literal["web_dump", "web_search", "from_csv"]
+    mode: mode_literal = "from_csv"  # if 'web_search', do a web search, scrape and ingest the results
     # if 'web_dump', ingest data which has already been downloaded from the Nesta website
-    possible_modes = ["web_dump", "web_search"]
+    # if 'from_csv', ingest data from a CSV
     replace = False  # if True, if the document already exists in the DB, any chunks derived
     # from it will be deleted and replaced
 
@@ -410,7 +414,7 @@ if __name__ == "__main__":
     download_button_pdf_only = True  # only scrape PDfs if they are a major research output indicated on the page
     # by being downloadable by clicking a big red button
     cautious = False  # ask whether you want to scrape the PDF and whether the metadata guesses are correct
-    metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"
+    METADATA_PATH = WEBSITE_DATA_PATH / "metadata.jsonl"
     start_index = (
         int(sys.argv[1]) if len(sys.argv) > 1 else 0
     )  # the row of metadata.jsonl to start ingesting; everything prior to this will be ignored
@@ -423,16 +427,22 @@ if __name__ == "__main__":
         ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
     )  # optional
 
+    # settings relevant to from_csv mode
+    CSV_PATH = PROJECT_DIR / "data/Mission Project List.csv"
+    schema_class = MissionProject
+
     # global variable
     request_counter = ing.RequestCounter()
 
-    if mode not in possible_modes:
-        raise Exception(f"""mode must be one of the following:{', '.join([f"'{mode}'" for mode in possible_modes])}""")
+    if mode not in get_args(mode_literal):
+        raise Exception(
+            f"""mode must be one of the following:{', '.join([f"'{mode}'" for mode in get_args(mode_literal)])}"""
+        )
 
     if mode == "web_dump":
         # if scraping/ingesting from entire Nesta website data dump
 
-        metadata_df = pd.read_json(metadata_path, lines=True)
+        metadata_df = pd.read_json(METADATA_PATH, lines=True)
         downloaded = metadata_df["_status_code"].apply(lambda val: val == 200)
         metadata_df = metadata_df[downloaded]
         n_rows = metadata_df.shape[0]
@@ -465,3 +475,31 @@ if __name__ == "__main__":
                 results_returned = search_query_to_ingested_data(query, url, start=start, replace=replace)
                 if not results_returned:
                     break
+
+    elif mode == "from_csv":
+        # if ingesting data from a csv
+
+        def chunk_already_in_db(chunk: LangchainDocument) -> bool:  # noqa
+            """Determine whether identical chunks have already been added to the database.
+            Chunking strategy should have been the same.
+            """  # noqa
+
+            where_condition = f'code == "{chunk.metadata["code"]}"'
+            results = ing.chunk_already_in_db(chunk, where_condition=where_condition)
+            return bool(results)
+
+        async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Chunk:  # noqa
+            """
+            Convert a Langchain document into an object
+            of the Chunk class which can be ingested into the DB
+            (including deriving an embedding for the Chunk)
+            """  # noqa
+
+            try:
+                return await ing.chunk_to_Chunk(chunk, ingestion=ingestion, **chunk.metadata)
+            except Exception as e:
+                return e
+
+        ing.csv_rows_to_ingested_data(
+            CSV_PATH, 0, None, identifier="code", Chunk_func=chunk_to_Chunk, chunk_presence_test=chunk_already_in_db
+        )

@@ -139,19 +139,42 @@ class Chunk(BaseChunk):
         return self.source.as_metadata()
 
 
+class MissionProject(BaseChunk):
+    """Represents a record in data/Mission Project List.csv"""
+
+    mission: str
+    name: str
+    code: str
+    lifecycle_stage: str
+    area_of_focus: str
+    intermediate_goal: str
+    geography: str
+
+    time_added: datetime  # not Optional for MissionProject
+
+    def __init__(self, **kwargs) -> None:
+
+        kwargs = {
+            re.sub(r" \(.+\)|Project ", "", k.lower().replace(" ", "_")): v for k, v in kwargs.items()
+        }  # turn csv column headings into attribute names consistent with schema
+        kwargs["mission"] = kwargs.pop("team")
+
+        super().__init__(text=kwargs.pop("research_question"), **kwargs)
+
+
 if __name__ == "__main__":
 
     # creata a database with a Document table and a Chunk table
     db = lancedb.connect(DB_PATH)
 
     # creating tables
-    if False:
-        db.create_table("document", schema=Document)
-        table = db.create_table("chunk", schema=Chunk)
+    if True:
+        #  db.create_table("document", schema=Document)
+        table = db.create_table("mission_project", schema=MissionProject)
         table.create_fts_index("text")
 
     # adding full text search index retrospectively
-    if True:
+    if False:
         table = db.open_table("chunk")
         table.create_fts_index("text")
 
