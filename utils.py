@@ -3,6 +3,8 @@ from typing import List
 from typing import Tuple
 from typing import Union
 
+from langdetect import detect
+
 
 def first(seq: Union[List, Tuple], lambda_: Callable) -> object:
     """Return first element of seq that returns a positive result from the condition specified in lambda_"""
@@ -24,3 +26,8 @@ def unique(seq: Union[List, Tuple]) -> List:
 def bold(string: str) -> str:
     """Make a string bold"""
     return f"\033[1m{string}\033[0m"
+
+
+def is_english(string: str) -> bool:
+    """Test whether a string is in English"""
+    return detect(string) == "en"

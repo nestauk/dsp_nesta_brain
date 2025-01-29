@@ -19,7 +19,7 @@ if USE_AZURE:
         azure_deployment=AZURE_MODEL,
         api_version=AZURE_API_VERSION,
         temperature=0,
-        max_tokens=1000,
+        max_tokens=200,
         # timeout=None,
         max_retries=2,
     )

@@ -57,6 +57,11 @@ elif PROJECT == "POLICY_ATLAS":
     {context}
     """  # noqa
 
+    qa_system_prompt_test = """Answer the question
+
+    Context"
+    {context}"""
+
 qa_prompt = ChatPromptTemplate.from_messages(
     [
         ("system", qa_system_prompt),

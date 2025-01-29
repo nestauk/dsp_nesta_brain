@@ -146,6 +146,14 @@ if __name__ == "__main__":
         records = table.search().limit(100).to_pydantic(Activity)
         logger.info(len(records))
 
+    # exploring records
+    if True:
+        table = db.open_table("activity")
+        records = table.search().where('NOT reporting_org_ref = "GB-GOV-1"').limit(1000).to_pydantic(Activity)
+        reporting_orgs = {(record.reporting_org_ref, record.reporting_org_narrative) for record in records}
+        reporting_orgs = sorted(list(reporting_orgs), key=lambda tup: tup[0])
+    # print(reporting_orgs)
+
     # deleting a record
     if False:
         id = "GB-CHC-270901-GB-CHC-270901-WWW-P1"
