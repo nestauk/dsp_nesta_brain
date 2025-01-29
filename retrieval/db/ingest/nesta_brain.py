@@ -13,6 +13,7 @@ from typing import get_args
 
 import lancedb
 import pandas as pd
+import retrieval.db.ingest.const as const
 import retrieval.db.ingest.ingest as ing
 
 from bs4 import BeautifulSoup
@@ -23,7 +24,7 @@ from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langdetect import detect
 from pdf2image.exceptions import PDFInfoNotInstalledError
-from retrieval.db.schema.nesta_brain import Chunk
+from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
 from retrieval.db.schema.nesta_brain import Document as LanceDocument
 from retrieval.db.schema.nesta_brain import MissionProject
 from scraping.scrape import html_to_text
@@ -40,7 +41,6 @@ NESTA_SITE_URL = "https://nesta.org.uk"
 
 db = lancedb.connect(DB_PATH)
 document_table = db.open_table("document")
-chunk_table = db.open_table("chunk")
 
 
 def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
@@ -64,7 +64,7 @@ def chunk_already_in_db(*args) -> bool:
     return bool(results), results[0].source.location if results else None
 
 
-async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: LanceDocument) -> Chunk:
+async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: LanceDocument) -> NestaBrainChunk:
     """
     Convert a Langchain chunk (as returned from a text splitter) into an object
     of the Chunk class which can be ingested into the DB
@@ -73,7 +73,9 @@ async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: Lan
     return await ing.chunk_to_Chunk(chunk, order_index=order_index, source=source)
 
 
-async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[LanceDocument]) -> List[Chunk]:
+async def documents_to_Chunks(
+    documents: List[LangchainDocument], sources: List[LanceDocument]
+) -> List[NestaBrainChunk]:
     """
     Split Langchain documents into chunks and convert these into objects
     of the Chunk class which can be ingested into the DB
@@ -429,7 +431,19 @@ if __name__ == "__main__":
 
     # settings relevant to from_csv mode
     CSV_PATH = PROJECT_DIR / "data/Mission Project List.csv"
-    schema_class = MissionProject
+    csv_mode_chunk_schema_class = MissionProject
+    csv_mode_chunk_table_name = "mission_project"
+
+    if mode == "from_csv":
+        # settings constants which may be needed in other files
+
+        const.Chunk = csv_mode_chunk_schema_class
+        const.chunk_table_name = csv_mode_chunk_table_name
+
+    else:
+
+        const.Chunk = NestaBrainChunk
+        const.chunk_table_name = "chunk"
 
     # global variable
     request_counter = ing.RequestCounter()
@@ -479,16 +493,21 @@ if __name__ == "__main__":
     elif mode == "from_csv":
         # if ingesting data from a csv
 
-        def chunk_already_in_db(chunk: LangchainDocument) -> bool:  # noqa
+        const.Chunk = MissionProject
+        const.chunk_table_name = "mission_project"
+
+        def chunk_already_in_db(chunk: LangchainDocument, **kwargs) -> bool:  # noqa
             """Determine whether identical chunks have already been added to the database.
             Chunking strategy should have been the same.
             """  # noqa
 
-            where_condition = f'code == "{chunk.metadata["code"]}"'
-            results = ing.chunk_already_in_db(chunk, where_condition=where_condition)
+            where_condition = (
+                f'''name == "{chunk.metadata.get("Project Name (Asana)") or chunk.metadata.get("name")}"'''
+            )
+            results = ing.chunk_already_in_db(chunk, where_condition=where_condition, **kwargs)
             return bool(results)
 
-        async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Chunk:  # noqa
+        async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> const.Chunk:  # noqa
             """
             Convert a Langchain document into an object
             of the Chunk class which can be ingested into the DB
@@ -500,6 +519,20 @@ if __name__ == "__main__":
             except Exception as e:
                 return e
 
-        ing.csv_rows_to_ingested_data(
-            CSV_PATH, 0, None, identifier="code", Chunk_func=chunk_to_Chunk, chunk_presence_test=chunk_already_in_db
-        )
+        batch_size = 20
+        data = pd.read_csv(CSV_PATH)
+        N_rows = data.shape[0]
+
+        for start_index_ in range(start_index, N_rows, batch_size):
+
+            ing.csv_rows_to_ingested_data(
+                CSV_PATH,
+                start_index_,
+                batch_size,
+                identifier="name",
+                text_col=["Project Name (Asana)", "Research Question"],
+                Chunk_func=chunk_to_Chunk,
+                chunk_presence_test=chunk_already_in_db,
+            )
+
+    chunk_table = db.open_table(const.chunk_table_name)

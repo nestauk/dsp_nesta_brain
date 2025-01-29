@@ -2,28 +2,29 @@ import logging
 import sys
 
 import pandas as pd
+import retrieval.db.ingest.const as const
 import retrieval.db.ingest.ingest as ing
 
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
-from retrieval.db.schema.policy_atlas import Activity as Chunk
+from retrieval.db.schema.policy_atlas import Activity
 
 
 DATA_PATH = PROJECT_DIR / "data/policy_atlas/fcdo_iati_data_2025_01_17.csv"
 
 
-def chunk_already_in_db(chunk: LangchainDocument) -> bool:
+def chunk_already_in_db(chunk: LangchainDocument, **kwargs) -> bool:
     """Determine whether identical chunks have already been added to the database.
     Chunking strategy should have been the same.
     """  # noqa
 
     where_condition = f'iati_identifier == "{chunk.metadata["iati_identifier"]}"'
-    results = ing.chunk_already_in_db(chunk, where_condition=where_condition)
+    results = ing.chunk_already_in_db(chunk, where_condition=where_condition, **kwargs)
     return bool(results)
 
 
-async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Chunk:
+async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Activity:
     """
     Convert a Langchain document into an object
     of the Chunk class which can be ingested into the DB
@@ -47,6 +48,10 @@ if __name__ == "__main__":
     batch_size = (
         225  # the number of CSV rows to ingest at a time. Batch sizes of 230+ seem to get errors back from OpenAI.
     )
+
+    # settings constants which may be needed in other files
+    const.Chunk = Activity
+    const.chunk_table_name = "activity"
 
     # global variable
     request_counter = ing.RequestCounter()

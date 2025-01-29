@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 
 from datetime import datetime
@@ -13,26 +14,19 @@ from typing import Union
 
 import lancedb
 import pandas as pd
+import retrieval.db.ingest.const as const  # do not import Chunk directly from schemas –
 import tiktoken
 
 from config import DB_PATH
 from config import DEFAULT_EMBEDDINGS_MODEL
-from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain.text_splitter import CharacterTextSplitter
 from openai import AsyncOpenAI
-from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
-from retrieval.db.schema.policy_atlas import Activity
 
 
-if PROJECT == "NESTA_BRAIN":
-    Chunk = NestaBrainChunk
-    chunk_table_name = "chunk"
-elif PROJECT == "POLICY_ATLAS":
-    Chunk = Activity
-    chunk_table_name = "activity"
+# the definition of Chunk and chunk_table_name may depend on settings in other files
 
 
 CHUNK_SIZE = 2000
@@ -50,7 +44,6 @@ load_dotenv()
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
 db = lancedb.connect(DB_PATH)
-chunk_table = db.open_table(chunk_table_name)
 
 
 class RequestCounter(list):
@@ -175,22 +168,26 @@ async def throttle(request_counter: RequestCounter, texts: List[str]) -> None:
         )  # do this even if sleep_time = 0 because the function needs to return a coroutine
 
 
-def chunk_already_in_db(chunk: LangchainDocument, where_condition: Optional[str] = None) -> bool:
+def chunk_already_in_db(
+    chunk: LangchainDocument, where_condition: Optional[str] = None, identifier: Optional[str] = None
+) -> bool:
     """Determine whether identical chunks have already been added to the database, because PDFs may be duplicated across the site.
     Chunking strategy should have been the same.
     """  # noqa
 
     where_condition = where_condition or f'text == "{chunk.page_content}"'
+    chunk_table = db.open_table(const.chunk_table_name)
+
     try:
-        results = chunk_table.search().where(where_condition).limit(1).to_pydantic(Chunk)
+        results = chunk_table.search().where(where_condition).limit(1).to_pydantic(const.Chunk)
     except Exception as e:
-        error_message_format = "Error while trying to check whether activity {id} exists in database"
-        logger.error(error_message_format.format(id=chunk.metadata.get("iati_identifier")))
+        error_message_format = "Error while trying to check whether chunk {id} exists in database"
+        logger.error(error_message_format.format(id=chunk.metadata.get(identifier)))
         raise Exception(e)
     return results
 
 
-async def chunk_to_Chunk(chunk: LangchainDocument, **kwargs) -> Chunk:
+async def chunk_to_Chunk(chunk: LangchainDocument, **kwargs) -> const.Chunk:
     """
     Convert a Langchain chunk (as returned from a text splitter) into an object
     of the Chunk class which can be ingested into the DB
@@ -202,16 +199,32 @@ async def chunk_to_Chunk(chunk: LangchainDocument, **kwargs) -> Chunk:
     async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     result = await async_client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=chunk.page_content)
     vector = result.data[0].embedding
-    return Chunk(text=chunk.page_content, vector=vector, **kwargs)
+    return const.Chunk(text=chunk.page_content, vector=vector, **kwargs)
 
 
-def csv_rows_to_ingested_data(path: str, start_index: int, batch_size: Union[int, None], **kwargs) -> None:
+def csv_rows_to_ingested_data(
+    path: str, start_index: int, batch_size: Union[int, None], text_col: Union[str, List[str]] = "text", **kwargs
+) -> None:
     """Ingest data from the rows of a CSV file"""
+
+    text_col = text_col if type(text_col) is list else [text_col]
 
     data = pd.read_csv(path)
     rows = data[start_index : (start_index + batch_size) if batch_size else None].to_dict(orient="records")
 
-    docs = [LangchainDocument(page_content=row.pop("text"), metadata=row) for row in rows]
+    docs = []
+    for row in rows:
+
+        text = ""
+        for text_col_name in text_col:
+            text_component = row.get(text_col_name)
+            if (type(text_component) is float and math.isnan(text_component)) or str(text_component).lower() == "nan":
+                text_component = ""
+            if text_component:
+                text += " " + text_component
+
+        doc = LangchainDocument(page_content=text, metadata=row)
+        docs.append(doc)
 
     ingest(docs, **kwargs)
 
@@ -221,14 +234,14 @@ async def documents_to_Chunks(
     identifier: Optional[str] = None,
     Chunk_func: Callable = chunk_to_Chunk,
     chunk_presence_test=chunk_already_in_db,  # noqa
-) -> List[Chunk]:
+) -> List[const.Chunk]:
     """
     Convert Langchain Documents into objects of the Chunk class which can be ingested into the DB.
     N.B. This basic version of documents_to_Chunks is only for documents which are too short to need splitting/chunking.
     See project-specific files in ingest directory for versions of documents_to_Chunks which involve splitting/chunking.
     """  # noqa
 
-    def log_exceptions(task_results: List[Union[Chunk, Exception]]) -> None:
+    def log_exceptions(task_results: List[Union[const.Chunk, Exception]]) -> None:
 
         message_format = 'Task {index} raised an exception "{exception}" within asyncio.gather'
         exceptions = [(i, ele) for i, ele in enumerate(task_results) if isinstance(ele, Exception)]
@@ -244,7 +257,7 @@ async def documents_to_Chunks(
     for chunk in documents:  # the variable name 'chunk' is possibly a bit misleading here.
         # There should be no need to split documents into chunks as activity texts aren't long enough
 
-        if chunk_presence_test(chunk):
+        if chunk_presence_test(chunk, identifier=identifier):
 
             logger.info(f"Skipping chunk {chunk.metadata.get(identifier)} as it already seems to be in the DB")
 
@@ -271,7 +284,8 @@ def ingest(documents: List[LangchainDocument], **kwargs) -> None:
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    chunks = asyncio.run(documents_to_Chunks(documents), **kwargs)
+    chunk_table = db.open_table(const.chunk_table_name)
+    chunks = asyncio.run(documents_to_Chunks(documents, **kwargs))
 
     if chunks:
         logger.info(f"Ingested {len(chunks)} Chunks into the database")

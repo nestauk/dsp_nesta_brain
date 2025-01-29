@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 
 from datetime import date
@@ -142,24 +143,56 @@ class Chunk(BaseChunk):
 class MissionProject(BaseChunk):
     """Represents a record in data/Mission Project List.csv"""
 
-    mission: str
+    mission: Optional[str] = None
     name: str
-    code: str
-    lifecycle_stage: str
-    area_of_focus: str
-    intermediate_goal: str
-    geography: str
+    code: Optional[str] = None
+    lifecycle_stage: Optional[str] = None
+    area_of_focus: Optional[str] = None
+    intermediate_goal: Optional[str] = None
+    geography: Optional[str] = None
 
     time_added: datetime  # not Optional for MissionProject
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, ingestion: bool = False, **kwargs) -> None:
 
-        kwargs = {
-            re.sub(r" \(.+\)|Project ", "", k.lower().replace(" ", "_")): v for k, v in kwargs.items()
-        }  # turn csv column headings into attribute names consistent with schema
-        kwargs["mission"] = kwargs.pop("team")
+        #  print({k:v for k,v in kwargs.items() if k != 'vector'})
 
-        super().__init__(text=kwargs.pop("research_question"), **kwargs)
+        if ingestion:
+
+            for k, v in kwargs.items():
+
+                if (type(v) is float and math.isnan(v)) or str(v).lower() in ["nan", "", " "]:
+                    kwargs[k] = None
+
+                elif k == "Area of Focus":
+                    v = re.sub(r"[0-9]+\.", "", v)
+
+                if type(v) is str:
+                    v = v.strip()
+
+            super().__init__(
+                mission=kwargs.get("Team"),
+                name=kwargs.get("Project Name (Asana)"),
+                code=kwargs.get("Project Code (Nesta)"),
+                lifecycle_stage=kwargs.get("Lifecycle Stage"),
+                area_of_focus=kwargs.get("Area of Focus"),
+                time_added=datetime.now(),
+                **kwargs,
+            )  # I tried doing this a clever way but kept getting error messages relating to changing the size/keys of kwargs
+
+        else:
+            super().__init__(**kwargs)
+
+    @property
+    def metadata(self) -> Dict:
+        """MissionProject metadata"""  # noqa
+        metadata = {k: v for k, v in self.__dict__.items() if k not in ["time_added", "text"]}
+        return metadata
+
+    @property
+    def research_question(self) -> str:
+        """Return research_question field dynamically rather than duplicating data"""
+        return self.text.replace(self.name, "", 1).strip()
 
 
 if __name__ == "__main__":
@@ -172,6 +205,10 @@ if __name__ == "__main__":
         #  db.create_table("document", schema=Document)
         table = db.create_table("mission_project", schema=MissionProject)
         table.create_fts_index("text")
+
+    # dropping tables
+    if False:
+        db.drop_table("mission_project")
 
     # adding full text search index retrospectively
     if False:
