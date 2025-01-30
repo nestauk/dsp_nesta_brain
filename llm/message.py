@@ -49,13 +49,19 @@ class Reference(LangchainDocument):
                     "Formatting of links for testing retrieval filtering is in use – do not use for production"
                 )
             reference_html_format = reference_html_format.replace("</a>", "{date_pub} {contentType} {missions}</a>")
-
+        # quick hack for the policy atlas
+        if PROJECT == "POLICY_ATLAS":
+            self.metadata["reporting_org_narrative"] = str(self.metadata["reporting_org_narrative"]).replace(
+                "UK - Foreign, Commonwealth Development Office (FCDO)", "FCDO"
+            )
         return reference_html_format.format(index=index, **self.metadata)
 
     def as_superscript(self, reset_index: bool = False) -> str:
         """Return index as a (usually) clickable link within a superscript, suitable for inline citations"""
         superscript_html_format = '<sup><a href="{url}">{index}</a></sup>'
         index = self.reset_index if reset_index is not None else self.index
+        if PROJECT == "POLICY_ATLAS":
+            return superscript_html_format.format(url=self.metadata.get("url"), index=index)
         return superscript_html_format.format(url=self.metadata.get("location"), index=index)
 
 
@@ -119,7 +125,7 @@ class CustomAIMessage(AIMessage):
         not_cited = [reference.as_html(reset_index=True) for reference in self.uncited_references]
         actual_references = "<br><em>Cited references:</em><br>" + "<br>".join(cited) if cited else ""
         the_rest = (
-            f"<br><em>{'May be useful' if cited else 'May be useful'}:</em><br>" + "<br>".join(not_cited)
+            f"<br><br><em>{'May be useful' if cited else 'May be useful'}:</em><br>" + "<br>".join(not_cited)
             if not_cited
             else ""
         )
