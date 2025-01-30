@@ -5,6 +5,7 @@ __pycache__/
 
 Caddyfile
 nohup.out
+poetry.lock
 
 # C extensions
 *.so
