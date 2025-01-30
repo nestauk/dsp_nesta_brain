@@ -1,7 +1,7 @@
 from typing import Literal
 
 
-PROJECT: Literal["NESTA_BRAIN", "POLICY_ATLAS"] = "NESTA_BRAIN"  # "POLICY_ATLAS"
+PROJECT: Literal["NESTA_BRAIN", "POLICY_ATLAS"] = "NESTA_BRAIN"
 
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_EMBEDDINGS_MODEL = "text-embedding-3-small"
