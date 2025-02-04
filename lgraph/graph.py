@@ -1,23 +1,35 @@
+from __future__ import annotations
+
 import asyncio
+import importlib
+
+from copy import deepcopy
+from typing import TYPE_CHECKING
 
 from config import DEFAULT_START_YEAR
-from dotenv import load_dotenv
 from dsp_nesta_brain import logger
-
-# from langchain_core.runnables.base import RunnableSequence
-from langchain_openai import ChatOpenAI
+from langchain_core.runnables.base import RunnableParallel
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
+from langgraph.types import StreamWriter
+from lgraph.prompt import currentness_comment_prompt
 from lgraph.prompt import personnel_prompt
 from lgraph.prompt import year_constraint_prompt
+from llm.llm import default_llm as llm
+from llm.message import CustomAIMessage
 from llm.tool import year_range
-from retrieval.retrieve import RetrieverInput
+from retrieval.retrieve import RetrieverInput as State
+
+
+if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
 
 
 DEFAULT_FROM_YEAR_FILTER_CONDITION = f"source.date_pub >= to_timestamp('{DEFAULT_START_YEAR}-01-01')"
+LAST_CHAT_GRAPH_NODE_NAME = "currentness_comment"
 
-State = RetrieverInput
+# ----------retrieval graph
 
 
 def append_filter_condition(state: State, new_filter_condition: str) -> State:
@@ -59,7 +71,6 @@ def decide_if_person_page(state: State) -> State:
     return state
 
 
-# -------NODES
 def decide_if_need_time_constraint(state: State) -> State:
     """Decide if the publication date of retrieved documents should be constrained by a year range"""
 
@@ -87,25 +98,81 @@ def decide_if_need_time_constraint(state: State) -> State:
 # ------------
 
 
-load_dotenv()
+def create_retrieval_graph() -> CompiledStateGraph:  # doing it as a function to avoid circular imports
+    """Compile and return a graph to assist with retrieval"""
 
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)  # if binding tools then llm must be a ChatModel
+    builder = StateGraph(State)
 
-builder = StateGraph(State)
+    builder.add_node("decide_if_person_page", decide_if_person_page)
+    builder.add_node("decide_if_need_time_constraint", decide_if_need_time_constraint)
+    builder.add_edge(START, "decide_if_person_page")
+    builder.add_edge("decide_if_person_page", "decide_if_need_time_constraint")
+    builder.add_edge("decide_if_need_time_constraint", END)
 
-builder.add_node("decide_if_person_page", decide_if_person_page)
-builder.add_node("decide_if_need_time_constraint", decide_if_need_time_constraint)
-builder.add_edge(START, "decide_if_person_page")
-builder.add_edge("decide_if_person_page", "decide_if_need_time_constraint")
-builder.add_edge("decide_if_need_time_constraint", END)
+    return builder.compile()
 
-graph = builder.compile()
 
 # graph = RunnableSequence(decide_if_person_page, decide_if_need_time_constraint)   #for comparison
 
 
+# ----------chat graph
+
+
+currentness_comment_chain = (
+    RunnableParallel(
+        input=(lambda x: x["messages"][-2]),
+        answer=(lambda x: x["messages"][-1]),
+    )
+    | currentness_comment_prompt
+    | llm
+)
+
+
+def currentness_comment(state: State, writer: StreamWriter) -> State:
+    """Test example commenting on whether context is current"""
+
+    sub_state = deepcopy(state)
+    # the chain will interpret the references of the last CustomAIMessage as context
+    # overwrite the references with only those which were actually cited in the response
+    # it needs to be a copy as otherwise the references will be changed permanently
+    #  and won't be listed properly at the end of the answer
+    sub_state["messages"][-1].references = sub_state["messages"][-1].cited_references
+
+    response = currentness_comment_chain.invoke(sub_state)
+    if response.content:
+        state["messages"][-1].content += "<br><br>" + response.content
+
+    return state
+
+
+def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
+    """Compile and return a graph to assist with chat"""
+
+    rag_chain = importlib.import_module("llm.chain").history_aware_rag_chain(**kwargs)  # avoiding circular import
+
+    def call_model(
+        state: State,
+    ) -> State:  # function defined here to avoid circular import
+
+        response = rag_chain.invoke(state)
+        state["messages"].append(CustomAIMessage(response))
+
+        return state
+
+    builder = StateGraph(State)
+
+    builder.add_node("call_model", call_model)
+    builder.add_node("currentness_comment", currentness_comment)
+    builder.add_edge(START, "call_model")
+    builder.add_edge("call_model", "currentness_comment")
+    builder.add_edge("currentness_comment", END)
+
+    return builder.compile()
+
+
 if __name__ == "__main__":
 
+    graph = create_retrieval_graph()
     #  input = "What work has Nesta done on heat pumps?"
     # input = "Who has data science skills at Nesta?"
     # input = 'Are you a lemon?'

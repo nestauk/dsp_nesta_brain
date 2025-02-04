@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.runnables import RunnableBranch
 from langchain_core.runnables import RunnableParallel
-from lgraph.graph import graph
+from lgraph.graph import create_retrieval_graph
 from llm.llm import default_llm as llm
 from llm.prompt import contextualize_q_prompt
 from retrieval.retrieve import CustomRetriever
@@ -58,12 +58,20 @@ def retriever(use_langgraph: bool = False) -> Runnable:
     """Return a CustomRetriever with the option of chaining it with a graph in order to make retrieval more sophisticated"""
     retriever_ = CustomRetriever()
     if use_langgraph:
+
         retriever_ = (
-            graph | (lambda x: x[-1] if type(x) is list else x) | (lambda d: d.popitem()[1]) | retriever_
-        )  # the lambdas here ensure that whatever comes out of the graph is a dict representing the final state
-        # (it should have the same keys as RetrieverInput)
-        # the format of graph outputs is:
-        # List[{'node_1_name':dict representing state returned by node 1} .. {'node_n_name': state returned by node n}]
+        # Create a retrieval graph, which returns a list of dicts with node outputs, such as:
+        # List[{'node_1_name':dict representing state returned by node 1} .. 
+        # {'node_n_name': state returned by node n}]
+        create_retrieval_graph()
+        # Extract the last element
+        | (lambda x: x[-1] if type(x) is list else x)
+        # Extract the value from a dictionary by removing its only key-value pair, and returning only the value
+        | (lambda d: d.popitem()[1])
+        # Pass the refined output into the CustomRetriever for final retrieval processing
+        | retriever_
+    )
+    
     return retriever_
 
 

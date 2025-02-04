@@ -6,11 +6,11 @@ import re
 from collections import OrderedDict
 from typing import List
 from typing import Optional
-from typing import TypedDict
 
 import lancedb
 
 from config import DB_PATH
+from config import DEFAULT_EMBEDDINGS_MODEL
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from lancedb.db import LanceDBConnection
@@ -19,16 +19,16 @@ from langchain.docstore.document import Document as LangchainDocument
 from langchain_community.vectorstores import LanceDB
 from langchain_core.retrievers import BaseRetriever
 from langchain_openai import OpenAIEmbeddings
+from langgraph.graph import MessagesState
 from openai import AsyncOpenAI
 from openai import OpenAI
 from retrieval.db.schema import Chunk
 from utils import unique
 
 
-class RetrieverInput(TypedDict):
-    """Class for specifying what the retriever input should be; used as a State class with LangGraph"""
+class RetrieverInput(MessagesState):
+    """Class for specifying what the retriever input should be; also used as a State class with LangGraph"""
 
-    input: str
     filter_condition: str
     merge: bool
 
@@ -55,7 +55,7 @@ class CustomRetriever(BaseRetriever):
         """
 
         logger.info(f"Input to retriever: {input}")
-        query = input["input"]
+        query = input["messages"][-1].content
         filter_condition = input.get("filter_condition") or None  # if '' then want None
         merge = input.get("merge")
 
@@ -192,7 +192,7 @@ class CustomRetriever(BaseRetriever):
     async def async_vector(string: str) -> List[float]:
         """Calculate the embedding vector of string"""
         async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        result = await async_client.embeddings.create(model="text-embedding-3-small", input=string)
+        result = await async_client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=string)
         vector = result.data[0].embedding
         return vector
 
@@ -200,7 +200,7 @@ class CustomRetriever(BaseRetriever):
     def vector(string: str) -> List[float]:
         """Calculate the embedding vector of string"""
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        vector = client.embeddings.create(model="text-embedding-3-small", input=string).data[0].embedding
+        vector = client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=string).data[0].embedding
         return vector
 
 
@@ -239,7 +239,7 @@ if __name__ == "__main__":
         # lancedb's neater syntax for handling embeddings doesn't work because of the way the schema has been specified
 
         query = "HACID project"
-        vector_ = client.embeddings.create(model="text-embedding-3-small", input=query).data[0].embedding
+        vector_ = client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=query).data[0].embedding
         # chunk_table.create_fts_index("text")
         # chunk_results = chunk_table.search()
         #                   .where('source.location = "https://www.nesta.org.uk/project/centre-collective-intelligence-design/"')

@@ -179,13 +179,15 @@ if __name__ == "__main__":
     db = lancedb.connect(DB_PATH)
 
     # creating tables
-    if False:
-        db.create_table("document", schema=Document)
-        table = db.create_table("chunk", schema=Chunk)
-        table.create_fts_index("text")
+    db.create_table(
+        "document", schema=Document
+    )  # this has been included experimentally and past versions but is not really needed
+    # and could lead to data redundancy. See similar comment in ingest function in retrieval/db/ingest.py
+    chunk_table = db.create_table("chunk", schema=Chunk)
+    chunk_table.create_fts_index("text")  # this allows full text search of chunk text
 
     # adding full text search index retrospectively
-    if True:
+    if False:
         table = db.open_table("chunk")
         table.create_fts_index("text")
 
