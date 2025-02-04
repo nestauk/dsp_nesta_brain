@@ -59,21 +59,19 @@ def retriever(use_langgraph: bool = False) -> Runnable:
     retriever_ = CustomRetriever()
     if use_langgraph:
 
-        # the output of the graph is a list of dicts in this format:
-        # List[{'node_1_name':dict representing state returned by node 1} .. {'node_n_name': state returned by node n}]
-        # the intermediate steps in the chain here transform this graph output into a useful input for retriever_,
-        # that is a single dict representing the final graph state
-        # This final state should have the same keys as RetrieverInput
-
         retriever_ = (
-            create_retrieval_graph()
-            | (
-                lambda x: x[-1] if type(x) is list else x
-            )  # The output of this is this dict: {'node_n_name': state returned by node n}
-            | (lambda d: d.popitem()[1])  # This output of this is a dict representing the state returned by node n
-            | retriever_
-        )
-
+        # Create a retrieval graph, which returns a list of dicts with node outputs, such as:
+        # List[{'node_1_name':dict representing state returned by node 1} .. 
+        # {'node_n_name': state returned by node n}]
+        create_retrieval_graph()
+        # Extract the last element
+        | (lambda x: x[-1] if type(x) is list else x)
+        # Extract the value from a dictionary by removing its only key-value pair, and returning only the value
+        | (lambda d: d.popitem()[1])
+        # Pass the refined output into the CustomRetriever for final retrieval processing
+        | retriever_
+    )
+    
     return retriever_
 
 
