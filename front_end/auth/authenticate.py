@@ -24,6 +24,7 @@ class Authenticator:
         cookie_name: str = "auth_jwt",
         token_duration_days: int = 1,
     ) -> None:
+
         st.session_state["connected"] = st.session_state.get("connected", False)
         #  self.allowed_users = allowed_users
         self.secret_path = secret_path
@@ -58,6 +59,7 @@ class Authenticator:
         """Login button"""
         if not st.session_state["connected"]:
             auth_url = self.get_auth_url()
+            st.write("Welcome to NestaBrain")
             st.link_button("Login with Google", auth_url)
 
     def check_auth(self) -> None:
@@ -70,7 +72,7 @@ class Authenticator:
                 "email": token["email"],
                 "oauth_id": token["oauth_id"],
             }
-            st.rerun()  # update session state
+        #   st.rerun()  # this was in the original example but I found lead to odd, undesirable behaviour
 
         time.sleep(1)  # important for the token to be set correctly
 
@@ -86,7 +88,6 @@ class Authenticator:
             oauth_id = user_info.get("id")
             email = user_info.get("email")
 
-            #  if email in self.allowed_users:
             if re.search(
                 "@nesta.org.uk$", email
             ):  # allow any email address with a nesta.org.uk domain, rather than having a list of allowed users
@@ -100,10 +101,11 @@ class Authenticator:
                 st.toast("Unauthorised: you must have a Nesta email address to use this app")
             # no rerun
 
-    def logout(self) -> None:
-        """Logout"""
-        st.session_state["logout"] = True
-        st.session_state["user_info"] = None
-        st.session_state["connected"] = None
-        self.auth_token_manager.delete_token()
-        # no rerun
+
+# def logout(self) -> None:
+#    """Logout"""
+#    st.session_state["logout"] = True
+#   st.session_state["user_info"] = None
+#  st.session_state["connected"] = None
+# self.auth_token_manager.delete_token()
+# no rerun

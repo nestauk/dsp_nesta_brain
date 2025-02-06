@@ -230,6 +230,11 @@ if __name__ == "__main__":
     load_dotenv()
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
+    if use_graph:
+        rag_chain = create_chat_graph()
+    else:
+        rag_chain = history_aware_rag_chain()
+
     st.set_page_config(layout="wide")
 
     # -------authentication credit------
@@ -247,13 +252,6 @@ if __name__ == "__main__":
     authenticator.login()
 
     if st.session_state["connected"]:
-
-        st.write(f"welcome! {st.session_state['user_info'].get('email')}")
-
-        if use_graph:
-            rag_chain = create_chat_graph()
-        else:
-            rag_chain = history_aware_rag_chain()
 
         st.markdown(
             """
@@ -379,6 +377,3 @@ if __name__ == "__main__":
                 key="feedback",
                 on_submit=push_feedback_to_langfuse,
             )
-
-    if not st.session_state["connected"]:
-        st.write("Welcome to NestaBrain")
