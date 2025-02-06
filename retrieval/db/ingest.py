@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import logging
 import os
@@ -5,6 +6,7 @@ import re
 import sys
 
 from datetime import datetime
+from enum import Enum
 from typing import List
 from typing import Literal
 from typing import Optional
@@ -516,40 +518,94 @@ def urls_to_ingested_data(
         logger.info("No docs to ingest!")
 
 
+class mode_arg(Enum):
+    """Specifies the values that --mode can take via the command line"""
+
+    wd = "wd"
+    ws = "ws"
+
+
 if __name__ == "__main__":
 
-    # SETTINGS
+    # command line argument interpretation
+
+    # possible modes and their command line instructions
     mode_type: Type = Literal["web_dump", "web_search", "given_urls"]
-    mode: mode_type = "web_dump"  # if 'web_search', do a web search, scrape and ingest the results  # noqa
-    # if 'web_dump', ingest data which has already been downloaded from the Nesta website
-    # if 'given_urls', provide a list of known urls
-    replace: bool = False  # if True, if the document already exists in the DB, any chunks derived
+    # if 'web_dump': ingest data which has already been downloaded from the Nesta website.
+    #                Use '-m wd' in the command line.
+    # if 'web_search': do a web search, scrape and ingest the results.
+    #                  Use '-m ws' in the command line.
+    # if 'given_urls': scrape webpages from a list of known urls otherwise.
+    #                  Omit -m and specify the urls via --urls in the command line.
+    mode_args_map = {"wd": "web_dump", "ws": "web_search"}
+
+    parser = argparse.ArgumentParser()
+
+    # universal arguments
+    parser.add_argument("-m", "--mode", type=mode_arg)
+    parser.add_argument(
+        "-r", "--replace", action="store_true"
+    )  # replace flag. If present, if the document already exists in the DB, any chunks derived
     # from it will be deleted and replaced
 
-    # settings relevant to web_dump mode
-    pdf_mode: bool = False  # scrape PDFs rather than webpages
-    download_button_pdf_only: bool = True  # only scrape PDfs if they are a major research output indicated on the page
+    # arguments only relevant in web_dump mode
+    parser.add_argument("--pdf", action="store_true")  # PDF flag. If present, scrape PDFs rather than webpages
+    parser.add_argument(
+        "--all", action="store_true"
+    )  # all PDFs flag. If present, attempt to scrape all PDFs linked to by a webpage.
+    # by default, only scrape PDfs if they are a major research output indicated on the page
     # by being downloadable by clicking a big red button
-    cautious: bool = False  # ask whether you want to scrape the PDF and whether the metadata guesses are correct
-    start_index: int = (
-        int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    parser.add_argument(
+        "-c", "--cautious", action="store_true"
+    )  # cautious flag. If present, asks whether you want to scrape the PDF
+    # and whether the metadata guesses are correct
+    parser.add_argument(
+        "--start_index", type=int, default=0
     )  # the row of metadata.jsonl to start ingesting; everything prior to this will be ignored
-    batch_size: int = 50  # the number of webpages to ingest at a time
+    parser.add_argument("--batch_size", type=int, default=10)  # the number of webpages to ingest at a time
 
-    # settings relevant to web_search mode
-    query: str = "Centre for Collective Intelligence Design"
-    site_url: str = NESTA_SITE_URL
-    subdirectories: Optional[List[str]] = sorted(
+    # arguments only relevant in web_search mode
+    parser.add_argument("--query")
+    parser.add_argument("--site", default=NESTA_SITE_URL)
+    parser.add_argument(
+        "--use-subdirectories", action="store_true"
+    )  # if present and site=NESTA_SITE_URL, search various subdirectories of the Nesta website in turn
+
+    # arguments only relevant in given_urls mode
+    parser.add_argument("--urls", nargs="*")
+
+    args = parser.parse_args()
+
+    # translate command line abbreviation to full mode name
+    mode: mode_type = "given_urls" if args.urls else mode_args_map.get(args.mode.value)
+    # relevant to web_dump mode only
+    download_button_pdf_only: bool = args.pdf and args.all
+    # relevant to web_search mode
+    subdirectories: List[str] = sorted(
         ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
-    )  # optional
+    )
 
-    # settings relevant to give_urls mode
-    given_urls: List[str] = []
-
-    if mode not in mode_type.__args__:
+    error_instructions = "\n* give the command line argument '-m wd' or '-m ws' to signify 'web_dump' mode or 'web_search' mode; OR\n* give a list of urls to go into 'given_urls' mode"  # noqa
+    if not mode:
+        raise Exception("No mode detected: You must either:" + error_instructions)
+    elif args.urls and mode_args_map.get(args.mode):
         raise Exception(
-            f"""mode must be one of the following:{', '.join([f"'{mode}'" for mode in mode_type.__args__])}"""
+            "Confusion in determining mode You must EITHER:" + error_instructions + "\nYou appear to have done both"
         )
+    if mode == "web_search" and not args.query:
+        raise Exception("You must provide a --query argument via the command line in web_search mode")
+
+    info = ["", "Ingestion settings as interpreted from command line arguments:"]
+    info.append(f'mode: {mode} ({args.mode.value if args.mode else f"{len(args.urls)} urls provided"})')
+    if mode == "web_dump":
+        present_args = ["replace", "pdf", "all", "cautious", "start_index", "batch_size"]
+    elif mode == "web_search":
+        present_args = ["replace", "query", "site", "use_subdirectories"]
+    elif mode == "given_urls":
+        present_args = ["replace"]
+    info += [f"{k}: {v}" for k, v in args.__dict__.items() if k in present_args]
+    info.append("Refer to instructions if these are not correct")
+    logger.info("\n".join(info))
 
     if mode == "web_dump":
         # if scraping/ingesting from entire Nesta website data dump
@@ -559,23 +615,23 @@ if __name__ == "__main__":
         metadata_df = metadata_df[downloaded]
         n_rows = metadata_df.shape[0]
 
-        for index in list(range(start_index, n_rows, batch_size)):
-            df = metadata_df.iloc[index : (index + batch_size)]
+        for index in list(range(args.start_index, n_rows, args.batch_size)):
+            df = metadata_df.iloc[index : (index + args.batch_size)]
 
-            if pdf_mode:
+            if args.pdf:
                 pdfs_to_ingested_data(
-                    df, replace=replace, download_button_pdf_only=download_button_pdf_only, cautious=cautious
+                    df, replace=args.replace, download_button_pdf_only=download_button_pdf_only, cautious=args.cautious
                 )
             else:
-                webpages_to_ingested_data(df=df, replace=replace)
+                webpages_to_ingested_data(df=df, replace=args.replace)
 
     elif mode == "web_search":
         # if scraping from web via a search
 
-        if subdirectories:
-            urls = [site_url + "/" + subdirectory for subdirectory in subdirectories]
+        if args.use_subdirectories:
+            urls = [args.site + "/" + subdirectory for subdirectory in subdirectories]
         else:
-            urls = [site_url]
+            urls = [args.site]
 
         for url in urls:
 
@@ -584,11 +640,11 @@ if __name__ == "__main__":
             ):  # the start parameter specifies which result set to return from Google Programmable Search;
                 # 0 = first set of 10 results, 10 = the next set of 10 results, etc.
                 logging.info(f"\nGoogle search result set url = {url}, start = {start}")
-                results_returned = search_query_to_ingested_data(query, url, start=start, replace=replace)
+                results_returned = search_query_to_ingested_data(args.query, url, start=start, replace=args.replace)
                 if not results_returned:
                     break
 
     elif mode == "given_urls":
         # if scraping from web via a list of urls
 
-        urls_to_ingested_data(given_urls, replace=replace)
+        urls_to_ingested_data(args.urls, replace=args.replace)
