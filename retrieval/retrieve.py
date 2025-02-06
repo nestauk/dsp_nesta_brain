@@ -11,6 +11,7 @@ from typing import Optional
 from typing import Union
 
 import lancedb
+import numpy as np
 
 from config import DB_PATH
 from config import DEFAULT_EMBEDDINGS_MODEL
@@ -276,7 +277,6 @@ if __name__ == "__main__":
     if False:
         # experimenting with combining results and reranking
 
-        import numpy as np
         import pyarrow as pa
 
         from lancedb.rerankers.rrf import RRFReranker
