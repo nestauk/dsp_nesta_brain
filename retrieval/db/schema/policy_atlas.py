@@ -125,6 +125,8 @@ class Activity(BaseChunk):
         return metadata
 
 
+table_name_to_schema_class_map = {"activity": Activity}
+
 if __name__ == "__main__":
 
     # create a database

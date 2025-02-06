@@ -183,10 +183,32 @@ class MissionProject(BaseChunk):
         else:
             super().__init__(**kwargs)
 
+    def __eq__(self, other: object) -> bool:
+        """Self-explanatory"""
+        if not isinstance(other, MissionProject):
+            return False
+        return self.code == other.code and self.text == other.text
+
+    def __hash__(self) -> int:
+        """Define the hash value"""
+        return hash((self.code or "") + self.name)
+
+    @staticmethod
+    def reference_html_format() -> str:
+        """Return format for references in HTML"""
+        return "[{index}] Project {code}: {name} ({lifecycle_stage})</a>"
+
+    @staticmethod
+    def reference_metadata(**metadata) -> Dict:
+        """Metadata useful to presentation of references"""
+        if not metadata.get("code"):
+            metadata["code"] = "(unknown code)"
+        return metadata
+
     @property
     def metadata(self) -> Dict:
         """MissionProject metadata"""  # noqa
-        metadata = {k: v for k, v in self.__dict__.items() if k not in ["time_added", "text"]}
+        metadata = {k: v for k, v in self.__dict__.items() if k not in ["time_added", "text", "vector"]}
         return metadata
 
     @property
@@ -194,6 +216,8 @@ class MissionProject(BaseChunk):
         """Return research_question field dynamically rather than duplicating data"""
         return self.text.replace(self.name, "", 1).strip()
 
+
+table_name_to_schema_class_map = {"chunk": Chunk, "mission_project": MissionProject}
 
 if __name__ == "__main__":
 

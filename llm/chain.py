@@ -4,9 +4,17 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
 from typing import Dict
+from typing import List
+from typing import Optional
 
-from langchain.chains.combine_documents import create_stuff_documents_chain
+from dsp_nesta_brain import logger
+from langchain.chains.combine_documents.base import DEFAULT_DOCUMENT_PROMPT
+from langchain.chains.combine_documents.base import DEFAULT_DOCUMENT_SEPARATOR
+from langchain.chains.combine_documents.base import DOCUMENTS_KEY
+from langchain.chains.combine_documents.base import _validate_prompt
 from langchain.output_parsers.openai_tools import JsonOutputKeyToolsParser
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import format_document
 from langchain_core.runnables import RunnableParallel
 from langchain_core.runnables import RunnablePassthrough
 from llm.llm import default_llm as llm
@@ -16,10 +24,58 @@ from retrieval.chain import history_aware_retriever
 
 
 if TYPE_CHECKING:
+    from langchain.docstore.document import Document as LangchainDocument
     from langchain.prompts import PromptTemplate
+    from langchain_core.language_models import LanguageModelLike
     from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.output_parsers import BaseOutputParser
+    from langchain_core.prompts import BasePromptTemplate
     from langchain_core.retrievers import BaseRetriever
     from langchain_core.runnables import Runnable
+
+
+def filter_context(docs: List[LangchainDocument]) -> List[LangchainDocument]:
+    """Filter out any docs which are flagged as not to be used for context in their metadata"""
+    return [
+        doc for doc in docs if doc.metadata.get("use_as_context") != False  # noqa
+    ]  # Use != False rather than truthiness of doc.metadata.get("use_as_context") as there may be None values
+
+
+def create_stuff_documents_chain(
+    llm: LanguageModelLike,
+    prompt: BasePromptTemplate,
+    *,
+    output_parser: Optional[BaseOutputParser] = None,
+    document_prompt: Optional[BasePromptTemplate] = None,
+    document_separator: str = DEFAULT_DOCUMENT_SEPARATOR,
+    document_variable_name: str = DOCUMENTS_KEY,
+) -> Runnable[Dict[str, Any], Any]:
+    """Create a chain for passing a list of Documents to a model.
+
+    Modified version of LangChain's create_stuff_documents_chain
+    See:
+    https://api.python.langchain.com/en/latest/_modules/langchain/chains/combine_documents/stuff.html#create_stuff_documents_chain
+
+    The reason for the modification is that retriever results now may actually include some things we want to present in the UI,
+    but not actually use as context. They therefore need to be filtered out here using filter_context.
+
+    """
+
+    _validate_prompt(prompt, document_variable_name)
+    _document_prompt = document_prompt or DEFAULT_DOCUMENT_PROMPT
+    _output_parser = output_parser or StrOutputParser()
+
+    def format_docs(inputs: dict) -> str:
+        return document_separator.join(
+            format_document(doc, _document_prompt) for doc in filter_context(inputs[document_variable_name])
+        )
+
+    return (
+        RunnablePassthrough.assign(**{document_variable_name: format_docs}).with_config(run_name="format_inputs")
+        | prompt
+        | llm
+        | _output_parser
+    ).with_config(run_name="stuff_documents_chain")
 
 
 def create_retrieval_chain(
@@ -31,8 +87,8 @@ def create_retrieval_chain(
 
     Lightly modified version of:
     https://github.com/langchain-ai/langchain/blob/master/libs/langchain/langchain/chains/retrieval.py
-    The modification is to allow a dict containing the query, filter conditions, and possibly other paramters to be passed through
-    to _get_relevant_documents
+    The modification is to allow a dict containing the query, filter conditions, and possibly other
+    parameters to be passed through to _get_relevant_documents
     """
 
     retrieval_chain = (
@@ -52,6 +108,10 @@ def rag_chain_with_citation_tool(
     # the langchain example this is based on (see https://python.langchain.com/v0.1/docs/use_cases/question_answering/citations/)
     # uses format_docs_with_id here – this is not needed because chunk enumeration is already happening within the retriever
     # (as long as enumerate_=True in CustomRetriever.chunks_to_docs)
+
+    logger.warning(
+        "rag_chain_with_citation_tool is deprecated. Amongst the features it does not incorporate are:\n* Context filtering"
+    )
 
     llm_with_tool = llm.bind_tools(
         [quoted_answer],

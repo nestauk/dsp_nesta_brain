@@ -12,7 +12,6 @@ from typing import Union
 import streamlit as st
 
 from config import EARLIEST_YEAR
-from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from front_end.project_spec import INTRO
@@ -199,13 +198,11 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
 if __name__ == "__main__":
 
     # settings
-    limit: int = 10
-    use_langfuse: bool = PROJECT == "NESTA_BRAIN"  # Langfuse is not currently set up for other projects –
+    limit: int = 10  # the number of retrieval results
+    use_langfuse: bool = False  # PROJECT == "NESTA_BRAIN"  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
     stream: bool = True
     use_tool_for_citations: bool = False
-    split_references: bool = True  # if True, references will be split into cited and uncited retrieved sources
-    # and the numbering reset so that references are numbered in the order they appear in the final list
 
     # UI settings
     initial_message: str = "Hi, how can I help?"

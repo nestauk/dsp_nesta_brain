@@ -22,6 +22,8 @@ class BaseChunk(LanceModel):
     vector: Vector(model.ndims())
     order_index: Optional[int] = None
     time_added: Optional[datetime] = None
+    relevance_score: Optional[float] = None
+    use_as_context: Optional[bool] = None
 
     @abstractmethod
     # @property  #should have a metadata method which uses @property decorator;
@@ -43,4 +45,6 @@ class BaseChunk(LanceModel):
 
     def to_LangchainDocument(self, **kwargs) -> LangchainDocument:
         """Convert a Chunk into a Langchain Document"""
-        return self.to_LangchainDocument_(self.text, self.metadata, **kwargs)
+        metadata = self.metadata
+        metadata.update({prop_name: getattr(self, prop_name) for prop_name in ["use_as_context"]})
+        return self.to_LangchainDocument_(self.text, metadata, **kwargs)
