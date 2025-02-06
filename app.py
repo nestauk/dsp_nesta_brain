@@ -13,6 +13,7 @@ from typing import Union
 
 import streamlit as st
 
+from config import DEBUG_MODE
 from config import DEFAULT_START_YEAR
 from config import EARLIEST_YEAR
 from dotenv import load_dotenv
@@ -237,7 +238,7 @@ if __name__ == "__main__":
 
     # settings
     use_graph: bool = True
-    use_langfuse: bool = True
+    use_langfuse: bool = not DEBUG_MODE
     stream: bool = True
     # retrieval settings
     # use_langgraph: bool = False    #for simplification. This was previously the setting to use LangGraph for retrieval
@@ -282,6 +283,11 @@ if __name__ == "__main__":
         """,
             unsafe_allow_html=True,
         )
+
+        if DEBUG_MODE:
+            st.markdown(
+                '<p style="color:red;font-size:125%"><b>WARNING: DEBUG MODE IS ON</b></p>', unsafe_allow_html=True
+            )
 
         st.markdown(
             """

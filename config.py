@@ -6,3 +6,4 @@ RPM_RATE_LIMIT = 10000
 TPM_RATE_LIMIT = 5e6
 EARLIEST_YEAR = 2003  # 2003 is the earliest publication date in the DB
 DEFAULT_START_YEAR = 2019
+DEBUG_MODE = False
