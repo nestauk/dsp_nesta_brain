@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio  # noqa
 import logging
 import os
 import uuid
 
 from datetime import datetime
+
+# from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
 from typing import Union
@@ -24,12 +27,18 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
+from lgraph.graph import LAST_CHAT_GRAPH_NODE_NAME  # noqa
+from lgraph.graph import create_chat_graph
 from llm.chain import history_aware_rag_chain
 from llm.chain import history_aware_rag_chain_with_citation_tool
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
 
+
+# if TYPE_CHECKING:
+
+#    from retrieval.retrieve import RetrieverInput as State
 
 CURRENT_YEAR = datetime.now().year
 
@@ -89,6 +98,7 @@ def trace_metadata() -> Dict:
     metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
     metadata["settings"] = {
         "use_tool_for_citations": use_tool_for_citations,
+        "use_graph": use_graph,
         "limit": limit,
     }
     return metadata
@@ -200,12 +210,11 @@ if __name__ == "__main__":
 
     # settings
     limit: int = 10
+    use_graph: bool = False
     use_langfuse: bool = PROJECT == "NESTA_BRAIN"  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
     stream: bool = True
     use_tool_for_citations: bool = False
-    split_references: bool = True  # if True, references will be split into cited and uncited retrieved sources
-    # and the numbering reset so that references are numbered in the order they appear in the final list
 
     # UI settings
     initial_message: str = "Hi, how can I help?"
@@ -216,6 +225,11 @@ if __name__ == "__main__":
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
         if use_tool_for_citations:
+            raise Exception("use_tool_for_citations may no longer work – need to check")
+
+        if use_graph:
+            rag_chain = create_chat_graph()
+        elif use_tool_for_citations:
             rag_chain = history_aware_rag_chain_with_citation_tool(chat_history)
         else:
             rag_chain = history_aware_rag_chain()
