@@ -4,36 +4,26 @@ import os
 import re
 import sys
 
-from datetime import datetime
 from typing import List
-from typing import Literal
 from typing import Optional
 from typing import Tuple
-from typing import Type
 from typing import Union
 
 import lancedb
 import pandas as pd
-import tiktoken
+import retrieval.db.ingest.ingest as ing
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 from config import DB_PATH
-from config import DEFAULT_EMBEDDINGS_MODEL
-from config import RPM_RATE_LIMIT
-from config import TPM_RATE_LIMIT
-from dotenv import load_dotenv
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
-from langchain.text_splitter import CharacterTextSplitter
 from langdetect import detect
-from openai import AsyncOpenAI
 from pdf2image.exceptions import PDFInfoNotInstalledError
-from retrieval.db.schema import Chunk
-from retrieval.db.schema import Document as LanceDocument
+from retrieval.db.schema.nesta_brain import Chunk
+from retrieval.db.schema.nesta_brain import Document as LanceDocument
 from scraping.scrape import html_to_text
-from scraping.scrape import scrape
 from scraping.scrape import search_query_to_scraped_data
 from scraping.scrape_pdf import PDF
 from utils import unique
@@ -42,84 +32,12 @@ from utils import unique
 _prefix = "2024-10-29"
 WEBSITE_DATA_PATH = PROJECT_DIR / f"scraping/data/website_{_prefix}"
 PDF_PATH = WEBSITE_DATA_PATH / "pdf_files"
-METADATA_PATH = WEBSITE_DATA_PATH / "metadata.jsonl"
 NESTA_SITE_URL = "https://nesta.org.uk"
 
-CHUNK_SIZE = 2000
-CHUNK_OVERLAP = 100
-
-OPENAI_ENCODING = "cl100k_base"
-
-# OpenAI limits
-request_count = {}
-
-load_dotenv()
-
-os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
 db = lancedb.connect(DB_PATH)
 document_table = db.open_table("document")
 chunk_table = db.open_table("chunk")
-
-
-def N_tokens(text: str) -> int:
-    """Extimate the number of tokens in text"""
-    return len(tiktoken.get_encoding(OPENAI_ENCODING).encode(text))
-
-
-def update_request_count(texts: List[str]) -> Union[int, None]:
-    """Keep a record of how many requests and tokens have been sent to the embeddings model"""
-    global request_count
-    if request_count:
-        seconds_since_count_start = (datetime.now() - (request_count["time"])).seconds
-
-    if not request_count:
-        request_count = {"time": datetime.now(), "N_requests": [], "N_tokens": [], "cum_N_tokens": 0}
-        seconds_since_count_start = None
-    elif seconds_since_count_start >= 60:
-        request_count["time"] = datetime.now()
-        request_count["N_requests"] = []
-        request_count["N_tokens"] = []
-        # do not reset cum_N_tokens
-        seconds_since_count_start = None
-
-    request_count["N_requests"] += [len(texts)]
-    N_tokens_ = sum([N_tokens(text) for text in texts])
-    request_count["N_tokens"] += [N_tokens_]
-    request_count["cum_N_tokens"] += N_tokens_
-
-    cumulative_cost_estimate = round(request_count["cum_N_tokens"] * 0.02 / 1e6, 2)
-    logger.info(f"Cumulative cost estimate: ${cumulative_cost_estimate}")
-
-    return seconds_since_count_start
-
-
-async def throttle(texts: List[str]) -> None:
-    """If embeddings model rate limits are exceeded, wait until sufficient time has passed"""
-    # this won't work well for larger batch sizes, but unfortunately there isn't really time to troubleshoot and improve it
-    # I still get API error messages back with batch_size >= 100 but that can't be due to hitting the rate limit
-    # future users may want to improve on it
-
-    seconds_since_count_start = update_request_count(texts)
-
-    if request_count["N_requests"][-1] >= RPM_RATE_LIMIT:
-        raise Exception(f"You cannot ask for {RPM_RATE_LIMIT} or more requests to the embeddings model in one go")
-    elif request_count["N_tokens"][-1] >= TPM_RATE_LIMIT:
-        raise Exception(
-            f"You cannot ask for {TPM_RATE_LIMIT} or more tokens to be sent to the embeddings model in one go"
-        )
-
-    if seconds_since_count_start and seconds_since_count_start < 60:
-        msg = None
-        if sum(request_count["N_requests"]) >= RPM_RATE_LIMIT:
-            msg = "About to exceed OpenAI embeddings requests per minute rate limit ... sleeping for {sleep_time} seconds"
-        elif sum(request_count["N_tokens"]) >= TPM_RATE_LIMIT:
-            msg = "About to exceed OpenAI embeddings token per minute rate limit ... sleeping for {sleep_time} seconds"
-
-        if msg:
-            sleep_time = 60 - seconds_since_count_start
-            logger.info(msg.format(sleep_time=sleep_time))
-            await asyncio.sleep(sleep_time)
 
 
 def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
@@ -134,12 +52,12 @@ def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
     return bool(results)
 
 
-def chunk_already_in_db(chunk: LangchainDocument) -> bool:
-    """Determine whether identical chunks have already been added to the database, because PDFs may be duplicated across the site.
+def chunk_already_in_db(*args) -> bool:
+    """Determine whether identical chunks have already been added to the database.
     Chunking strategy should have been the same.
     """  # noqa
 
-    results = chunk_table.search().where(f'text == "{chunk.page_content}"').limit(1).to_pydantic(Chunk)
+    results = ing.chunk_already_in_db(*args)
     return bool(results), results[0].source.location if results else None
 
 
@@ -149,13 +67,7 @@ async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: Lan
     of the Chunk class which can be ingested into the DB
     (including deriving an embedding for the Chunk)
     """  # noqa
-    # intentionally not using the neater syntax documented by lanceDB which automatically calculates embeddings vectors
-    # using model.VectorField() specified in the schema.
-    # This is because I had issues getting the nested schema to work with this method.
-    async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    result = await async_client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=chunk.page_content)
-    vector = result.data[0].embedding
-    return Chunk(text=chunk.page_content, source=source, vector=vector, order_index=order_index)
+    return await ing.chunk_to_Chunk(chunk, order_index=order_index, source=source)
 
 
 async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[LanceDocument]) -> List[Chunk]:
@@ -163,13 +75,9 @@ async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[
     Split Langchain documents into chunks and convert these into objects
     of the Chunk class which can be ingested into the DB
     """  # noqa
-    text_splitter = CharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
-    docs_split = text_splitter.split_documents(documents)
 
-    if documents and not docs_split:
-        raise Exception(f"Investigate why you have zero chunks for {len(documents)} documents")
+    docs_split = ing.split_documents(documents)
 
-    logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
     tasks = []
     for i, chunk in enumerate(docs_split):
 
@@ -200,7 +108,8 @@ async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[
             tasks.append(task)
             order_index += 1
 
-    await throttle([chunk.page_content for chunk in docs_split])
+    await ing.throttle(request_counter, [chunk.page_content for chunk in docs_split])
+    logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
     return await asyncio.gather(*tasks)
 
 
@@ -241,13 +150,13 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         # If the title of a record in the document table is updated,
         # the source.title for the relevant chunk records remains the same
         # This is a recipe for mess!
-        # This was introduced temporarily for purposes of experimentation
+        # I am keeping this in temporarily for purposes of experimentation
         if chunks:
-            logger.info(f"Ingested {len(lance_documents)} Document(s) and {len(chunks)} Chunks to the database")
+            logger.info(f"Ingested {len(lance_documents)} Document(s) and {len(chunks)} Chunks into the database")
             document_table.add(lance_documents)
             chunk_table.add(chunks)
         else:
-            logger.info(f"No chunks from document(s) {lance_documents} to ingest to the database")
+            logger.info(f"No chunks from document(s) {lance_documents} into ingest to the database")
 
     else:
         logger.info("No documents or chunks to ingest to the database")
@@ -259,7 +168,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
 def webpages_to_ingested_data(
     uids: Optional[List[str]] = None,
     df: Optional[pd.DataFrame] = None,
-    **kwargs,
+    replace: bool = False,
 ) -> None:
     """Convert dumped Nesta webpages into LangchainDocuments and ingest"""
 
@@ -269,8 +178,8 @@ def webpages_to_ingested_data(
         )
 
     if uids:
-        METADATA_PATH = WEBSITE_DATA_PATH / "metadata.jsonl"  # noqa
-        metadata_df = pd.read_json(METADATA_PATH, lines=True)
+        metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"  # noqa
+        metadata_df = pd.read_json(metadata_path, lines=True)
         rows = [metadata_df[metadata_df["uid"] == uid].iloc[0] for uid in uids]
         df = pd.DataFrame(rows)
 
@@ -306,7 +215,7 @@ def webpages_to_ingested_data(
             )  # this is the case for some types of long read e.g. https://www.nesta.org.uk/feature/mapping-early-years-practice/
 
     if docs:
-        ingest(docs, **kwargs)
+        ingest(docs, replace=replace)
 
     else:
         logger.info("No docs to ingest!")
@@ -366,7 +275,7 @@ def is_good_link(link: str) -> bool:
 
 # if scraping/ingesting PDFs from entire Nesta website data dump
 def pdfs_to_ingested_data(
-    df: pd.DataFrame, download_button_pdf_only: bool = False, cautious: bool = False, **kwargs
+    df: pd.DataFrame, replace: bool = False, download_button_pdf_only: bool = False, cautious: bool = False
 ) -> None:
     """Convert dumped Nesta website PDFs into LangchainDocuments and ingest"""
 
@@ -461,7 +370,7 @@ def pdfs_to_ingested_data(
             # this gap in the messages helps keep it readable
 
     if docs:
-        ingest(docs, **kwargs)
+        ingest(docs, replace=replace)
 
     else:
         logger.info("No PDF-derived docs to ingest for this batch")
@@ -487,74 +396,43 @@ def search_query_to_ingested_data(query: str, site_url: str, replace: bool = Fal
     return bool(scraped_data)
 
 
-def urls_to_ingested_data(
-    urls: List[str],
-    **kwargs,
-) -> None:
-    """Convert the webpages pointed to by urls into LangchainDocuments and ingest"""
-
-    docs = []
-    for url in urls:
-
-        logger.info(f"Scraping webpage {url}")
-
-        scraped_datum = scrape(url)
-
-        if scraped_datum and scraped_datum["text"]:
-            metadata = {k: v for k, v in scraped_datum.items() if k != "text"}
-            metadata["location"] = url
-            doc = LangchainDocument(page_content=scraped_datum["text"], metadata=metadata)
-            docs.append(doc)
-
-        else:
-            logger.info(f"Webpage {url} failed to scrape and/or did not seem to have any text")
-
-    if docs:
-        ingest(docs, **kwargs)
-
-    else:
-        logger.info("No docs to ingest!")
-
-
 if __name__ == "__main__":
 
     # SETTINGS
-    mode_type: Type = Literal["web_dump", "web_search", "given_urls"]
-    mode: mode_type = "web_dump"  # if 'web_search', do a web search, scrape and ingest the results  # noqa
+    mode = "web_dump"  # if 'web_search', do a web search, scrape and ingest the results
     # if 'web_dump', ingest data which has already been downloaded from the Nesta website
-    # if 'given_urls', provide a list of known urls
-    replace: bool = False  # if True, if the document already exists in the DB, any chunks derived
+    possible_modes = ["web_dump", "web_search"]
+    replace = False  # if True, if the document already exists in the DB, any chunks derived
     # from it will be deleted and replaced
 
     # settings relevant to web_dump mode
-    pdf_mode: bool = False  # scrape PDFs rather than webpages
-    download_button_pdf_only: bool = True  # only scrape PDfs if they are a major research output indicated on the page
+    pdf_mode = True  # scrape PDFs rather than webpages
+    download_button_pdf_only = True  # only scrape PDfs if they are a major research output indicated on the page
     # by being downloadable by clicking a big red button
-    cautious: bool = False  # ask whether you want to scrape the PDF and whether the metadata guesses are correct
-    start_index: int = (
+    cautious = False  # ask whether you want to scrape the PDF and whether the metadata guesses are correct
+    metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"
+    start_index = (
         int(sys.argv[1]) if len(sys.argv) > 1 else 0
     )  # the row of metadata.jsonl to start ingesting; everything prior to this will be ignored
-    batch_size: int = 50  # the number of webpages to ingest at a time
+    batch_size = 1  # the number of webpages to ingest at a time
 
     # settings relevant to web_search mode
-    query: str = "Centre for Collective Intelligence Design"
-    site_url: str = NESTA_SITE_URL
-    subdirectories: Optional[List[str]] = sorted(
+    query = "Centre for Collective Intelligence Design"
+    site_url = NESTA_SITE_URL
+    subdirectories = sorted(
         ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
     )  # optional
 
-    # settings relevant to give_urls mode
-    given_urls: List[str] = []
+    # global variable
+    request_counter = ing.RequestCounter()
 
-    if mode not in mode_type.__args__:
-        raise Exception(
-            f"""mode must be one of the following:{', '.join([f"'{mode}'" for mode in mode_type.__args__])}"""
-        )
+    if mode not in possible_modes:
+        raise Exception(f"""mode must be one of the following:{', '.join([f"'{mode}'" for mode in possible_modes])}""")
 
     if mode == "web_dump":
         # if scraping/ingesting from entire Nesta website data dump
 
-        metadata_df = pd.read_json(METADATA_PATH, lines=True)
+        metadata_df = pd.read_json(metadata_path, lines=True)
         downloaded = metadata_df["_status_code"].apply(lambda val: val == 200)
         metadata_df = metadata_df[downloaded]
         n_rows = metadata_df.shape[0]
@@ -570,7 +448,7 @@ if __name__ == "__main__":
                 webpages_to_ingested_data(df=df, replace=replace)
 
     elif mode == "web_search":
-        # if scraping from web via a search
+        # if scraping from web
 
         if subdirectories:
             urls = [site_url + "/" + subdirectory for subdirectory in subdirectories]
@@ -587,8 +465,3 @@ if __name__ == "__main__":
                 results_returned = search_query_to_ingested_data(query, url, start=start, replace=replace)
                 if not results_returned:
                     break
-
-    elif mode == "given_urls":
-        # if scraping from web via a list of urls
-
-        urls_to_ingested_data(given_urls, replace=replace)
