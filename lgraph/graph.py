@@ -29,8 +29,6 @@ if TYPE_CHECKING:
 DEFAULT_FROM_YEAR_FILTER_CONDITION = f"source.date_pub >= to_timestamp('{DEFAULT_START_YEAR}-01-01')"
 LAST_CHAT_GRAPH_NODE_NAME = "currentness_comment"
 
-# ----------retrieval graph
-
 
 def append_filter_condition(state: State, new_filter_condition: str) -> State:
 
@@ -81,7 +79,7 @@ def decide_if_need_time_constraint(state: State) -> State:
     if (
         not from_year_widget_has_been_set
     ):  # if the user has explicitly set a filter condition via the UI, use that one and ignore the node
-        llm_with_tool = llm.bind_tools(
+        llm_with_tool = llm.bind_tools(  # remember if binding tools then llm must be a ChatModel
             [year_range],
             tool_choice="year_range",
         )

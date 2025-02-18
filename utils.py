@@ -4,6 +4,7 @@ from typing import Tuple
 from typing import Union
 
 from dsp_nesta_brain import logger
+from langdetect import detect
 
 
 def first(seq: Union[List, Tuple], lambda_: Callable) -> object:
@@ -26,6 +27,11 @@ def unique(seq: Union[List, Tuple]) -> List:
 def bold(string: str) -> str:
     """Make a string bold"""
     return f"\033[1m{string}\033[0m"
+
+
+def is_english(string: str) -> bool:
+    """Test whether a string is in English"""
+    return detect(string) == "en"
 
 
 def yesno(question: str) -> bool:
