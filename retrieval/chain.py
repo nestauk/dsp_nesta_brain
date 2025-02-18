@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableBranch
 from langchain_core.runnables import RunnableParallel
 from langchain_core.runnables import RunnablePassthrough
-from lgraph.graph import graph
+from lgraph.graph import create_retrieval_graph
 from llm.llm import default_llm as llm
 from llm.prompt import contextualize_q_prompt
 from retrieval.retrieve import CustomRetriever
@@ -45,6 +45,7 @@ def create_history_aware_retriever(
     """
 
     def reform_as_retriever_input(dict_: Dict) -> RetrieverInput:
+        # turn the output of the contextualisation chain into retriever input
         original_input = dict_["input"]
         contextualisation_response = IntermediateAIMessage(dict_["contextualisation"])
         reformed_input = original_input
@@ -82,7 +83,7 @@ def retriever(use_langgraph: bool = False) -> Runnable:
         # This final state should have the same keys as RetrieverInput
 
         retriever_ = (
-            graph
+            create_retrieval_graph()
             | (
                 lambda x: x[-1] if type(x) is list else x
             )  # The output of this is this dict: {'node_n_name': state returned by node n}
