@@ -35,11 +35,10 @@ from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
 
 
-CURRENT_YEAR = datetime.now().year
-
-
 if TYPE_CHECKING:
     from retrieval.retrieve import RetrieverInput as State
+
+CURRENT_YEAR = datetime.now().year
 
 
 langfuse = Langfuse()
