@@ -9,17 +9,14 @@ from typing import List
 from typing import Optional
 from typing import Union
 
+from config import DEFAULT_EMBEDDINGS_MODEL
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
 from langfuse import Langfuse
 from langfuse.client import FetchTracesResponse
-
-# from metrics import ContextSemanticSimilarity
 from metrics import CorrectedSummarizationScore as SummarizationScore
-
-# from metrics import summarization_score
 from ragas import EvaluationDataset
 from ragas import MultiTurnSample
 from ragas import SingleTurnSample
@@ -171,40 +168,42 @@ def traces_to_samples(
     answer_history = []
     for i, trace in enumerate(traces):
 
-        is_single_turn_sample = False
+        if type(trace.output) is dict and "answer" in trace.output:  # if str it will be an error message
 
-        next_trace = traces[i + 1] if i < len(traces) - 1 else None
-        if next_trace:
-            input_appears_in_next_trace_chat_history = any(
-                message["content"] == trace.input["input"] for message in next_trace.input["chat_history"]
-            )
-        else:
-            input_appears_in_next_trace_chat_history = False
+            is_single_turn_sample = False
 
-        if input_appears_in_next_trace_chat_history:
-            # if input_appears_in_next_trace_chat_history = True, the message will eventually appear in
-            # the conversation of a MultiTurnSample, so do not instantiate a sample for it
-            # but do retain the answer history for when the MultiTurnSample is eventually instantiated
-            answer_history.append(trace.output["answer"])
-        else:
-            # trace is either a SingleTurnSample or the last trace defining a MultiTurnSample
-            is_single_turn_sample = len(trace.input["chat_history"]) == 1
-
-            if is_single_turn_sample:
-                sample = SingleTurnSample(
-                    user_input=trace.input["input"],
-                    retrieved_contexts=[context["page_content"] for context in trace.output["context"]],
-                    response=trace.output["answer"],
+            next_trace = traces[i + 1] if i < len(traces) - 1 else None
+            if next_trace:
+                input_appears_in_next_trace_chat_history = any(
+                    message["content"] == trace.input["input"] for message in next_trace.input["chat_history"]
                 )
             else:
-                sample = MultiTurnSample(
-                    user_input=trace_to_conversation(
-                        trace, answer_history
-                    ),  # contexts are not passed in to MultiTurnSample objects
-                )
-            samples.append(sample)
-            trace_ids.append(trace.id)
-            answer_history = []
+                input_appears_in_next_trace_chat_history = False
+
+            if input_appears_in_next_trace_chat_history:
+                # if input_appears_in_next_trace_chat_history = True, the message will eventually appear in
+                # the conversation of a MultiTurnSample, so do not instantiate a sample for it
+                # but do retain the answer history for when the MultiTurnSample is eventually instantiated
+                answer_history.append(trace.output["answer"])
+            else:
+                # trace is either a SingleTurnSample or the last trace defining a MultiTurnSample
+                is_single_turn_sample = len(trace.input["chat_history"]) == 1
+
+                if is_single_turn_sample:
+                    sample = SingleTurnSample(
+                        user_input=trace.input["input"],
+                        retrieved_contexts=[context["page_content"] for context in trace.output["context"]],
+                        response=trace.output["answer"],
+                    )
+                else:
+                    sample = MultiTurnSample(
+                        user_input=trace_to_conversation(
+                            trace, answer_history
+                        ),  # contexts are not passed in to MultiTurnSample objects
+                    )
+                samples.append(sample)
+                trace_ids.append(trace.id)
+                answer_history = []
 
     if return_dataset or dataset_path:
         dataset = EvaluationDataset(samples=samples)
@@ -231,7 +230,7 @@ def push_scores_to_langfuse(samples: List[BaseSample], trace_ids: List[str], met
 if __name__ == "__main__":
 
     evaluator_llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o-mini"))
-    evaluator_embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model="text-embedding-3-small"))
+    evaluator_embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model=DEFAULT_EMBEDDINGS_MODEL))
 
     traces = langfuse.fetch_traces()
     samples, trace_ids = traces_to_samples(traces)

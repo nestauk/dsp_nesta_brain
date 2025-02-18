@@ -16,8 +16,9 @@ DATA_PATH = PROJECT_DIR / "data/policy_atlas/fcdo_iati_data_2025_01_17.csv"
 
 def chunk_already_in_db(chunk: LangchainDocument, **kwargs) -> bool:
     """Determine whether identical chunks have already been added to the database.
+
     Chunking strategy should have been the same.
-    """  # noqa
+    """
 
     where_condition = f'iati_identifier == "{chunk.metadata["iati_identifier"]}"'
     results = ing.chunk_already_in_db(chunk, where_condition=where_condition, **kwargs)

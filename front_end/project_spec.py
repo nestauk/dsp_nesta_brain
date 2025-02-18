@@ -59,9 +59,29 @@ if PROJECT == "NESTA_BRAIN":
 elif PROJECT == "POLICY_ATLAS":
 
     INTRO = """
-            <h2>Policy Atlas</h2><br/>
-            This is a prototype AI chatbot designed to help you find information relating to activities in the
-            International Aid Transparency Initiative Datastore.
+            <h2>🌎 Policy Atlas</h2><br/>
+            This is an early prototype AI chatbot designed to help you find and summarise information about
+            international aid activities by the Foreign, Commonwealth and Development Office (FCDO).
+            It includes both activities led by the FCDO and those where the FCDO is a partner.
+            <br></br>
+            You can ask questions such as: <em>"What are the activities related to education in Kenya?"</em> and
+            <em>"How do we help improve the quality of water services in Africa?"</em>. Use the sidebar to constrain the
+            search to a specific time period. For each user query, the chatbot processes the top 10 most relevant
+            activities to the query. Therefore, for more precise answers, it is recommended to ask more specific
+            questions. For more detail about each activity or to find statistics about aid spending, please visit
+            <a href="https://devtracker.fcdo.gov.uk/">Development Tracker</a>.
+            <br></br>
+            Chatbot's data is sourced from the International Aid Transparency Initiative (IATI)
+            <a href="https://datastore.iatistandard.org/">datastore</a> and includes about 38,000 active and closed
+            activities covering the period of 2000–2025. Chatbot's data was last updated on 17 Jan 2025.
+            A visualisation of the chatbot's data can also be viewed
+            <a href="https://atlas.nomic.ai/data/kandersk/uk-aid-data/map">here</a>. The chatbot uses the OpenAI API for
+            generating responses, and user queries are <em>not</em> used to train AI models.
+            <br></br>
+            Note that this prototype is developed by <a href="https://www.nesta.org.uk/">Nesta</a> and is <em>not</em>
+            a product of the FCDO or the UK government.
+            For questions and comments, please reach out to karlis.kanders@nesta.org.uk.
+            <br></br>
             """
 
     WIDGET_SPEC = OrderedDict(

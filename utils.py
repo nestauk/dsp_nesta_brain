@@ -3,6 +3,7 @@ from typing import List
 from typing import Tuple
 from typing import Union
 
+from dsp_nesta_brain import logger
 from langdetect import detect
 
 
@@ -31,3 +32,15 @@ def bold(string: str) -> str:
 def is_english(string: str) -> bool:
     """Test whether a string is in English"""
     return detect(string) == "en"
+
+
+def yesno(question: str) -> bool:
+    """Answer a yes/no question and return the answer as a bool"""
+    instructions = " (0/1 or y/n): "
+    question = f"{question} {instructions}"
+    while True:
+        resp = input(question)
+        if resp.lower() in ["0", "1", "y", "n", ""]:
+            return resp.lower() in ["1", "y"]
+        else:
+            logger.info("Invalid binary question input, try again: ")

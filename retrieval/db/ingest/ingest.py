@@ -27,7 +27,12 @@ from openai import AsyncOpenAI
 
 
 # the definition of Chunk and chunk_table_name may depend on settings in other files
-
+if PROJECT == "NESTA_BRAIN":
+    Chunk = NestaBrainChunk
+    CHUNK_TABLE_NAME = "chunk"
+elif PROJECT == "POLICY_ATLAS":
+    Chunk = Activity
+    CHUNK_TABLE_NAME = "activity"
 
 CHUNK_SIZE = 2000
 CHUNK_OVERLAP = 100
@@ -44,6 +49,7 @@ load_dotenv()
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
 db = lancedb.connect(DB_PATH)
+chunk_table = db.open_table(CHUNK_TABLE_NAME)
 
 
 class RequestCounter(list):

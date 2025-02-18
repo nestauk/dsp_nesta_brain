@@ -6,7 +6,7 @@ PROJECT: Literal["NESTA_BRAIN", "POLICY_ATLAS"] = "NESTA_BRAIN"
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_EMBEDDINGS_MODEL = "text-embedding-3-small"
 
-USE_AZURE = False
+USE_AZURE = True
 AZURE_MODEL = "gpt-4o-mini"
 AZURE_API_VERSION = "2024-10-21"
 

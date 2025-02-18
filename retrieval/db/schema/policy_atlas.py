@@ -99,7 +99,8 @@ class Activity(BaseChunk):
     @staticmethod
     def reference_html_format() -> str:
         """Return format for references in HTML"""
-        return '[{index}] <b>{iati_identifier}</b>: <a href="{url}">{title_narrative}</a> ({years}), {reporting_org_narrative}'  # noqa
+        # return '[{index}] <b>{iati_identifier}</b>: <a href="{url}">{title_narrative}</a> ({years}), {reporting_org_narrative}'  # noqa
+        return '[{index}] <a href="{url}">{title_narrative}</a> ({years}), {reporting_org_narrative}'  # noqa
 
     @staticmethod
     def reference_metadata(**metadata) -> Dict:
