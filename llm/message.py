@@ -25,7 +25,20 @@ elif PROJECT == "POLICY_ATLAS":
 
 
 class Reference(LangchainDocument):
-    """Extends the LangchainDocument class to make inline citations easier"""
+    """Class to represent retrieved documents for the purposes of presentation, and for making in-line citations easier.
+
+    index:  the initial index of the reference representing its position in the list of retrieved documents
+
+            (starting at 1, not 0); this is the index which the LLM 'sees' for the purposes of inline citations
+
+    reset_index: the final index of the reference for presentational purposes, given that references are reordered so that
+
+                 those which are cited appear before those which weren't cited
+
+                 (see `reset_reference_indices` method of CustomAIMessage)
+
+    cited: whether the document was used as an in-line citation or not
+    """
 
     index: int
     reset_index: Optional[int] = None
@@ -90,7 +103,7 @@ class CustomAIMessage(AIMessage):
         super().__init__(content=content, references=references)
 
     def __repr__(self) -> str:
-        """Self-explanatory"""
+        """Return string representation"""
         string = "\n--------------\n" + self.content
         string += f'\n{self.references[0].page_content}\n{self.references[0].metadata["location"]}'
         string += "\n--------------\n\n"
