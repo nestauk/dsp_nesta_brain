@@ -11,6 +11,7 @@ import lancedb
 
 from config import DB_PATH
 from config import DEFAULT_EMBEDDINGS_MODEL
+from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from lancedb.db import LanceDBConnection
@@ -20,17 +21,30 @@ from langchain_community.vectorstores import LanceDB
 from langchain_core.retrievers import BaseRetriever
 from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import MessagesState
-from openai import AsyncOpenAI
 from openai import OpenAI
-from retrieval.db.schema import Chunk
+from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
+from retrieval.db.schema.policy_atlas import Activity
 from utils import unique
 
 
-class RetrieverInput(MessagesState):
-    """Class for specifying what the retriever input should be; also used as a State class with LangGraph"""
+if PROJECT == "NESTA_BRAIN":
+    Chunk = NestaBrainChunk
+    chunk_table_name = "chunk"
+    default_merge = True
+elif PROJECT == "POLICY_ATLAS":
+    Chunk = Activity
+    chunk_table_name = "activity"
+    default_merge = False  # activity records were not split into separate chunks,so no need to merge
 
+
+class RetrieverInput(MessagesState):
+    """Class for specifying what the retriever input should be; can be used as a State class with LangGraph"""
+
+    # it is not necessary for this to inherit from MessagesState if we're not using LangGraph
+    # however, it allows the option in future and there is a neatness about it
+    # RetrieverInput inherits a `messages` property from MessagesState
+    limit: int
     filter_condition: str
-    merge: bool
 
 
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
@@ -45,7 +59,7 @@ class CustomRetriever(BaseRetriever):
     # there have been problems getting Lance DB to work with asynchronous requests
     #    pass
 
-    def _get_relevant_documents(self, input: RetrieverInput, limit: int = 10, **kwargs) -> List[LangchainDocument]:
+    def _get_relevant_documents(self, input: RetrieverInput, **kwargs) -> List[LangchainDocument]:
         """
         Retrieve chunks related to a search query using a hybrid search strategy
 
@@ -55,29 +69,27 @@ class CustomRetriever(BaseRetriever):
         """
 
         logger.info(f"Input to retriever: {input}")
-        query = input["messages"][-1].content
-        filter_condition = input.get("filter_condition") or None  # if '' then want None
-        merge = input.get("merge")
-
-        # the code has been chopped up into bits which can be reused easily in both synchronous and asynchronous versions
 
         db = lancedb.connect(DB_PATH)
 
-        logger.info("Vectorizing query ...")
-        vector_ = CustomRetriever.vector(query)
-        chunks = CustomRetriever.retrieve_chunks(
-            db, query, vector_, limit, filter_condition=filter_condition, **kwargs
-        )
-        # Quick hack to give access for RAG to author and title information (by Karlis)
-        for chunk in chunks:
-            chunk.text = chunk.text + "; title: " + str(chunk.source.title) + "; authors: " + str(chunk.source.authors)
-        # (hack ends)
-        docs = CustomRetriever.chunks_to_docs(chunks, merge=merge, enumerate_=True)
+        chunks = CustomRetriever.retrieve_chunks(db, input, **kwargs)
+
+        if PROJECT == "NestaBrain":
+            # Quick hack to give access for RAG to author and title information (by Karlis)
+            for chunk in chunks:
+                chunk.text = (
+                    chunk.text + "; title: " + str(chunk.source.title) + "; authors: " + str(chunk.source.authors)
+                )
+            # (hack ends)
+
+        docs = CustomRetriever.chunks_to_docs(chunks, enumerate_=True)
 
         return docs
 
     @staticmethod
-    def chunks_to_docs(chunks: List[Chunk], merge: bool = False, enumerate_: bool = False) -> List[LangchainDocument]:
+    def chunks_to_docs(
+        chunks: List[Chunk], merge: bool = default_merge, enumerate_: bool = False
+    ) -> List[LangchainDocument]:
         """Convert Chunk objects to LangchainDocument objects, with the option to merge"""
         if merge:
             docs = CustomRetriever.merge_chunks(chunks, enumerate_=enumerate_)
@@ -119,48 +131,31 @@ class CustomRetriever(BaseRetriever):
         return docs
 
     @staticmethod
-    async def async_retrieve_chunks(
-        db: LanceDBConnection, query: str, vector_: List[float], limit: int, **kwargs
-    ) -> List[Chunk]:
-        """Retrieve chunks asynchroously"""
-        chunk_table = await db.open_table("chunk")
+    def retrieve_chunks(db: LanceDBConnection, input: RetrieverInput, **kwargs) -> List[Chunk]:
+        """Retrieve chunks synchrously"""
+
+        chunk_table = db.open_table(chunk_table_name)
+
+        query = input["messages"][-1].content
+        limit = input["limit"]
+        filter_condition = input.get("filter_condition") or None  # if '' then want None
+        logger.info("Vectorizing query ...")
+        vector_ = CustomRetriever.vector(query)
+
         logger.info("Retrieving most relevant chunks ...")
-        chunks = await CustomRetriever.async_search_loop(chunk_table, query, vector_, limit, **kwargs)
+        chunks = CustomRetriever.search_loop(
+            chunk_table, query, vector_, limit, filter_condition=filter_condition, **kwargs
+        )
         chunks = chunks[0:limit]
         logger.info(f"Retreived {len(chunks)} chunks")
         return chunks
-
-    @staticmethod
-    def retrieve_chunks(db: LanceDBConnection, query: str, vector_: List[float], limit: int, **kwargs) -> List[Chunk]:
-        """Retrieve chunks synchroously"""
-        chunk_table = db.open_table("chunk")
-        logger.info("Retrieving most relevant chunks ...")
-        chunks = CustomRetriever.search_loop(chunk_table, query, vector_, limit, **kwargs)
-        chunks = chunks[0:limit]
-        logger.info(f"Retreived {len(chunks)} chunks")
-        return chunks
-
-    @staticmethod
-    async def async_search_loop(
-        table: LanceTable, query: str, vector_: List[float], limit: int, filter_condition: Optional[str] = None
-    ) -> List[Chunk]:
-        """Search LanceDB table, omit duplicate chunks, repeat the action until there are
-        limit unique chunks (should be asynchronous – see comment below)"""  # noqa
-        # query = query.encode("ascii", "ignore").decode("ascii")
-        # keep only alphanumeric characters in the query
-        query = re.sub(r"\W+", " ", query)
-        chunks = []
-        orig_limit = limit
-        while len(chunks) < orig_limit:
-            # THIS DOESN'T WORK: #I can't see a way of doing asynchronous hybrid search at the moment
-            pass
 
     @staticmethod
     def search_loop(
         table: LanceTable, query: str, vector_: List[float], limit: int, filter_condition: Optional[str] = None
     ) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are limit unique chunks (synchronous)"""
-        # query = query.encode("ascii", "ignore").decode("ascii")
+
         query = re.sub(r"\W+", " ", query)
         iteration_required = True
         while iteration_required:  # iteration only necessary if there are duplicates, for example,
@@ -189,14 +184,6 @@ class CustomRetriever(BaseRetriever):
         return chunks
 
     @staticmethod
-    async def async_vector(string: str) -> List[float]:
-        """Calculate the embedding vector of string"""
-        async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        result = await async_client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=string)
-        vector = result.data[0].embedding
-        return vector
-
-    @staticmethod
     def vector(string: str) -> List[float]:
         """Calculate the embedding vector of string"""
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -214,7 +201,7 @@ if __name__ == "__main__":
 
     db = lancedb.connect(DB_PATH)
     doc_table = db.open_table("document")
-    chunk_table = db.open_table("chunk")
+    chunk_table = db.open_table(chunk_table_name)
 
     # code below is just for testing and experimenting
 
@@ -256,7 +243,7 @@ if __name__ == "__main__":
         vector_store = LanceDB(
             uri=DB_PATH,
             embedding=OpenAIEmbeddings(),
-            table_name="chunk",
+            table_name=chunk_table_name,
         )
 
         retriever = vector_store.as_retriever()

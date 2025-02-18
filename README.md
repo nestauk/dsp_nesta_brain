@@ -34,11 +34,22 @@ poetry add package-name
 
 ```
 data/                 # Contains raw and processed datasets used for the project
+documentation/        # Documentation
 dsp_nesta_brain/
 ├── notebooks/        # Jupyter notebooks for exploration and experimentation
 ├── pipeline/         # Data processing and analysis pipelines.
 ├── getters/          # Getter functions to get data from S3 or other sources
 └── utils/            # Utility scripts and helper functions
+eval/                 # Evaluation metrics and Langfuse
+front_end/            # Constants and functions needed for the streamlit app (project-specific)
+lgraph/               # LangGraph experiments
+llm/                  # LLM and LangChain use
+retrieval/            # RAG retrieval
+└── db/               # Vector database setup and maintenance
+  ├── ingest/         # Vector database ingestion (one file for each project)
+  └── schema/         # Vector database schema and setup (one file for each project)
+scraping/             # Web-scraping
+topic_model/          # Topic modelling and visualisation
 ```
 
 Keep project related data in the `data` folder for local prototyping. When submitting code for PR reviews, best to store the data on S3 and add getter functions in `getters`.

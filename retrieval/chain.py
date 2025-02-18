@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from typing import Dict
 
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableBranch
 from langchain_core.runnables import RunnableParallel
+from langchain_core.runnables import RunnablePassthrough
 from lgraph.graph import create_retrieval_graph
 from llm.llm import default_llm as llm
 from llm.prompt import contextualize_q_prompt
@@ -16,12 +19,22 @@ if TYPE_CHECKING:
     from langchain_core.retrievers import RetrieverLike
     from langchain_core.retrievers import RetrieverOutputLike
     from langchain_core.runnables import Runnable
+    from retrieval.retrieve import RetrieverInput
+
+
+class IntermediateAIMessage(AIMessage):
+    """
+    AI Messages derived during intermediate steps (like recontextualisation) that are not
+    supposed to be part of the chat history
+    """  # noqa
+
+    pass
 
 
 def create_history_aware_retriever(
     llm: LanguageModelLike,
     retriever: RetrieverLike,
-    prompt: BasePromptTemplate,
+    contextualisation_prompt: BasePromptTemplate,
 ) -> RetrieverOutputLike:
     """Create a chain that takes conversation history and returns documents.
 
@@ -31,25 +44,29 @@ def create_history_aware_retriever(
     and possibly other parameters to be passed through to _get_relevant_documents
     """
 
+    def reform_as_retriever_input(dict_: Dict) -> RetrieverInput:
+        # turn the output of the contextualisation chain into retriever input
+        original_input = dict_["input"]
+        contextualisation_response = IntermediateAIMessage(dict_["contextualisation"])
+        reformed_input = original_input
+        reformed_input["messages"].append(contextualisation_response)
+        return reformed_input
+
     parser = lambda ai_message: ai_message.content  # noqa
-    recontextualisation_chain = prompt | llm | parser
-    recontextualisation_chain = RunnableParallel(
-        input=recontextualisation_chain,
-        filter_condition=lambda x: x.get("filter_condition"),
-        merge=lambda x: x.get("merge") or False,
-    )
-    # unlike in the original version of create_history_aware_retriever, we want filter_condition and merge
-    # to be passed through to the retriever
+    contextualisation_chain = contextualisation_prompt | llm | parser
+    contextualisation_chain = RunnableParallel(
+        contextualisation=contextualisation_chain, input=RunnablePassthrough()
+    ) | (lambda x: reform_as_retriever_input(x))
 
     retrieve_documents: RetrieverOutputLike = RunnableBranch(
         (
-            # Both empty string and empty list evaluate to False
-            lambda x: not x.get("chat_history", False),
-            # If no chat history, then we just pass input to retriever
+            lambda x: len(x.get("messages") or []) == 1,
+            # if the chat_history is only one message long, then it just includes the user's first input
+            # just pass input directly to the retriever
             retriever,
         ),
-        # If chat history, then we pass inputs to LLM chain, then to retriever
-        recontextualisation_chain | retriever,
+        # If there is a chat history involving AI responses, then we pass inputs to the contextualisation_chain, then to retriever
+        contextualisation_chain | retriever,
     ).with_config(run_name="chat_retriever_chain")
     return retrieve_documents
 
@@ -59,19 +76,21 @@ def retriever(use_langgraph: bool = False) -> Runnable:
     retriever_ = CustomRetriever()
     if use_langgraph:
 
+        # the output of the graph is a list of dicts in this format:
+        # List[{'node_1_name':dict representing state returned by node 1} .. {'node_n_name': state returned by node n}]
+        # the intermediate steps in the chain here transform this graph output into a useful input for retriever_,
+        # that is a single dict representing the final graph state
+        # This final state should have the same keys as RetrieverInput
+
         retriever_ = (
-        # Create a retrieval graph, which returns a list of dicts with node outputs, such as:
-        # List[{'node_1_name':dict representing state returned by node 1} .. 
-        # {'node_n_name': state returned by node n}]
-        create_retrieval_graph()
-        # Extract the last element
-        | (lambda x: x[-1] if type(x) is list else x)
-        # Extract the value from a dictionary by removing its only key-value pair, and returning only the value
-        | (lambda d: d.popitem()[1])
-        # Pass the refined output into the CustomRetriever for final retrieval processing
-        | retriever_
-    )
-    
+            create_retrieval_graph()
+            | (
+                lambda x: x[-1] if type(x) is list else x
+            )  # The output of this is this dict: {'node_n_name': state returned by node n}
+            | (lambda d: d.popitem()[1])  # This output of this is a dict representing the state returned by node n
+            | retriever_
+        )
+
     return retriever_
 
 

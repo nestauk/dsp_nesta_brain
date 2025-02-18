@@ -6,6 +6,8 @@ import sys
 
 from datetime import datetime
 from typing import TYPE_CHECKING
+from typing import Dict
+from typing import List
 
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
@@ -17,6 +19,9 @@ from utils import yesno
 
 if TYPE_CHECKING:
     from langfuse.api.resources.commons.types.trace_with_details import TraceWithDetails
+
+
+LANGFUSE_TRACE_LIMIT = 100
 
 
 def is_admin(trace: TraceWithDetails) -> bool:
@@ -32,6 +37,50 @@ def is_admin(trace: TraceWithDetails) -> bool:
     return trace.input["input"].strip() in common_test_questions
 
 
+def collate_traces(ultimate_filters: Dict) -> List[TraceWithDetails]:
+    """
+    Collate all traces between a date range specified by filters, to get round Langfuse's
+    limit on the number of traces it returns
+    """  # noqa
+
+    filters = ultimate_filters.copy()
+    delta = filters["to_timestamp"] - filters["from_timestamp"]
+
+    logger.info("Collating traces ...")
+
+    traces = []
+
+    ct = 0
+    while filters["to_timestamp"] <= ultimate_filters["to_timestamp"]:
+
+        if ct % 10 == 0:
+            logger.info("\t", ct)
+
+        traces_ = langfuse.fetch_traces(limit=LANGFUSE_TRACE_LIMIT, **filters)
+        traces_ = traces_.data
+
+        # print(f'{ct}: {datetime.strftime(filters["from_timestamp"],"%Y-%m-%d %H:%M:%S")} to {datetime.strftime(filters["to_timestamp"],"%Y-%m-%d %H:%M:%S")} ({delta}): {len(traces_)} results') # noqa
+
+        if len(traces_) == LANGFUSE_TRACE_LIMIT:
+            delta = delta / 2
+            filters = {"from_timestamp": filters["from_timestamp"], "to_timestamp": filters["from_timestamp"] + delta}
+
+        elif len(traces_) <= 5:
+            delta = delta * 1.5
+            filters = {"from_timestamp": filters["from_timestamp"], "to_timestamp": filters["from_timestamp"] + delta}
+
+        else:
+            traces += traces_
+            filters = {
+                "from_timestamp": filters["from_timestamp"] + delta,
+                "to_timestamp": filters["from_timestamp"] + 2 * delta,
+            }
+
+        ct += 1
+
+    return traces
+
+
 load_dotenv()
 
 # os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
@@ -42,16 +91,16 @@ os.environ["LANGFUSE_HOST"] = os.getenv("LANGFUSE_HOST")
 langfuse = Langfuse()
 
 filters = {
-    "from_timestamp": datetime.strptime("2024-12-05", "%Y-%m-%d"),
-    "to_timestamp": datetime.strptime("2024-12-10", "%Y-%m-%d"),
+    "from_timestamp": datetime.strptime("2024-12-05 00:00:00", "%Y-%m-%d %H:%M:%S"),
+    "to_timestamp": datetime.strptime("2025-02-01 00:00:00", "%Y-%m-%d %H:%M:%S"),
 }
 
-traces = langfuse.fetch_traces(limit=100, **filters)
-traces = traces.data
 
-# print(len(traces))
+traces = collate_traces(filters)
+
+
 traces = [trace for trace in traces if not is_admin(trace)]
-# print(len(traces))
+logger.info(f"N traces = {len(traces)}")
 
 samples, trace_ids = traces_to_samples(traces)
 
@@ -75,7 +124,7 @@ for i, sample in enumerate(samples[skip:]):
     )
 
     logger.info(
-        f'\n\n\n{new_sample_marker}\n{i+skip+1}/{len(samples)} {bold(trace_id)} {bold(f"[{sample.__class__.__name__}]")} {sample.pretty_repr()}\n\n{context}'  # noqa
+        f'\n\n\n{new_sample_marker}\n{i+skip+1}/{len(samples)} {bold(trace_id)} {bold(f"[{sample.__class__.__name__}]")} {trace.timestamp} {sample.pretty_repr()}\n\n{context}'  # noqa
     )
 
     if yesno("\nAdd tags?:"):
