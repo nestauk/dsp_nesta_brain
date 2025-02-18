@@ -19,11 +19,14 @@ import tiktoken
 
 from config import DB_PATH
 from config import DEFAULT_EMBEDDINGS_MODEL
+from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain.text_splitter import CharacterTextSplitter
 from openai import AsyncOpenAI
+from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
+from retrieval.db.schema.policy_atlas import Activity
 
 
 # the definition of Chunk and chunk_table_name may depend on settings in other files
@@ -182,7 +185,7 @@ def chunk_already_in_db(
     """  # noqa
 
     where_condition = where_condition or f'text == "{chunk.page_content}"'
-    chunk_table = db.open_table(const.chunk_table_name)
+    chunk_table = db.open_table(const.CHUNK_TABLE_NAME)
 
     try:
         results = chunk_table.search().where(where_condition).limit(1).to_pydantic(const.Chunk)
@@ -290,7 +293,7 @@ def ingest(documents: List[LangchainDocument], **kwargs) -> None:
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    chunk_table = db.open_table(const.chunk_table_name)
+    chunk_table = db.open_table(const.CHUNK_TABLE_NAME)
     chunks = asyncio.run(documents_to_Chunks(documents, **kwargs))
 
     if chunks:

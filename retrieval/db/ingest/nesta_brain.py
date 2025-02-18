@@ -39,8 +39,8 @@ PDF_PATH = WEBSITE_DATA_PATH / "pdf_files"
 NESTA_SITE_URL = "https://nesta.org.uk"
 
 
-db = lancedb.connect(DB_PATH)
-document_table = db.open_table("document")
+DB = lancedb.connect(DB_PATH)
+DOCUMENT_TABLE = DB.open_table("document")
 
 
 def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
@@ -135,7 +135,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
             logger.info(f"{N_in_db} documents were already in the database and will be replaced")
             for doc in already_in_db:
                 chunk_table.delete(f'source.location = "{doc.metadata["location"]}"')
-                document_table.delete(f'location = "{doc.metadata["location"]}"')
+                DOCUMENT_TABLE.delete(f'location = "{doc.metadata["location"]}"')
 
         else:
             logger.info(
@@ -149,7 +149,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         chunks = asyncio.run(documents_to_Chunks(documents, lance_documents))
 
         # ====CAUTION====
-        # document_table.add(lance_documents) introduces data redundancy in the database
+        # DOCUMENT_TABLE.add(lance_documents) introduces data redundancy in the database
         # and should be removed for later versions.
         # The source field in the chunk table does not link to a Document record.
         # If the title of a record in the document table is updated,
@@ -158,7 +158,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         # I am keeping this in temporarily for purposes of experimentation
         if chunks:
             logger.info(f"Ingested {len(lance_documents)} Document(s) and {len(chunks)} Chunks into the database")
-            document_table.add(lance_documents)
+            DOCUMENT_TABLE.add(lance_documents)
             chunk_table.add(chunks)
         else:
             logger.info(f"No chunks from document(s) {lance_documents} into ingest to the database")
@@ -438,12 +438,12 @@ if __name__ == "__main__":
         # settings constants which may be needed in other files
 
         const.Chunk = csv_mode_chunk_schema_class
-        const.chunk_table_name = csv_mode_chunk_table_name
+        const.CHUNK_TABLE_NAME = csv_mode_chunk_table_name
 
     else:
 
         const.Chunk = NestaBrainChunk
-        const.chunk_table_name = "chunk"
+        const.CHUNK_TABLE_NAME = "chunk"
 
     # global variable
     request_counter = ing.RequestCounter()
@@ -494,7 +494,7 @@ if __name__ == "__main__":
         # if ingesting data from a csv
 
         const.Chunk = MissionProject
-        const.chunk_table_name = "mission_project"
+        const.CHUNK_TABLE_NAME = "mission_project"
 
         def chunk_already_in_db(chunk: LangchainDocument, **kwargs) -> bool:  # noqa
             """Determine whether identical chunks have already been added to the database.
@@ -535,4 +535,4 @@ if __name__ == "__main__":
                 chunk_presence_test=chunk_already_in_db,
             )
 
-    chunk_table = db.open_table(const.chunk_table_name)
+    chunk_table = DB.open_table(const.CHUNK_TABLE_NAME)

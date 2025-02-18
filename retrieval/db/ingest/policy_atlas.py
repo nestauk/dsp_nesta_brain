@@ -52,7 +52,7 @@ if __name__ == "__main__":
 
     # settings constants which may be needed in other files
     const.Chunk = Activity
-    const.chunk_table_name = "activity"
+    const.CHUNK_TABLE_NAME = "activity"
 
     # global variable
     request_counter = ing.RequestCounter()
