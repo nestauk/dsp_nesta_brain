@@ -110,10 +110,8 @@ def respond(
     """Get LLM response from chain"""
 
     if use_langfuse:
-
         trace_id = str(uuid.uuid4())
         config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
-
     else:
         config = {}
 
@@ -197,12 +195,13 @@ def filter_conditions() -> Union[str, None]:
     """Compute what the filter conditions are from widget values"""
 
     filter_conditions = []
+
     for key, spec in WIDGET_SPEC.items():
 
         default = spec["default"]
         filter_condition_format = spec["filter_condition_format"]
-
         current_value = st.session_state[key]
+
         if key == "from_year":
             append_filter_condition = current_value != EARLIEST_YEAR
         else:
@@ -247,7 +246,6 @@ if __name__ == "__main__":
     initial_message: str = "Hi, how can I help?"
 
     if check_password():
-
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
@@ -332,7 +330,6 @@ if __name__ == "__main__":
                 st.session_state.messages.append(message)
 
         if use_langfuse:
-
             feedback = streamlit_feedback(
                 feedback_type="faces",
                 optional_text_label="[Optional] Please provide an explanation",
