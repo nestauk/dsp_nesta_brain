@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+Caddyfile
+nohup.out
+
 # C extensions
 *.so
 
@@ -99,7 +102,7 @@ ipython_config.py
 #   This is especially recommended for binary packages to ensure reproducibility, and is more
 #   commonly ignored for libraries.
 #   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
-#poetry.lock
+poetry.lock
 
 # pdm
 #   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
@@ -173,4 +176,5 @@ retrieval/db/ccid_demo_db
 retrieval/db/ccid_demo_db/*
 retrieval/db/full_site_demo_db
 retrieval/db/full_site_demo_db_with_pdfs
+retrieval/db/policy_atlas
 .streamlit/
