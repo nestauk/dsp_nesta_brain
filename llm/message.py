@@ -10,20 +10,34 @@ from typing import Optional
 import markdown
 
 from config import DEBUG_MODE
+from config import PROJECT
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
+from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
+from retrieval.db.schema.policy_atlas import Activity
+
+
+if PROJECT == "NESTA_BRAIN":
+    Chunk = NestaBrainChunk
+
+elif PROJECT == "POLICY_ATLAS":
+    Chunk = Activity
 
 
 class Reference(LangchainDocument):
-    """
-    Class to represent retrieved documents for the purposes of presentation, and for making in-line citations easier.
+    """Class to represent retrieved documents for the purposes of presentation, and for making in-line citations easier.
 
     index:  the initial index of the reference representing its position in the list of retrieved documents
+
             (starting at 1, not 0); this is the index which the LLM 'sees' for the purposes of inline citations
+
     reset_index: the final index of the reference for presentational purposes, given that references are reordered so that
+
                  those which are cited appear before those which weren't cited
+
                  (see `reset_reference_indices` method of CustomAIMessage)
+
     cited: whether the document was used as an in-line citation or not
     """
 
@@ -32,29 +46,36 @@ class Reference(LangchainDocument):
     cited: bool = False
 
     def __init__(self, chunk: LangchainDocument, index: int) -> None:
-        super().__init__(page_content=chunk.page_content, metadata=chunk.metadata, index=index)
-
-    @property
-    def is_pdf(self) -> bool:
-        """Test whether the underlying source document is a PDF"""
-        return self.metadata["location"].lower()[-4:] == ".pdf"
+        super().__init__(
+            page_content=chunk.page_content, metadata=Chunk.reference_metadata(**chunk.metadata), index=index
+        )
 
     def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
+
+        reference_html_format = Chunk.reference_html_format()
+
         index = self.reset_index if reset_index is not None else self.index
         if DEBUG_MODE:
             if self.index == 1:
                 logger.warning(
                     "Formatting of links for testing retrieval filtering is in use – do not use for production"
                 )
-            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]}{" (PDF)" if self.is_pdf else ""} {self.metadata["date_pub"]} {self.metadata["contentType"]} {self.metadata["missions"]}</a>'  # noqa
-        else:
-            return f'<a href="{self.metadata["location"]}">[{index}] {self.metadata["title"]}{" (PDF)" if self.is_pdf else ""}</a>'  # noqa
+            reference_html_format = reference_html_format.replace("</a>", "{date_pub} {contentType} {missions}</a>")
+        # quick hack for the policy atlas
+        if PROJECT == "POLICY_ATLAS":
+            self.metadata["reporting_org_narrative"] = str(self.metadata["reporting_org_narrative"]).replace(
+                "UK - Foreign, Commonwealth Development Office (FCDO)", "FCDO"
+            )
+        return reference_html_format.format(index=index, **self.metadata)
 
     def as_superscript(self, reset_index: bool = False) -> str:
-        """Return index as a clickable link within a superscript, suitable for inline citations"""
+        """Return index as a (usually) clickable link within a superscript, suitable for inline citations"""
+        superscript_html_format = '<sup><a href="{url}">{index}</a></sup>'
         index = self.reset_index if reset_index is not None else self.index
-        return f'<sup><a href="{self.metadata["location"]}">{index}</a></sup>'
+        if PROJECT == "POLICY_ATLAS":
+            return superscript_html_format.format(url=self.metadata.get("url"), index=index)
+        return superscript_html_format.format(url=self.metadata.get("location"), index=index)
 
 
 class CustomAIMessage(AIMessage):
@@ -117,7 +138,7 @@ class CustomAIMessage(AIMessage):
         not_cited = [reference.as_html(reset_index=True) for reference in self.uncited_references]
         actual_references = "<br><em>Cited references:</em><br>" + "<br>".join(cited) if cited else ""
         the_rest = (
-            f"<br><em>{'May be useful' if cited else 'May be useful'}:</em><br>" + "<br>".join(not_cited)
+            f"<br><br><em>{'May be useful' if cited else 'May be useful'}:</em><br>" + "<br>".join(not_cited)
             if not_cited
             else ""
         )
@@ -174,7 +195,7 @@ class CustomAIMessage(AIMessage):
 
     def as_html(self) -> str:
         """Convert the response into HTML"""
-        return f'<div class="response">{self.p_element}{self.references_}</div>'
+        return f'<div class="response">{self.p_element}{self.references_ if self.references else ""}</div>'
 
     def flag_citations(self) -> None:
         """Flag references which have been cited"""
