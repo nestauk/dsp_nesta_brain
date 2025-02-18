@@ -179,7 +179,7 @@ def respond(
         else:
             response = chain.invoke(input, config=config)
 
-    return_message = CustomAIMessage(response)
+        return_message = CustomAIMessage(response)
 
     if stream:
         # Remove the message placeholder text after all the text has been received, as
