@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import asyncio  # noqa
+import asyncio
 import logging
 import os
 import uuid
 
 from datetime import datetime
-
-# from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
 from typing import Union
@@ -27,7 +26,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from lgraph.graph import LAST_CHAT_GRAPH_NODE_NAME  # noqa
+from lgraph.graph import LAST_CHAT_GRAPH_NODE_NAME
 from lgraph.graph import create_chat_graph
 from llm.chain import history_aware_rag_chain
 from llm.chain import history_aware_rag_chain_with_citation_tool
@@ -36,9 +35,8 @@ from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
 
 
-# if TYPE_CHECKING:
-
-#    from retrieval.retrieve import RetrieverInput as State
+if TYPE_CHECKING:
+    from retrieval.retrieve import RetrieverInput as State
 
 CURRENT_YEAR = datetime.now().year
 
@@ -121,36 +119,65 @@ def respond(
 
     input = {"messages": chat_history(), "filter_condition": st.session_state["filter_condition"], "limit": limit}
 
-    if stream:
+    if use_graph:
 
-        message_text = ""
-        for item in chain.stream(input, config=config):
-            # Process each item
-            if "answer" in item:
-                if use_tool_for_citations:
-                    item_text = (
-                        item["answer"]["quoted_answer"].get("answer") or ""
-                    )  # if using tool the answer will be a dict rather than string
-                    if item_text and item_text == message_text:
-                        break  # Once the response has been generated it will go on to the other components
-                        # of quoted_answer which we don't actually need, so stop when the answer is complete
-                    message_text += item_text[
-                        len(message_text) :
-                    ]  # unlike normal streaming, message_text contains the *cumulative* response
-                    # this simulates normal streaming
-                    # we could set response["answer"] = message_text, but I found this made the streaming look jerky
-                else:
-                    message_text += str(item["answer"])
-                # Display the response
-                message_placeholder.markdown(message_text + "▌")
+        if stream:
 
-            elif "context" in item:
-                context = item["context"]
+            async def stream_() -> State:
+                message_text = ""
+                id = None
+                async for event in chain.astream_events(input, config, version="v1", stream_mode="values"):
+                    if event["event"] == "on_chat_model_stream":
+                        ai_message_chunk = event["data"]["chunk"]
+                        if id != ai_message_chunk.id:
+                            if id:
+                                message_text += "\n\n"
+                            id = ai_message_chunk.id
+                        message_text += ai_message_chunk.content
+                        message_placeholder.markdown(message_text + "▌")
+                    elif event["event"] == "on_chain_end" and event["name"] == LAST_CHAT_GRAPH_NODE_NAME:
+                        final_state = event["data"]["input"]
+                return final_state
 
-        response = {"answer": message_text, "context": context}
+            final_state = asyncio.run(stream_())
+
+        else:
+            final_state = chain.invoke(input, config=config)
+
+        return_message = final_state["messages"][-1]
 
     else:
-        response = chain.invoke(input, config=config)
+
+        if stream:
+
+            message_text = ""
+            for item in chain.stream(input, config=config):
+                # Process each item
+                if "answer" in item:
+                    if use_tool_for_citations:
+                        item_text = (
+                            item["answer"]["quoted_answer"].get("answer") or ""
+                        )  # if using tool the answer will be a dict rather than string
+                        if item_text and item_text == message_text:
+                            break  # Once the response has been generated it will go on to the other components
+                            # of quoted_answer which we don't actually need, so stop when the answer is complete
+                        message_text += item_text[
+                            len(message_text) :
+                        ]  # unlike normal streaming, message_text contains the *cumulative* response
+                        # this simulates normal streaming
+                        # we could set response["answer"] = message_text, but I found this made the streaming look jerky
+                    else:
+                        message_text += str(item["answer"])
+                    # Display the response
+                    message_placeholder.markdown(message_text + "▌")
+
+                elif "context" in item:
+                    context = item["context"]
+
+            response = {"answer": message_text, "context": context}
+
+        else:
+            response = chain.invoke(input, config=config)
 
     return_message = CustomAIMessage(response)
 
