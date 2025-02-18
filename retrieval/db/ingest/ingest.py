@@ -25,11 +25,10 @@ from retrieval.db.schema.policy_atlas import Activity
 
 if PROJECT == "NESTA_BRAIN":
     Chunk = NestaBrainChunk
-    chunk_table_name = "chunk"
+    CHUNK_TABLE_NAME = "chunk"
 elif PROJECT == "POLICY_ATLAS":
     Chunk = Activity
-    chunk_table_name = "activity"
-
+    CHUNK_TABLE_NAME = "activity"
 
 CHUNK_SIZE = 2000
 CHUNK_OVERLAP = 100
@@ -46,7 +45,7 @@ load_dotenv()
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
 db = lancedb.connect(DB_PATH)
-chunk_table = db.open_table(chunk_table_name)
+chunk_table = db.open_table(CHUNK_TABLE_NAME)
 
 
 class RequestCounter(list):
