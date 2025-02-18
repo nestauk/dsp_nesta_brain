@@ -18,14 +18,15 @@ from retrieval.db.schema.policy_atlas import Activity as Chunk
 
 DATA_PATH = PROJECT_DIR / "data/policy_atlas/fcdo_iati_data_2025_01_17.csv"
 
-db = lancedb.connect(DB_PATH)
-chunk_table = db.open_table("activity")
+DB = lancedb.connect(DB_PATH)
+CHUNK_TABLE = DB.open_table("activity")
 
 
 def chunk_already_in_db(chunk: LangchainDocument) -> bool:
     """Determine whether identical chunks have already been added to the database.
+
     Chunking strategy should have been the same.
-    """  # noqa
+    """
 
     where_condition = f'iati_identifier == "{chunk.metadata["iati_identifier"]}"'
     results = ing.chunk_already_in_db(chunk, where_condition=where_condition)
@@ -98,7 +99,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
 
     if chunks:
         logger.info(f"Ingested {len(chunks)} Chunks into the database")
-        chunk_table.add(chunks)
+        CHUNK_TABLE.add(chunks)
     else:
         logger.info("No chunks to ingest into the database")
 
