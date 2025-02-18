@@ -46,4 +46,67 @@ date_constraint_prompt_template = f"""
     {{input}}
     """  # noqa
 
-date_constraint_prompt = PromptTemplate(template=date_constraint_prompt_template, input_variables=["input"])
+date_constraint_prompt = PromptTemplate(template=date_constraint_prompt_template, input_variables=["input", "answer"])
+
+
+currentness_comment_prompt_template_1 = f"""
+    You are a helpful RAG system and an expert on the internal administration, personnel and projects of the innovation agency Nesta. The year is currently {datetime.now().year}.
+
+    You were asked to search for documents relevant to the question below and provided an answer and appropriate context.
+
+    Look at the context metadata and comment on whether the answer to your question was likely to be currently correct.
+
+    Question:
+    {{input}}
+
+    Answer:
+    {{answer}}
+    """  # noqa
+
+currentness_comment_prompt_template_2 = f"""
+    You are a helpful RAG system and an expert on the internal administration, personnel and projects of the innovation agency Nesta. The year is currently {datetime.now().year}.
+
+    You were asked to search for documents relevant to the question below and you provided an answer and appropriate context. However, the answer might be based on out-of-date context.
+
+    Look at the context metadata and rephrase the answer based on assessment of whether the context is providing up-to-date information. Express doubt about the answer if it isn't. Limit your answer to 100 words.
+
+    Question:
+    {{input}}
+
+    Answer:
+    {{answer}}
+    """  # noqa
+
+
+currentness_comment_prompt_template_3 = f"""
+    You are a helpful RAG system and an expert on the internal administration, personnel and projects of the innovation agency Nesta. Today's date is {datetime.now().date()}.
+
+    You were asked to search for documents relevant to the question below and you provided an answer and appropriate context. However, the answer might be based on out-of-date context.
+
+    Look at the context metadata and assess whether the context is providing up-to-date information. If the context is over a year old, mention that the information on which you are basing your answer could be out of date. Limit your answer to 100 words.
+
+    Question:
+    {{input}}
+
+    Answer:
+    {{answer}}
+    """  # noqa
+
+
+currentness_comment_prompt_template_4 = f"""
+    You are a helpful RAG system and an expert on the internal administration, personnel and projects of the innovation agency Nesta. Today's date is {datetime.now().date()}.
+
+    You were asked to search for documents relevant to the question below and you provided an answer and appropriate context. However, the answer might be based on out-of-date context.
+
+    Look at the context metadata. If the context is over a year old, mention that the information on which you are basing your answer could be out of date. Limit your answer to 50 words. If all of the context is less than a year old, return an empty string.
+
+    Question:
+    {{input}}
+
+    Answer:
+    {{answer}}
+    """  # noqa
+
+currentness_comment_prompt = PromptTemplate(
+    template=currentness_comment_prompt_template_4, input_variables=["input", "answer"]
+)

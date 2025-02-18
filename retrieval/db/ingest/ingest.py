@@ -30,7 +30,6 @@ elif PROJECT == "POLICY_ATLAS":
     Chunk = Activity
     CHUNK_TABLE_NAME = "activity"
 
-
 CHUNK_SIZE = 2000
 CHUNK_OVERLAP = 100
 
