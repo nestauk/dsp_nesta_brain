@@ -14,6 +14,7 @@ from typing import Union
 import streamlit as st
 
 from config import EARLIEST_YEAR
+from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from front_end.project_spec import INTRO
