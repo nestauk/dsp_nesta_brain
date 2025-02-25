@@ -27,12 +27,12 @@ from utils import unique
 
 if PROJECT == "NESTA_BRAIN":
     Chunk = NestaBrainChunk
-    chunk_table_name = "chunk"
-    default_merge = True
+    CHUNK_TABLE_NAME = "chunk"
+    DEFAULT_MERGE = True
 elif PROJECT == "POLICY_ATLAS":
     Chunk = Activity
-    chunk_table_name = "activity"
-    default_merge = False  # activity records were not split into separate chunks,so no need to merge
+    CHUNK_TABLE_NAME = "activity"
+    DEFAULT_MERGE = False  # activity records were not split into separate chunks,so no need to merge
 
 
 class RetrieverInput(MessagesState):
@@ -86,7 +86,7 @@ class CustomRetriever(BaseRetriever):
 
     @staticmethod
     def chunks_to_docs(
-        chunks: List[Chunk], merge: bool = default_merge, enumerate_: bool = False
+        chunks: List[Chunk], merge: bool = DEFAULT_MERGE, enumerate_: bool = False
     ) -> List[LangchainDocument]:
         """Convert Chunk objects to LangchainDocument objects, with the option to merge"""
         if merge:
@@ -132,7 +132,7 @@ class CustomRetriever(BaseRetriever):
     def retrieve_chunks(db: LanceDBConnection, input: RetrieverInput, **kwargs) -> List[Chunk]:
         """Retrieve chunks synchrously"""
 
-        chunk_table = db.open_table(chunk_table_name)
+        chunk_table = db.open_table(CHUNK_TABLE_NAME)
 
         query = input["messages"][-1].content
         limit = input["limit"]
@@ -192,7 +192,7 @@ if __name__ == "__main__":
 
     db = lancedb.connect(DB_PATH)
     doc_table = db.open_table("document")
-    chunk_table = db.open_table(chunk_table_name)
+    chunk_table = db.open_table(CHUNK_TABLE_NAME)
 
     # code below is just for testing and experimenting
 

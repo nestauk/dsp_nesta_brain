@@ -151,9 +151,24 @@ if __name__ == "__main__":
         table.create_fts_index("text")
 
     # adding full text search index retrospectively
-    if True:
+    if False:
         table = db.open_table("chunk")
         table.create_fts_index("text")
+
+    # searching for records
+    if True:
+        document_table = db.open_table("document")
+        chunk_table = db.open_table("chunk")
+
+        #   docs = document_table.search().where('title LIKE "%Birthing Parent%"').limit(10).to_pydantic(Document)
+        #  print(docs)
+        chunks = (
+            chunk_table.search()
+            .where('source.location LIKE "https://drive.google.com/file/d%"')
+            .limit(100)
+            .to_pydantic(Chunk)
+        )
+    #   print(chunks)
 
     # fixing a cock up
     if False:

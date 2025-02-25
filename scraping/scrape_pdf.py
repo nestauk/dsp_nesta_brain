@@ -18,6 +18,7 @@ from unstructured.documents.elements import Text
 from unstructured.documents.elements import Title
 from unstructured.partition.pdf import partition_pdf
 from utils import first
+from utils import yesno
 
 
 class PDF:
@@ -89,7 +90,8 @@ class PDF:
         is_about_licensing = re.match(
             "This work is licensed under a Creative Commons|creativecommons.org/licenses", element.text
         )
-        return is_page_number or is_about_licensing or PDF.is_malformed_string(element)
+        is_blank = not str(element).strip()
+        return is_page_number or is_about_licensing or is_blank or PDF.is_malformed_string(element)
 
     @staticmethod
     def is_bad_title(element: Title) -> bool:
@@ -139,6 +141,11 @@ class PDF:
         which indicates a standard report format"""  # noqa
 
         return self.executive_summary and self.end_section
+
+    @property
+    def text(self) -> str:
+        """Return the full text"""
+        return "\n\n".join([element.text for element in self.elements if PDF.is_good_text_element(element)])
 
     def filter(self) -> None:
         """
@@ -200,9 +207,7 @@ class PDF:
         while title_guesses and not title:
             title_guess = title_guesses.pop(0)
             if title_guess:  # it might be None by mistake
-                if not cautious or input(
-                    indent + f'Is this the document title: "{str(title_guess)}"? (any key except enter = "yes")'
-                ):
+                if not cautious or yesno(indent + f'Is this the document title: "{str(title_guess)}"?)'):
                     title = str(title_guess)
         if not title:
             title = input(indent + "Enter document title: ")
@@ -211,12 +216,10 @@ class PDF:
 
         date_pub = None
         if date_guess:
-            if not cautious or input(
-                indent + f'Is this the publication date: "{date_guess}"? (any key except enter = "yes")'
-            ):
+            if not cautious or yesno(indent + f'Is this the publication date: "{date_guess}"?'):
                 date_pub = date_guess
 
-        if date_guess or force_date:
+        if (date_guess or force_date) and not date_pub:
             while not metadata.get("date_pub"):
                 try:
                     metadata["date_pub"] = dt.datetime.strptime(date_pub, "%Y-%m-%d")
@@ -353,6 +356,11 @@ class PDFPage:
         return [element for element in self.elements if re.match(r"0\d\s+[A-Za-z]+", element.text)]
 
     @property
+    def text(self) -> str:
+        """Return the text"""
+        return "\n\n".join([element.text for element in self.text_elements])
+
+    @property
     def text_elements_assigned_to_section(self) -> List[Union[NarrativeText, ListItem]]:
         """Return any text-like elements assigned to a section"""
         return sum([section.text_elements for section in self.sections], [])
@@ -428,14 +436,22 @@ class PDFSection:
 
 if __name__ == "__main__":
 
+    # from google_api.drive import download_pdf
+
+    url = "https://drive.google.com/file/d/1RsjGw2kNV3eqAqeTWqZX5m3tST_M73A4/view?usp=sharing"
+    file_id = url.replace("https://drive.google.com/file/d/", "").replace("/view?usp=sharing", "")
+    # download_pdf(file_id)
+
     paths = ["google_api/downloaded.pdf"]
 
     for path in paths:
 
         pdf = PDF(path)
 
-        for element in pdf.elements:
-            print(type(element), element, "\n\n")  # noqa
+        #   for element in pdf.elements:
+        #      print(f'{type(element)}:{element.metadata.is_continuation}\n{element}\n\n')  # noqa
+
+    #  print(pdf.text)
 
     # for testing and development
 

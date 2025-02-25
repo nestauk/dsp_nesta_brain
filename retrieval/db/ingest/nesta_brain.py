@@ -4,6 +4,7 @@ import os
 import re
 import sys
 
+from datetime import datetime
 from typing import List
 from typing import Optional
 from typing import Tuple
@@ -38,9 +39,9 @@ PDF_PATH = WEBSITE_DATA_PATH / "pdf_files"
 NESTA_SITE_URL = "https://nesta.org.uk"
 
 
-db = lancedb.connect(DB_PATH)
-document_table = db.open_table("document")
-chunk_table = db.open_table("chunk")
+DB = lancedb.connect(DB_PATH)
+DOCUMENT_TABLE = DB.open_table("document")
+CHUNK_TABLE = DB.open_table("chunk")
 
 
 def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
@@ -51,7 +52,7 @@ def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
     elif isinstance(doc_or_location, str):
         location = doc_or_location
 
-    results = chunk_table.search().where(f'source.location = "{location}"').to_list()
+    results = CHUNK_TABLE.search().where(f'source.location = "{location}"').to_list()
     return bool(results)
 
 
@@ -132,8 +133,8 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         if replace:
             logger.info(f"{N_in_db} documents were already in the database and will be replaced")
             for doc in already_in_db:
-                chunk_table.delete(f'source.location = "{doc.metadata["location"]}"')
-                document_table.delete(f'location = "{doc.metadata["location"]}"')
+                CHUNK_TABLE.delete(f'source.location = "{doc.metadata["location"]}"')
+                DOCUMENT_TABLE.delete(f'location = "{doc.metadata["location"]}"')
 
         else:
             logger.info(
@@ -147,7 +148,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         chunks = asyncio.run(documents_to_Chunks(documents, lance_documents))
 
         # ====CAUTION====
-        # document_table.add(lance_documents) introduces data redundancy in the database
+        # DOCUMENT_TABLE.add(lance_documents) introduces data redundancy in the database
         # and should be removed for later versions.
         # The source field in the chunk table does not link to a Document record.
         # If the title of a record in the document table is updated,
@@ -156,8 +157,8 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         # I am keeping this in temporarily for purposes of experimentation
         if chunks:
             logger.info(f"Ingested {len(lance_documents)} Document(s) and {len(chunks)} Chunk(s) into the database")
-            document_table.add(lance_documents)
-            chunk_table.add(chunks)
+            DOCUMENT_TABLE.add(lance_documents)
+            CHUNK_TABLE.add(chunks)
         else:
             logger.info(f"No chunks from document(s) {lance_documents} into ingest to the database")
 
@@ -402,6 +403,23 @@ def search_query_to_ingested_data(query: str, site_url: str, replace: bool = Fal
 def ingest_from_drive(file_ids: Optional[List[str]] = None, all_pdfs: bool = False, **kwargs) -> None:
     """Ingest PDFs from Google Drive into the database"""
 
+    def guess_metadata(file_id: str) -> Tuple[str, Union[None, datetime.date]]:
+        file_metadata = get_file(file_id, is_pdf=True, silent=True)  # the only useful metadata here is file name
+        policy_filename_regex = r" - ((\d.. )?[A-Z][a-z]+ \d{4})(.+)?(\.(docx?|pdf))+"
+        # Policy document file names generally have the format: name - Month Year(.docx)?.pdf
+        title_guess = re.sub(policy_filename_regex, "", file_metadata.get("name")).strip()  #
+        date_guess = None
+        match_ = re.search(policy_filename_regex, file_metadata.get("name"))
+        if match_:
+            date_formats = ["%B %Y", "%dth %B %Y", "%dst %B %Y", "%dnd %B %Y", "%drd %B %Y"]
+            while not date_guess and date_formats:
+                date_format = date_formats.pop(0)
+                try:
+                    date_guess = datetime.strptime(match_.group(1), date_format).date()
+                except ValueError:
+                    pass
+        return title_guess, date_guess
+
     if file_ids is None and not all_pdfs:
         raise Exception("You must provide either a list of file_ids or set all_pdfs=True")
 
@@ -414,10 +432,13 @@ def ingest_from_drive(file_ids: Optional[List[str]] = None, all_pdfs: bool = Fal
         pdf_path = "google_api/downloaded.pdf"
         download_pdf(file_id, path=pdf_path)
         pdf = PDF(pdf_path)
-        text = pdf.filtered_text
+        text = (
+            pdf.text
+        )  # use text rather than filtered_text because the formatting of policy documents is different to main reports
+        # where sections are identified via titles; titles in policy documents are often not identified
 
-        file_metadata = get_file(file_id, is_pdf=True, silent=True)  # the only useful metadata here is file name
-        metadata = pdf.guess_metadata(title_guess=file_metadata.get("name"), cautious=True, force_date=True)
+        title_guess, date_guess = guess_metadata(file_id)
+        metadata = pdf.guess_metadata(title_guess=title_guess, date_guess=date_guess, cautious=True, force_date=True)
         metadata["location"] = f"https://drive.google.com/file/d/{file_id}"
         doc = LangchainDocument(page_content=text, metadata=metadata)
         ingest([doc], **kwargs)
@@ -497,4 +518,5 @@ if __name__ == "__main__":
 
     elif mode == "drive":
 
-        ingest_from_drive(all_pdfs=True, replace=replace)
+        file_ids = ["1RVR3qrVDGVD3jtyMpUix7_rk1lXeSfkh"]
+        ingest_from_drive(file_ids=file_ids, replace=replace)
