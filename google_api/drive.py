@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from typing import Dict
+from typing import List
 from typing import Optional
 from typing import Tuple
 from typing import Union
@@ -19,8 +20,10 @@ if TYPE_CHECKING:
 
 
 # Define the scopes for both Google Drive and Google Docs
-# SCOPES = ["https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/documents"]
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]  # , "https://www.googleapis.com/auth/documents.readonly"]
+DEFAULT_SCOPES = ["https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/documents"]
+PDF_SCOPES = [
+    "https://www.googleapis.com/auth/drive.readonly"
+]  # scope for downloading PDFs; it will not work if DEFAULT_SCOPES is used
 
 # default Google Drive folder ID
 DEFAULT_FOLDER_ID = "1WyMFiP4Q8NDILNXWCdmFJ7Tvlg37wL89"
@@ -28,9 +31,9 @@ DEFAULT_FOLDER_ID = "1WyMFiP4Q8NDILNXWCdmFJ7Tvlg37wL89"
 SERVICE_ACCOUNT_FILE = "credentials.json"
 
 
-def authenticate_service_account() -> Dict:
+def authenticate_service_account(scopes: List[str] = DEFAULT_SCOPES) -> Dict:
     """Authenticate using a service account."""
-    creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+    creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
     return creds
 
 
@@ -99,18 +102,23 @@ def docs_service(creds: Optional[Dict] = None) -> Resource:
 
 
 def download_pdf(
-    file_id: str, service: Optional[Resource] = None, path: str = "google_api/downloaded.pdf", **kwargs
+    file_id: str,
+    service: Optional[Resource] = None,
+    path: str = "google_api/downloaded.pdf",
+    scopes: List[str] = PDF_SCOPES,
+    **kwargs,
 ) -> None:
     """Download a PDF from Google Drive."""
-    service = service or drive_service(**kwargs)
+    service = service or drive_service(scopes=scopes, **kwargs)
     request = service.files().get_media(fileId=file_id)
     with open(path, "wb") as file:
         file.write(request.execute())
 
 
-def drive_service(creds: Optional[Dict] = None) -> Resource:
+def drive_service(creds: Optional[Dict] = None, scopes: List[str] = DEFAULT_SCOPES) -> Resource:
     """Return a Google Drive service object."""
-    creds = creds or authenticate_service_account()
+    if not creds or scopes != DEFAULT_SCOPES:
+        creds = authenticate_service_account(scopes=scopes)
     return build("drive", "v3", credentials=creds)
 
 
