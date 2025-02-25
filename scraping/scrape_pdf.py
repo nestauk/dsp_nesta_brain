@@ -176,6 +176,7 @@ class PDF:
         title_guess: Optional[Union[str, List[str]]] = None,
         date_guess: Optional[str] = None,
         cautious: bool = False,
+        force_date: bool = False,
         indent: Optional[str] = "",
     ) -> Dict:
         """Guess the title and check whether the title guess and date guess (if any) are correct"""
@@ -214,6 +215,8 @@ class PDF:
                 indent + f'Is this the publication date: "{date_guess}"? (any key except enter = "yes")'
             ):
                 date_pub = date_guess
+
+        if date_guess or force_date:
             while not metadata.get("date_pub"):
                 try:
                     metadata["date_pub"] = dt.datetime.strptime(date_pub, "%Y-%m-%d")
@@ -425,13 +428,14 @@ class PDFSection:
 
 if __name__ == "__main__":
 
-    paths = []
+    paths = ["google_api/downloaded.pdf"]
 
     for path in paths:
 
         pdf = PDF(path)
 
-        pdf.filter()
+        for element in pdf.elements:
+            print(type(element), element, "\n\n")  # noqa
 
     # for testing and development
 

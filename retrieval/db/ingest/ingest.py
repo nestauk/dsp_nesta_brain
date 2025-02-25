@@ -43,8 +43,8 @@ load_dotenv()
 
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
-db = lancedb.connect(DB_PATH)
-chunk_table = db.open_table(CHUNK_TABLE_NAME)
+DB = lancedb.connect(DB_PATH)
+CHUNK_TABLE = DB.open_table(CHUNK_TABLE_NAME)
 
 
 class RequestCounter(list):
@@ -176,7 +176,7 @@ def chunk_already_in_db(chunk: LangchainDocument, where_condition: Optional[str]
 
     where_condition = where_condition or f'text == "{chunk.page_content}"'
     try:
-        results = chunk_table.search().where(where_condition).limit(1).to_pydantic(Chunk)
+        results = CHUNK_TABLE.search().where(where_condition).limit(1).to_pydantic(Chunk)
     except Exception as e:
         error_message_format = "Error while trying to check whether activity {id} exists in database"
         logger.error(error_message_format.format(id=chunk.metadata.get("iati_identifier")))
@@ -190,7 +190,7 @@ async def chunk_to_Chunk(chunk: LangchainDocument, **kwargs) -> Chunk:
     of the Chunk class which can be ingested into the DB
     (including deriving an embedding for the Chunk)
     """  # noqa
-    vector_ = vector(chunk.page_content, async_=True)
+    vector_ = await vector(chunk.page_content, async_=True)
     return Chunk(text=chunk.page_content, vector=vector_, **kwargs)
 
 

@@ -18,6 +18,9 @@ from bs4.element import Tag
 from config import DB_PATH
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
+from google_api.drive import download_pdf
+from google_api.drive import get_file
+from google_api.drive import list_files
 from langchain.docstore.document import Document as LangchainDocument
 from langdetect import detect
 from pdf2image.exceptions import PDFInfoNotInstalledError
@@ -152,7 +155,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         # This is a recipe for mess!
         # I am keeping this in temporarily for purposes of experimentation
         if chunks:
-            logger.info(f"Ingested {len(lance_documents)} Document(s) and {len(chunks)} Chunks into the database")
+            logger.info(f"Ingested {len(lance_documents)} Document(s) and {len(chunks)} Chunk(s) into the database")
             document_table.add(lance_documents)
             chunk_table.add(chunks)
         else:
@@ -396,12 +399,38 @@ def search_query_to_ingested_data(query: str, site_url: str, replace: bool = Fal
     return bool(scraped_data)
 
 
+def ingest_from_drive(file_ids: Optional[List[str]] = None, all_pdfs: bool = False, **kwargs) -> None:
+    """Ingest PDFs from Google Drive into the database"""
+
+    if file_ids is None and not all_pdfs:
+        raise Exception("You must provide either a list of file_ids or set all_pdfs=True")
+
+    if all_pdfs:
+        files = list_files(mimetype="application/pdf")
+        file_ids = [file["id"] for file in files]
+        logger.info(f"Found {len(file_ids)} PDFs in Google Drive")
+
+    for file_id in file_ids:
+        pdf_path = "google_api/downloaded.pdf"
+        download_pdf(file_id, path=pdf_path)
+        pdf = PDF(pdf_path)
+        text = pdf.filtered_text
+
+        file_metadata = get_file(file_id, is_pdf=True, silent=True)  # the only useful metadata here is file name
+        metadata = pdf.guess_metadata(title_guess=file_metadata.get("name"), cautious=True, force_date=True)
+        metadata["location"] = f"https://drive.google.com/file/d/{file_id}"
+        doc = LangchainDocument(page_content=text, metadata=metadata)
+        ingest([doc], **kwargs)
+
+
 if __name__ == "__main__":
 
+    # you will need to add instructions and settings relevant to the new mode  "drive"
+
     # SETTINGS
-    mode = "web_dump"  # if 'web_search', do a web search, scrape and ingest the results
+    mode = "drive"  # if 'web_search', do a web search, scrape and ingest the results
     # if 'web_dump', ingest data which has already been downloaded from the Nesta website
-    possible_modes = ["web_dump", "web_search"]
+    possible_modes = ["web_dump", "web_search", "drive"]
     replace = False  # if True, if the document already exists in the DB, any chunks derived
     # from it will be deleted and replaced
 
@@ -465,3 +494,7 @@ if __name__ == "__main__":
                 results_returned = search_query_to_ingested_data(query, url, start=start, replace=replace)
                 if not results_returned:
                     break
+
+    elif mode == "drive":
+
+        ingest_from_drive(all_pdfs=True, replace=replace)

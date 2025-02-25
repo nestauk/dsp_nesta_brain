@@ -106,13 +106,17 @@ def download_pdf(
     service: Optional[Resource] = None,
     path: str = "google_api/downloaded.pdf",
     scopes: List[str] = PDF_SCOPES,
+    silent: bool = False,
     **kwargs,
 ) -> None:
     """Download a PDF from Google Drive."""
+
     service = service or drive_service(scopes=scopes, **kwargs)
     request = service.files().get_media(fileId=file_id)
     with open(path, "wb") as file:
         file.write(request.execute())
+    if not silent:
+        logger.info(f"Downloaded PDF {file_id} to {path}")
 
 
 def drive_service(creds: Optional[Dict] = None, scopes: List[str] = DEFAULT_SCOPES) -> Resource:
@@ -148,17 +152,37 @@ def get_document(
 
 
 def get_file(
-    document_id: str, creds: Optional[Dict] = None, service: Optional[Resource] = None, silent: bool = False, **kwargs
+    document_id: str,
+    creds: Optional[Dict] = None,
+    service: Optional[Resource] = None,
+    is_pdf: bool = False,
+    silent: bool = False,
+    **kwargs,
 ) -> Dict:
     """Get a file from Drive"""
 
     if not silent:
         logger.info(f'Getting file with ID "{document_id}" from Drive')
 
-    service = service or drive_service(creds=creds)
+    service = service or drive_service(creds=creds, scopes=PDF_SCOPES if is_pdf else DEFAULT_SCOPES)
     file = service.files().get(fileId=document_id, **kwargs).execute()
 
     return file
+
+
+def list_files(mimetype: Optional[str] = None) -> List[Dict]:
+    """List files in Google Drive."""
+
+    q = None
+    scopes = DEFAULT_SCOPES
+    if mimetype:
+        if mimetype == "application/pdf":
+            scopes = PDF_SCOPES
+        query_format = "mimeType='{mimetype}'"
+        q = query_format.format(mimetype=mimetype)
+
+    result = drive_service(scopes=scopes).files().list(q=q).execute()
+    return result["files"]
 
 
 def move_file(
