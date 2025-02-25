@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 
 
 # Define the scopes for both Google Drive and Google Docs
-SCOPES = ["https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/documents"]
-
+# SCOPES = ["https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/documents"]
+SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]  # , "https://www.googleapis.com/auth/documents.readonly"]
 
 # default Google Drive folder ID
 DEFAULT_FOLDER_ID = "1WyMFiP4Q8NDILNXWCdmFJ7Tvlg37wL89"
@@ -34,13 +34,10 @@ def authenticate_service_account() -> Dict:
     return creds
 
 
-def create_document(body_dict: Dict, creds: Optional[Dict] = None) -> str:
+def create_document(body_dict: Dict, **kwargs) -> str:
     """Create a Google Docs document."""
 
-    creds = creds or authenticate_service_account()
-    docs_service = build("docs", "v1", credentials=creds)
-
-    doc = docs_service.documents().create(body=body_dict).execute()
+    doc = docs_service(**kwargs).documents().create(body=body_dict).execute()
     document_id = doc["documentId"]
     logger.info(f"Document {document_id} created: https://docs.google.com/document/d/{document_id}/edit")
 
@@ -57,9 +54,6 @@ def create_document_in_folder_from_string(
 ) -> Tuple[str]:
     """Create a Google Docs document from a string in a specific folder."""
 
-    creds = creds or authenticate_service_account()
-    service = build("drive", "v3", credentials=creds)
-
     file_metadata = {"name": file_name, "mimeType": mimetype}
 
     media = MediaInMemoryUpload(string.strip().encode("utf-8"), mimetype=mimetype)
@@ -67,7 +61,7 @@ def create_document_in_folder_from_string(
         input("Check this has worked - before mimetype was 'text/plain'")
 
     # Create the file on Google Drive
-    file = service.files().create(body=file_metadata, media_body=media, fields="id").execute()
+    file = drive_service(creds=creds).files().create(body=file_metadata, media_body=media, fields="id").execute()
 
     folder = move_file(file["id"], silent=silent, **kwargs)
 
@@ -98,6 +92,28 @@ def create_document_in_folder(*args, creds: Optional[Dict] = None, **kwargs) -> 
     move_file(document_id, creds=creds, **kwargs)
 
 
+def docs_service(creds: Optional[Dict] = None) -> Resource:
+    """Return a Google Docs service object."""
+    creds = creds or authenticate_service_account()
+    return build("docs", "v1", credentials=creds)
+
+
+def download_pdf(
+    file_id: str, service: Optional[Resource] = None, path: str = "google_api/downloaded.pdf", **kwargs
+) -> None:
+    """Download a PDF from Google Drive."""
+    service = service or drive_service(**kwargs)
+    request = service.files().get_media(fileId=file_id)
+    with open(path, "wb") as file:
+        file.write(request.execute())
+
+
+def drive_service(creds: Optional[Dict] = None) -> Resource:
+    """Return a Google Drive service object."""
+    creds = creds or authenticate_service_account()
+    return build("drive", "v3", credentials=creds)
+
+
 def get_document(
     document_id: str,
     creds: Optional[Dict] = None,
@@ -109,9 +125,7 @@ def get_document(
 
     logger.info(f"Getting {document_id} from Drive")
 
-    if not service:
-        creds = creds or authenticate_service_account()
-        service = build("docs", "v1", credentials=creds)
+    service = service or docs_service(creds=creds)
 
     try:
         doc = service.documents().get(documentId=document_id, **kwargs).execute()
@@ -133,27 +147,26 @@ def get_file(
     if not silent:
         logger.info(f'Getting file with ID "{document_id}" from Drive')
 
-    if not service:
-        creds = creds or authenticate_service_account()
-        service = build("drive", "v3", credentials=creds)
-
+    service = service or drive_service(creds=creds)
     file = service.files().get(fileId=document_id, **kwargs).execute()
 
     return file
 
 
 def move_file(
-    file_id: str, to_folder: str = DEFAULT_FOLDER_ID, creds: Optional[Dict] = None, silent: bool = False
+    file_id: str,
+    to_folder: str = DEFAULT_FOLDER_ID,
+    service: Optional[Resource] = None,
+    silent: bool = False,
+    **kwargs,
 ) -> None:
     """Move the document to a specific folder."""
 
-    creds = creds or authenticate_service_account()
-    drive_service = build("drive", "v3", credentials=creds)
-
-    file = get_file(file_id, service=drive_service, fields="parents", silent=True)
+    service = service or drive_service(**kwargs)
+    file = get_file(file_id, service=service, fields="parents", silent=True)
     previous_parents = ",".join(file.get("parents", []))
 
-    drive_service.files().update(
+    service.files().update(
         fileId=file_id, addParents=to_folder, removeParents=previous_parents, fields="id, parents"
     ).execute()
 
