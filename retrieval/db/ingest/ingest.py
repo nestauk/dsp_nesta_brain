@@ -12,15 +12,14 @@ import lancedb
 import tiktoken
 
 from config import DB_PATH
-from config import DEFAULT_EMBEDDINGS_MODEL
 from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain.text_splitter import CharacterTextSplitter
-from openai import AsyncOpenAI
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
 from retrieval.db.schema.policy_atlas import Activity
+from retrieval.embeddings import vector
 
 
 if PROJECT == "NESTA_BRAIN":
@@ -191,13 +190,8 @@ async def chunk_to_Chunk(chunk: LangchainDocument, **kwargs) -> Chunk:
     of the Chunk class which can be ingested into the DB
     (including deriving an embedding for the Chunk)
     """  # noqa
-    # intentionally not using the neater syntax documented by lanceDB which automatically calculates embeddings vectors
-    # using model.VectorField() specified in the schema.
-    # This is because I had issues getting a nested schema to work with this method.
-    async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    result = await async_client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=chunk.page_content)
-    vector = result.data[0].embedding
-    return Chunk(text=chunk.page_content, vector=vector, **kwargs)
+    vector_ = vector(chunk.page_content, async_=True)
+    return Chunk(text=chunk.page_content, vector=vector_, **kwargs)
 
 
 def split_documents(documents: List[LangchainDocument]) -> List[LangchainDocument]:

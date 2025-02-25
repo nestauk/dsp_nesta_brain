@@ -14,7 +14,7 @@ from typing import Union
 import streamlit as st
 
 from config import EARLIEST_YEAR
-from config import PROJECT
+from config import USE_LANGFUSE
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from front_end.project_spec import INTRO
@@ -109,7 +109,7 @@ def respond(
 ) -> CustomAIMessage:
     """Get LLM response from chain"""
 
-    if use_langfuse:
+    if USE_LANGFUSE:
         trace_id = str(uuid.uuid4())
         config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
     else:
@@ -184,7 +184,7 @@ def respond(
         # it will be rendered in a nicer format with references
         message_placeholder.markdown("")
 
-    if use_langfuse:
+    if USE_LANGFUSE:
         langfuse.trace(id=trace_id, metadata=trace_metadata())
         st.session_state["current_trace_id"] = trace_id
 
@@ -237,8 +237,6 @@ if __name__ == "__main__":
     # settings
     limit: int = 10
     use_graph: bool = False
-    use_langfuse: bool = PROJECT == "NESTA_BRAIN"  # Langfuse is not currently set up for other projects –
-    # don't want NestaBrain's Langfuse to store traces from other projects
     stream: bool = True
     use_tool_for_citations: bool = False
 
@@ -329,7 +327,7 @@ if __name__ == "__main__":
                 message = {"role": "assistant", "html": response.as_html(), "content": response.content}
                 st.session_state.messages.append(message)
 
-        if use_langfuse:
+        if USE_LANGFUSE:
             feedback = streamlit_feedback(
                 feedback_type="faces",
                 optional_text_label="[Optional] Please provide an explanation",

@@ -10,20 +10,18 @@ from typing import Optional
 import lancedb
 
 from config import DB_PATH
-from config import DEFAULT_EMBEDDINGS_MODEL
 from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from lancedb.db import LanceDBConnection
 from lancedb.table import LanceTable
 from langchain.docstore.document import Document as LangchainDocument
-from langchain_community.vectorstores import LanceDB
 from langchain_core.retrievers import BaseRetriever
-from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import MessagesState
 from openai import OpenAI
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
 from retrieval.db.schema.policy_atlas import Activity
+from retrieval.embeddings import vector
 from utils import unique
 
 
@@ -140,7 +138,7 @@ class CustomRetriever(BaseRetriever):
         limit = input["limit"]
         filter_condition = input.get("filter_condition") or None  # if '' then want None
         logger.info("Vectorizing query ...")
-        vector_ = CustomRetriever.vector(query)
+        vector_ = vector(query)
 
         logger.info("Retrieving most relevant chunks ...")
         chunks = CustomRetriever.search_loop(
@@ -183,13 +181,6 @@ class CustomRetriever(BaseRetriever):
                 chunks = unique_chunks
         return chunks
 
-    @staticmethod
-    def vector(string: str) -> List[float]:
-        """Calculate the embedding vector of string"""
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        vector = client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=string).data[0].embedding
-        return vector
-
 
 if __name__ == "__main__":
 
@@ -220,32 +211,3 @@ if __name__ == "__main__":
         logger.info(len(chunks))
         for chunk in chunks:
             logger.info("\n\n", chunk)
-
-    if False:
-        # experimenting with queries
-        # lancedb's neater syntax for handling embeddings doesn't work because of the way the schema has been specified
-
-        query = "HACID project"
-        vector_ = client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=query).data[0].embedding
-        # chunk_table.create_fts_index("text")
-        # chunk_results = chunk_table.search()
-        #                   .where('source.location = "https://www.nesta.org.uk/project/centre-collective-intelligence-design/"')
-        #                   .to_list()
-
-        chunk_results = chunk_table.search(query_type="hybrid").vector(vector_).text(query).limit(3).to_pydantic(Chunk)
-
-        for result in chunk_results:
-            logger.info("\n\n", result, "\n\n")
-
-    if False:
-        # experimenting with Langchain
-
-        vector_store = LanceDB(
-            uri=DB_PATH,
-            embedding=OpenAIEmbeddings(),
-            table_name=chunk_table_name,
-        )
-
-        retriever = vector_store.as_retriever()
-        docs = retriever.invoke("climate change projects")  # bug in lancedb prevents this from working
-        logger.info(docs)
