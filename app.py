@@ -27,7 +27,6 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from lgraph.graph import LAST_GRAPH_NODE_NAME
 from lgraph.graph import graph_options_type
 from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
@@ -124,16 +123,20 @@ def respond(
             async def stream_() -> State:
                 message_text = ""
                 id = None
+
                 async for event in chain_or_graph.astream_events(input, config, version="v1", stream_mode="values"):
+
                     if event["event"] == "on_chat_model_stream":
-                        ai_message_chunk = event["data"]["chunk"]
-                        if id != ai_message_chunk.id:
-                            if id:
-                                message_text += "\n\n"
-                            id = ai_message_chunk.id
-                        message_text += ai_message_chunk.content
-                        message_placeholder.markdown(message_text + "▌")
-                    elif event["event"] == "on_chain_end" and event["name"] == LAST_GRAPH_NODE_NAME:
+                        if (event.get("metadata") or {}).get("langgraph_node") in stream_nodes:
+                            ai_message_chunk = event["data"]["chunk"]
+                            if id != ai_message_chunk.id:
+                                if id:
+                                    message_text += "\n\n"
+                                id = ai_message_chunk.id
+                            message_text += ai_message_chunk.content
+                            message_placeholder.markdown(message_text + "▌")
+
+                    elif event["event"] == "on_chain_end" and event["name"] == stream_nodes[-1]:
                         final_state = event["data"]["input"]
                 return final_state
 
@@ -247,7 +250,9 @@ if __name__ == "__main__":
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        runnable = get_graph_or_rag_chain(use_graph=use_graph, use_tool_for_citations=use_tool_for_citations)
+        runnable, stream_nodes = get_graph_or_rag_chain(
+            use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
+        )
 
         st.set_page_config(layout="wide")
         st.markdown(

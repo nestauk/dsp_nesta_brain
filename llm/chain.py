@@ -27,21 +27,34 @@ if TYPE_CHECKING:
 
 
 def get_graph_or_rag_chain(
-    use_tool_for_citations: bool = False, use_graph: Optional[graph_options_type] = None, **kwargs
+    use_tool_for_citations: bool = False,
+    use_graph: Optional[graph_options_type] = None,
+    return_stream_nodes: bool = False,
+    **kwargs,
 ) -> Runnable:
     """Return a suitable graph or RAG chain depending on the arguments"""
+
     if use_tool_for_citations:
         raise Exception("use_tool_for_citations may no longer work – need to check")
 
     if use_graph == "chat":
-        return create_chat_graph(use_tool_for_citations=use_tool_for_citations, **kwargs)
+        return create_chat_graph(
+            use_tool_for_citations=use_tool_for_citations, return_stream_nodes=return_stream_nodes, **kwargs
+        )
     elif use_graph == "combined":
-        return create_combined_graph(use_tool_for_citations=use_tool_for_citations, **kwargs)
+        return create_combined_graph(
+            use_tool_for_citations=use_tool_for_citations, return_stream_nodes=return_stream_nodes, **kwargs
+        )
 
     elif use_tool_for_citations:
-        return history_aware_rag_chain_with_citation_tool(use_graph=use_graph, **kwargs)
+        runnable = history_aware_rag_chain_with_citation_tool(use_graph=use_graph, **kwargs)
     else:
-        return history_aware_rag_chain(use_graph=use_graph, **kwargs)
+        runnable = history_aware_rag_chain(use_graph=use_graph, **kwargs)
+
+    if return_stream_nodes:
+        return runnable, []  # stream_nodes are only relevant for graphs
+    else:
+        return runnable
 
 
 def create_retrieval_chain(

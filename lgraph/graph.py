@@ -34,7 +34,6 @@ if TYPE_CHECKING:
 
 
 DEFAULT_FROM_YEAR_FILTER_CONDITION = f"source.date_pub >= to_timestamp('{DEFAULT_START_YEAR}-01-01')"
-LAST_GRAPH_NODE_NAME = "call_model"  # not ideal – try to find a better way to do this
 
 graph_options_type: Type = Literal["retrieval", "chat", "combined"]
 
@@ -186,7 +185,9 @@ def currentness_comment(state: State, writer: StreamWriter) -> State:
     return state
 
 
-def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
+def create_chat_graph(
+    return_stream_nodes: bool = False, **kwargs
+) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
     """Compile and return a graph to assist with chat"""
 
     rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(**kwargs)  # avoiding circular import
@@ -210,7 +211,14 @@ def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function
     builder.add_edge("call_model", "currentness_comment")
     builder.add_edge("currentness_comment", END)
 
-    return builder.compile()
+    stream_nodes = ["currentness_comment"]  # list of nodes whose outputs are to be streamed IN ORDER
+
+    graph = builder.compile()
+
+    if return_stream_nodes:
+        return graph, stream_nodes
+    else:
+        return graph
 
 
 # ----------combined graph
@@ -229,7 +237,9 @@ def choose_main_prompt(state: State) -> State:
     return state
 
 
-def create_combined_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
+def create_combined_graph(
+    return_stream_nodes: bool = False, **kwargs
+) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
     """Compile and return a graph to assist with both retrieval and chat"""
 
     def call_model(
@@ -255,7 +265,14 @@ def create_combined_graph(**kwargs) -> CompiledStateGraph:  # doing it as a func
     builder.add_edge("choose_main_prompt", "call_model")
     builder.add_edge("call_model", END)
 
-    return builder.compile()
+    stream_nodes = ["call_model"]  # list of nodes whose outputs are to be streamed IN ORDER
+
+    graph = builder.compile()
+
+    if return_stream_nodes:
+        return graph, stream_nodes
+    else:
+        return graph
 
 
 if __name__ == "__main__":
