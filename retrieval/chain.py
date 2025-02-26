@@ -62,10 +62,10 @@ def create_history_aware_retriever(
     return retrieve_documents
 
 
-def retriever(use_langgraph: bool = False) -> Runnable:
+def retriever(use_retrieval_graph: bool = False) -> Runnable:
     """Return a CustomRetriever with the option of chaining it with a graph in order to make retrieval more sophisticated"""
     retriever_ = CustomRetriever()
-    if use_langgraph:
+    if use_retrieval_graph:
 
         # the output of the graph is a list of dicts in this format:
         # List[{'node_1_name':dict representing state returned by node 1} .. {'node_n_name': state returned by node n}]

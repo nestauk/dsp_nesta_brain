@@ -96,7 +96,8 @@ def trace_metadata() -> Dict:
     metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
     metadata["settings"] = {
         "use_tool_for_citations": use_tool_for_citations,
-        "use_graph": use_graph,
+        "use_chat_graph": use_chat_graph,
+        "use_retrieval_graph": use_retrieval_graph,
         "limit": limit,
     }
     return metadata
@@ -117,7 +118,7 @@ def respond(
 
     input = {"messages": chat_history(), "filter_condition": st.session_state["filter_condition"], "limit": limit}
 
-    if use_graph:
+    if use_chat_graph:
 
         if stream:
 
@@ -236,7 +237,8 @@ if __name__ == "__main__":
 
     # settings
     limit: int = 10
-    use_graph: bool = False
+    use_chat_graph: bool = False
+    use_retrieval_graph: bool = False
     stream: bool = True
     use_tool_for_citations: bool = False
 
@@ -250,12 +252,14 @@ if __name__ == "__main__":
         if use_tool_for_citations:
             raise Exception("use_tool_for_citations may no longer work – need to check")
 
-        if use_graph:
+        if use_chat_graph:
             rag_chain = create_chat_graph()
         elif use_tool_for_citations:
-            rag_chain = history_aware_rag_chain_with_citation_tool(chat_history)
+            rag_chain = history_aware_rag_chain_with_citation_tool(
+                chat_history, use_retrieval_graph=use_retrieval_graph
+            )
         else:
-            rag_chain = history_aware_rag_chain()
+            rag_chain = history_aware_rag_chain(use_retrieval_graph=use_retrieval_graph)
 
         st.set_page_config(layout="wide")
         st.markdown(
