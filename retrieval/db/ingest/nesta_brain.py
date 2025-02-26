@@ -77,13 +77,13 @@ async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: Lan
     return await ing.chunk_to_Chunk(chunk, order_index=order_index, source=source)
 
 
-async def documents_to_Chunks(
-    documents: List[LangchainDocument], sources: List[LanceDocument], split_documents: bool = True
-) -> List[Chunk]:
+async def documents_to_Chunks(documents: List[LangchainDocument], split_documents: bool = True) -> List[Chunk]:
     """
     Split Langchain documents into chunks and convert these into objects
     of the Chunk class which can be ingested into the DB
     """  # noqa
+
+    sources = [LanceDocument(ingestion=True, **doc.metadata) for doc in documents]
 
     if split_documents:
         docs_split = ing.split_documents(documents)
@@ -120,17 +120,20 @@ async def documents_to_Chunks(
 
         await ing.throttle(request_counter, [chunk.page_content for chunk in docs_split])
         logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
-        return await asyncio.gather(*tasks)
+        chunks = await asyncio.gather(*tasks)
+        return chunks, sources
 
     else:
+
         chunk_to_Chunk_ = lambda doc: ing.chunk_to_Chunk(  # noqa
-            doc, source=doc
+            doc, source=LanceDocument(ingestion=True, **doc.metadata)
         )  # order_index is not needed if not splitting
-        return await ing.documents_to_Chunks_no_split(
+        chunks = await ing.documents_to_Chunks_no_split(
             documents,
             skip_message_format="Skipping document {location} as it already seems to be in the DB",
             chunk_to_Chunk=chunk_to_Chunk_,
         )
+        return chunks, sources
 
 
 def ingest(documents: List[LangchainDocument], replace: bool = False, **kwargs) -> None:
@@ -160,8 +163,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False, **kwargs) 
 
     if documents:
 
-        lance_documents = [LanceDocument(ingestion=True, **doc.metadata) for doc in documents]
-        chunks = asyncio.run(documents_to_Chunks(documents, lance_documents, **kwargs))
+        chunks, lance_documents = asyncio.run(documents_to_Chunks(documents, **kwargs))
 
         # ====CAUTION====
         # DOCUMENT_TABLE.add(lance_documents) introduces data redundancy in the database
