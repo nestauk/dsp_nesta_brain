@@ -74,50 +74,58 @@ async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: Lan
     return await ing.chunk_to_Chunk(chunk, order_index=order_index, source=source)
 
 
-async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[LanceDocument]) -> List[Chunk]:
+async def documents_to_Chunks(
+    documents: List[LangchainDocument], sources: List[LanceDocument], split_documents: bool = True
+) -> List[Chunk]:
     """
     Split Langchain documents into chunks and convert these into objects
     of the Chunk class which can be ingested into the DB
     """  # noqa
 
-    docs_split = ing.split_documents(documents)
+    if split_documents:
+        docs_split = ing.split_documents(documents)
 
-    tasks = []
-    for i, chunk in enumerate(docs_split):
+        tasks = []
+        for i, chunk in enumerate(docs_split):
 
-        new_source = i == 0 or (i > 0 and docs_split[i - 1].metadata["location"] != chunk.metadata["location"])
-        if new_source:
-            source = [source for source in sources if source.location == chunk.metadata["location"]][0]
-            order_index = 1
-            existing_chunk_count = {}
+            new_source = i == 0 or (i > 0 and docs_split[i - 1].metadata["location"] != chunk.metadata["location"])
+            if new_source:
+                source = [source for source in sources if source.location == chunk.metadata["location"]][0]
+                order_index = 1
+                existing_chunk_count = {}
 
-            skip_source = False
-            source_is_pdf = source.location[-4:] == ".pdf"
-            if source_is_pdf:
-                _, existing_location = chunk_already_in_db(chunk)
-                existing_chunk_count[existing_location] = (existing_chunk_count.get(existing_location) or 0) + 1
-                is_duplicate = (
-                    existing_chunk_count[existing_location] >= 2
-                )  # there may be the occasional paragraph which is in
-                # more than one document, so make the rule there needs to be two chunks
-                # before the document is considered a duplicate
-                skip_source = is_duplicate
-            if skip_source:
-                logger.info(
-                    f"Skipping PDF {source.location} as it already seems to be in the DB with location: {existing_location}"
-                )
+                skip_source = False
+                source_is_pdf = source.location[-4:] == ".pdf"
+                if source_is_pdf:
+                    _, existing_location = chunk_already_in_db(chunk)
+                    existing_chunk_count[existing_location] = (existing_chunk_count.get(existing_location) or 0) + 1
+                    is_duplicate = (
+                        existing_chunk_count[existing_location] >= 2
+                    )  # there may be the occasional paragraph which is in
+                    # more than one document, so make the rule there needs to be two chunks
+                    # before the document is considered a duplicate
+                    skip_source = is_duplicate
+                if skip_source:
+                    logger.info(
+                        f"Skipping PDF {source.location} as it already seems to be in the DB with location: {existing_location}"
+                    )
 
-        if not skip_source:
-            task = asyncio.create_task(chunk_to_Chunk(chunk, order_index, source))
-            tasks.append(task)
-            order_index += 1
+            if not skip_source:
+                task = asyncio.create_task(chunk_to_Chunk(chunk, order_index, source))
+                tasks.append(task)
+                order_index += 1
 
-    await ing.throttle(request_counter, [chunk.page_content for chunk in docs_split])
-    logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
-    return await asyncio.gather(*tasks)
+        await ing.throttle(request_counter, [chunk.page_content for chunk in docs_split])
+        logger.info(f"Fetching embeddings for {len(docs_split)} chunks ...")
+        return await asyncio.gather(*tasks)
+
+    else:
+        return ing.documents_to_Chunks_no_split(
+            documents, skip_message_format="Skipping document {location} as it already seems to be in the DB"
+        )
 
 
-def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
+def ingest(documents: List[LangchainDocument], replace: bool = False, **kwargs) -> None:
     """
     Find out which documents are not already in the database, convert them into
     Document and Chunk data in accordance with the db schema
@@ -145,7 +153,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
     if documents:
 
         lance_documents = [LanceDocument(ingestion=True, **doc.metadata) for doc in documents]
-        chunks = asyncio.run(documents_to_Chunks(documents, lance_documents))
+        chunks = asyncio.run(documents_to_Chunks(documents, lance_documents, **kwargs))
 
         # ====CAUTION====
         # DOCUMENT_TABLE.add(lance_documents) introduces data redundancy in the database
@@ -169,11 +177,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
 
 
 # if scraping/ingesting from entire Nesta website data dump
-def webpages_to_ingested_data(
-    uids: Optional[List[str]] = None,
-    df: Optional[pd.DataFrame] = None,
-    replace: bool = False,
-) -> None:
+def webpages_to_ingested_data(uids: Optional[List[str]] = None, df: Optional[pd.DataFrame] = None, **kwargs) -> None:
     """Convert dumped Nesta webpages into LangchainDocuments and ingest"""
 
     if not uids and df is None or (uids and df is not None):
@@ -219,7 +223,7 @@ def webpages_to_ingested_data(
             )  # this is the case for some types of long read e.g. https://www.nesta.org.uk/feature/mapping-early-years-practice/
 
     if docs:
-        ingest(docs, replace=replace)
+        ingest(docs, **kwargs)
 
     else:
         logger.info("No docs to ingest!")
@@ -279,7 +283,7 @@ def is_good_link(link: str) -> bool:
 
 # if scraping/ingesting PDFs from entire Nesta website data dump
 def pdfs_to_ingested_data(
-    df: pd.DataFrame, replace: bool = False, download_button_pdf_only: bool = False, cautious: bool = False
+    df: pd.DataFrame, download_button_pdf_only: bool = False, cautious: bool = False, **kwargs
 ) -> None:
     """Convert dumped Nesta website PDFs into LangchainDocuments and ingest"""
 
@@ -374,14 +378,16 @@ def pdfs_to_ingested_data(
             # this gap in the messages helps keep it readable
 
     if docs:
-        ingest(docs, replace=replace)
+        ingest(docs, **kwargs)
 
     else:
         logger.info("No PDF-derived docs to ingest for this batch")
 
 
 # if scraping/ingesting from search results
-def search_query_to_ingested_data(query: str, site_url: str, replace: bool = False, **kwargs) -> bool:
+def search_query_to_ingested_data(
+    query: str, site_url: str, replace: bool = False, split_documents: bool = True, **kwargs
+) -> bool:
     """Perform a search, scrape the webpages from the search results, and ingest the data"""
 
     scraped_data = search_query_to_scraped_data(query, site_url, **kwargs)
@@ -395,7 +401,7 @@ def search_query_to_ingested_data(query: str, site_url: str, replace: bool = Fal
         doc = LangchainDocument(page_content=text, metadata=metadata)
         docs.append(doc)
 
-    ingest(docs, replace=replace)
+    ingest(docs, replace=replace, split_documents=split_documents)
 
     return bool(scraped_data)
 
@@ -447,6 +453,7 @@ def ingest_from_drive(file_ids: Optional[List[str]] = None, all_pdfs: bool = Fal
 if __name__ == "__main__":
 
     # you will need to add instructions and settings relevant to the new mode  "drive"
+    # split_documents setting is also new
 
     # SETTINGS
     mode = "drive"  # if 'web_search', do a web search, scrape and ingest the results
@@ -454,6 +461,7 @@ if __name__ == "__main__":
     possible_modes = ["web_dump", "web_search", "drive"]
     replace = False  # if True, if the document already exists in the DB, any chunks derived
     # from it will be deleted and replaced
+    split_documents = mode != "drive"  # if True, split documents into chunks before ingesting
 
     # settings relevant to web_dump mode
     pdf_mode = True  # scrape PDFs rather than webpages
@@ -492,10 +500,14 @@ if __name__ == "__main__":
 
             if pdf_mode:
                 pdfs_to_ingested_data(
-                    df, replace=replace, download_button_pdf_only=download_button_pdf_only, cautious=cautious
+                    df,
+                    replace=replace,
+                    download_button_pdf_only=download_button_pdf_only,
+                    cautious=cautious,
+                    split_documents=split_documents,
                 )
             else:
-                webpages_to_ingested_data(df=df, replace=replace)
+                webpages_to_ingested_data(df=df, replace=replace, split_documents=split_documents)
 
     elif mode == "web_search":
         # if scraping from web
@@ -512,11 +524,13 @@ if __name__ == "__main__":
             ):  # the start parameter specifies which result set to return from Google Programmable Search;
                 # 0 = first set of 10 results, 10 = the next set of 10 results, etc.
                 logging.info(f"\nGoogle search result set url = {url}, start = {start}")
-                results_returned = search_query_to_ingested_data(query, url, start=start, replace=replace)
+                results_returned = search_query_to_ingested_data(
+                    query, url, start=start, replace=replace, split_documents=split_documents
+                )
                 if not results_returned:
                     break
 
     elif mode == "drive":
 
         file_ids = ["1RVR3qrVDGVD3jtyMpUix7_rk1lXeSfkh"]
-        ingest_from_drive(file_ids=file_ids, replace=replace)
+        ingest_from_drive(file_ids=file_ids, replace=replace, split_documents=split_documents)

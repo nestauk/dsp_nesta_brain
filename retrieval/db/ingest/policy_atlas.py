@@ -3,7 +3,6 @@ import logging
 import sys
 
 from typing import List
-from typing import Union
 
 import lancedb
 import pandas as pd
@@ -47,43 +46,12 @@ async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Ch
 
 
 async def documents_to_Chunks(documents: List[LangchainDocument]) -> List[Chunk]:
-    """
-    Split Langchain documents into chunks and convert these into objects
-    of the Chunk class which can be ingested into the DB
-    """  # noqa
+    """Convert LangchainDocuments into objects of the Chunk class (without splitting them) which can be ingested into the DB"""
 
-    def log_exceptions(task_results: List[Union[Chunk, Exception]]) -> None:
-
-        message_format = 'Task {index} raised an exception "{exception}" within asyncio.gather'
-        exceptions = [(i, ele) for i, ele in enumerate(task_results) if isinstance(ele, Exception)]
-
-        for index, exception in exceptions:
-            message = message_format.format(index=index, exception=str(exception))
-            logging.error(message)
-
-        if exceptions:
-            raise Exception("Exceptions in documents_to_Chunks")
-
-    chunks = []
-    for chunk in documents:  # the variable name 'chunk' is possibly a bit misleading here.
-        # There should be no need to split documents into chunks as activity texts aren't long enough
-
-        if chunk_already_in_db(chunk):
-
-            logger.info(f"Skipping chunk {chunk.metadata.get('iati_identifier')} as it already seems to be in the DB")
-
-        else:
-            chunks.append(chunk)
-
-    if chunks:
-        tasks = [asyncio.create_task(chunk_to_Chunk(chunk)) for chunk in chunks]
-        await ing.throttle(request_counter, [chunk.page_content for chunk in chunks])
-        logger.info(f"Fetching embeddings for {len(documents)} chunks ...")
-        gather_results = await asyncio.gather(*tasks, return_exceptions=True)
-        log_exceptions(gather_results)
-        return gather_results
-
-    return []
+    # There should be no need to split documents into chunks as activity texts aren't long enough
+    return ing.documents_to_Chunks_no_split(
+        documents, skip_message_format="Skipping chunk {iati_identifier} as it already seems to be in the DB"
+    )
 
 
 def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
