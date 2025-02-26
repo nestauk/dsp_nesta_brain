@@ -10,6 +10,7 @@ from langchain.output_parsers.openai_tools import JsonOutputKeyToolsParser
 from langchain_core.runnables import RunnableParallel
 from langchain_core.runnables import RunnablePassthrough
 from lgraph.graph import create_chat_graph
+from lgraph.graph import create_combined_graph
 from lgraph.graph import graph_options_type
 from llm.llm import default_llm as llm
 from llm.prompt import qa_prompt
@@ -20,24 +21,27 @@ from retrieval.chain import history_aware_retriever
 if TYPE_CHECKING:
     from langchain.prompts import PromptTemplate
     from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.prompts import BasePromptTemplate
     from langchain_core.retrievers import BaseRetriever
     from langchain_core.runnables import Runnable
 
 
 def get_graph_or_rag_chain(
-    use_tool_for_citations: bool = False, use_graph: Optional[graph_options_type] = None
+    use_tool_for_citations: bool = False, use_graph: Optional[graph_options_type] = None, **kwargs
 ) -> Runnable:
     """Return a suitable graph or RAG chain depending on the arguments"""
     if use_tool_for_citations:
         raise Exception("use_tool_for_citations may no longer work – need to check")
 
     if use_graph == "chat":
-        return create_chat_graph(use_tool_for_citations=use_tool_for_citations)
+        return create_chat_graph(use_tool_for_citations=use_tool_for_citations, **kwargs)
+    elif use_graph == "combined":
+        return create_combined_graph(use_tool_for_citations=use_tool_for_citations, **kwargs)
 
     elif use_tool_for_citations:
-        return history_aware_rag_chain_with_citation_tool(use_graph=use_graph)
+        return history_aware_rag_chain_with_citation_tool(use_graph=use_graph, **kwargs)
     else:
-        return history_aware_rag_chain(use_graph=use_graph)
+        return history_aware_rag_chain(use_graph=use_graph, **kwargs)
 
 
 def create_retrieval_chain(
@@ -94,14 +98,12 @@ def rag_chain_with_citation_tool(
     return create_retrieval_chain(retriever, chain)
 
 
-chat_qa_chain = create_stuff_documents_chain(llm, qa_prompt)
-
-
-def history_aware_rag_chain(**kwargs) -> Runnable:
+def history_aware_rag_chain(prompt: BasePromptTemplate = qa_prompt, **kwargs) -> Runnable:
     """Return a history aware RAG chain while passing kwargs through to history_aware_retriever"""
+    chat_qa_chain = create_stuff_documents_chain(llm, prompt)
     return create_retrieval_chain(history_aware_retriever(**kwargs), chat_qa_chain)
 
 
-def history_aware_rag_chain_with_citation_tool(**kwargs) -> Runnable:
+def history_aware_rag_chain_with_citation_tool(prompt: BasePromptTemplate = qa_prompt, **kwargs) -> Runnable:
     """Return a history aware RAG chain with citation tool while passing kwargs through to history_aware_retriever"""
-    return rag_chain_with_citation_tool(history_aware_retriever(**kwargs), llm, qa_prompt)
+    return rag_chain_with_citation_tool(history_aware_retriever(**kwargs), llm, prompt)

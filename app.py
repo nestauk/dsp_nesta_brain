@@ -27,7 +27,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from lgraph.graph import LAST_CHAT_GRAPH_NODE_NAME
+from lgraph.graph import LAST_GRAPH_NODE_NAME
 from lgraph.graph import graph_options_type
 from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
@@ -133,7 +133,7 @@ def respond(
                             id = ai_message_chunk.id
                         message_text += ai_message_chunk.content
                         message_placeholder.markdown(message_text + "▌")
-                    elif event["event"] == "on_chain_end" and event["name"] == LAST_CHAT_GRAPH_NODE_NAME:
+                    elif event["event"] == "on_chain_end" and event["name"] == LAST_GRAPH_NODE_NAME:
                         final_state = event["data"]["input"]
                 return final_state
 
