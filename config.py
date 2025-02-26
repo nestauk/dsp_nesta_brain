@@ -14,7 +14,7 @@ USE_AZURE_EMBEDDINGS: bool = USE_AZURE
 AZURE_EMBEDDINGS_MODEL: str = DEFAULT_EMBEDDINGS_MODEL
 
 if PROJECT == "NESTA_BRAIN":
-    DB_PATH: str = "retrieval/db/full_site_demo_db_with_pdfs"
+    DB_PATH: str = "retrieval/db/nesta_brain"
     EARLIEST_YEAR: int = 2003  # 2003 is the earliest publication date in the DB
     DEFAULT_START_YEAR: int = 2019
     USE_LANGFUSE: bool = False

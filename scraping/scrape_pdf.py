@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import datetime as dt
 import itertools as it
 import re
 
+from datetime import date
+from datetime import datetime
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -181,7 +182,7 @@ class PDF:
     def guess_metadata(
         self,
         title_guess: Optional[Union[str, List[str]]] = None,
-        date_guess: Optional[str] = None,
+        date_guess: Optional[Union[str, date]] = None,
         cautious: bool = False,
         force_date: bool = False,
         indent: Optional[str] = "",
@@ -216,15 +217,19 @@ class PDF:
 
         date_pub = None
         if date_guess:
-            if not cautious or yesno(indent + f'Is this the publication date: "{date_guess}"?'):
+            if not cautious or yesno(indent + f"Is this the publication date: {date_guess}?"):
                 date_pub = date_guess
 
-        if (date_guess or force_date) and not date_pub:
+        if date_guess or (force_date and not date_pub):
+
             while not metadata.get("date_pub"):
-                try:
-                    metadata["date_pub"] = dt.datetime.strptime(date_pub, "%Y-%m-%d")
-                except Exception:
-                    date_pub = input(indent + "Enter publication date (yyyy-mm-dd): ")
+                if type(date_pub) is date:
+                    metadata["date_pub"] = date_pub
+                else:
+                    try:
+                        metadata["date_pub"] = datetime.strptime(date_pub, "%Y-%m-%d")
+                    except Exception:
+                        date_pub = input(indent + "Enter publication date (yyyy-mm-dd): ")
 
         return metadata
 

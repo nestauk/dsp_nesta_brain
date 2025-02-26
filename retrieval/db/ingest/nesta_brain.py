@@ -447,23 +447,35 @@ def ingest_from_drive(
         logger.info(f"Found {len(file_ids)} PDFs in Google Drive")
 
     if file_ids:
+        logger.info("Setting up connection to Google Drive API")
         service = drive_service(scopes=PDF_SCOPES)
 
     for file_id in file_ids:
-        pdf_path = "google_api/downloaded.pdf"
-        download_pdf(file_id, path=pdf_path, service=service)
-        pdf = PDF(pdf_path)
-        text = (
-            pdf.text
-        )  # use text rather than filtered_text because the formatting of policy documents is different to main reports
-        # where sections are identified via titles; titles in policy documents are often not identified
 
-        title_guess, date_guess = guess_metadata(file_id)
-        metadata = pdf.guess_metadata(title_guess=title_guess, date_guess=date_guess, cautious=True, force_date=True)
-        metadata["location"] = f"https://drive.google.com/file/d/{file_id}"
-        metadata["drive_type"] = drive_type
-        doc = LangchainDocument(page_content=text, metadata=metadata)
-        ingest([doc], **kwargs)
+        location = f"https://drive.google.com/file/d/{file_id}"
+        if doc_already_in_db(
+            location
+        ):  # do here rather than in ingest to avoid having to guess metadata if the document is already in the DB
+            logger.info(f"A document with {location} was already in the database ... skipping")
+
+        else:
+
+            pdf_path = "google_api/downloaded.pdf"
+            download_pdf(file_id, path=pdf_path, service=service)
+            pdf = PDF(pdf_path)
+            text = (
+                pdf.text
+            )  # use text rather than filtered_text because the formatting of policy documents is different to main reports
+            # where sections are identified via titles; titles in policy documents are often not identified
+
+            title_guess, date_guess = guess_metadata(file_id)
+            metadata = pdf.guess_metadata(
+                title_guess=title_guess, date_guess=date_guess, cautious=True, force_date=True
+            )
+            metadata["location"] = location
+            metadata["drive_type"] = drive_type
+            doc = LangchainDocument(page_content=text, metadata=metadata)
+            ingest([doc], **kwargs)
 
 
 if __name__ == "__main__":

@@ -38,6 +38,7 @@ class Document(LanceModel):
     def __init__(self, ingestion: bool = False, **kwargs) -> None:
 
         if ingestion:  # this code is only needed at the time of ingestion, not when retrieving Documents from the DB
+
             # correcting field names
             if kwargs.get("url"):
                 kwargs["location"] = kwargs.pop("url")
@@ -95,6 +96,12 @@ class Document(LanceModel):
     def __hash__(self) -> int:
         """Self-explanatory"""
         return hash(self.location)
+
+    @property
+    def file_id(self) -> str:
+        """Extract the file ID from Drive location"""
+        if self.is_on_drive:
+            return self.location.replace("https://drive.google.com/file/d/", "")
 
     @property
     def is_on_drive(self) -> bool:
@@ -163,7 +170,7 @@ if __name__ == "__main__":
         table.create_fts_index("text")
 
     # searching for records
-    if True:
+    if False:
         document_table = db.open_table("document")
         chunk_table = db.open_table("chunk")
 
@@ -177,19 +184,49 @@ if __name__ == "__main__":
         )
     #   print(chunks)
 
-    # fixing a cock up
+    # adding columns
     if False:
-        # import pandas as pd
-        copy_from_path = "retrieval/db/full_site_demo_db_first_attempt"
+        table = db.open_table("document")
+        table.add_columns({"drive_type": "cast(NULL as string)"})
+
+    # deleting records
+    if False:
+
+        input("You are about to delete some records. Press any key to continue.")
+        document_table = db.open_table("document")
+        chunk_table = db.open_table("chunk")
+
+        document_table.delete('location LIKE "https://drive.google.com/file/d%"')
+        chunk_table.delete('source.location LIKE "https://drive.google.com/file/d%"')
+
+    # copying tables from one db to another
+    if True:
+
+        copy_from_path = "retrieval/db/full_site_demo_db_with_pdfs"
         copy_from_db = lancedb.connect(copy_from_path)
-        document_table = copy_from_db.open_table("document")
-        chunk_table = copy_from_db.open_table("chunk")
+        copy_from_document_table = copy_from_db.open_table("document")
+        copy_from_chunk_table = copy_from_db.open_table("chunk")
 
-        docs = document_table.search().where('NOT location LIKE "%.pdf"').limit(1000000).to_pydantic(Document)
-        chunks = chunk_table.search().where('NOT source.location LIKE "%.pdf"').limit(1000000).to_pydantic(Chunk)
+        copy_to_document_table = db.open_table("document")
+        copy_to_chunk_table = db.open_table("chunk")
 
-        new_doc_table = db.create_table("document", schema=Document)
-        new_doc_table.add(docs)
-        new_chunk_table = db.create_table("chunk", schema=Chunk)
-        new_chunk_table.add(chunks)
-        new_chunk_table.create_fts_index("text")
+        # docs = copy_from_document_table.search().to_pydantic(Document)
+        # copy_to_document_table.add(docs)
+
+        chunks_df = (
+            copy_from_chunk_table.search().limit(-1).to_pandas()
+        )  # too many records to convert to pydantic straight away
+
+        batch_size = 10000
+        for i in range(0, chunks_df.shape[0], batch_size):
+            rows = chunks_df.iloc[i : i + batch_size]
+            chunks = [Chunk(**row.to_dict()) for _, row in rows.iterrows()]
+            copy_to_chunk_table.add(chunks)
+
+    if False:
+        copy_from_path = "retrieval/db/full_site_demo_db_with_pdfs"
+        copy_from_db = lancedb.connect(copy_from_path)
+        copy_from_chunk_table = copy_from_db.open_table("chunk")
+        chunks = copy_from_chunk_table.search().limit(None).to_pandas()  # .to_pydantic(Chunk)
+    #  print(chunks.shape)
+    #  copy_to_chunk_table.add(chunks)
