@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
+from typing import Optional
 from typing import Union
 
 import streamlit as st
@@ -27,9 +28,8 @@ from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
 from lgraph.graph import LAST_CHAT_GRAPH_NODE_NAME
-from lgraph.graph import create_chat_graph
-from llm.chain import history_aware_rag_chain
-from llm.chain import history_aware_rag_chain_with_citation_tool
+from lgraph.graph import graph_options_type
+from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
@@ -96,15 +96,14 @@ def trace_metadata() -> Dict:
     metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
     metadata["settings"] = {
         "use_tool_for_citations": use_tool_for_citations,
-        "use_chat_graph": use_chat_graph,
-        "use_retrieval_graph": use_retrieval_graph,
+        "use_graph": use_graph,
         "limit": limit,
     }
     return metadata
 
 
 def respond(
-    chain: Runnable,
+    chain_or_graph: Runnable,
     message_placeholder: DeltaGenerator,
     **kwargs,
 ) -> CustomAIMessage:
@@ -118,14 +117,14 @@ def respond(
 
     input = {"messages": chat_history(), "filter_condition": st.session_state["filter_condition"], "limit": limit}
 
-    if use_chat_graph:
+    if use_graph in ["chat", "combined"]:
 
         if stream:
 
             async def stream_() -> State:
                 message_text = ""
                 id = None
-                async for event in chain.astream_events(input, config, version="v1", stream_mode="values"):
+                async for event in chain_or_graph.astream_events(input, config, version="v1", stream_mode="values"):
                     if event["event"] == "on_chat_model_stream":
                         ai_message_chunk = event["data"]["chunk"]
                         if id != ai_message_chunk.id:
@@ -141,7 +140,7 @@ def respond(
             final_state = asyncio.run(stream_())
 
         else:
-            final_state = chain.invoke(input, config=config)
+            final_state = chain_or_graph.invoke(input, config=config)
 
         return_message = final_state["messages"][-1]
 
@@ -150,7 +149,7 @@ def respond(
         if stream:
 
             message_text = ""
-            for item in chain.stream(input, config=config):
+            for item in chain_or_graph.stream(input, config=config):
                 # Process each item
                 if "answer" in item:
                     if use_tool_for_citations:
@@ -176,7 +175,7 @@ def respond(
             response = {"answer": message_text, "context": context}
 
         else:
-            response = chain.invoke(input, config=config)
+            response = chain_or_graph.invoke(input, config=config)
 
         return_message = CustomAIMessage(response)
 
@@ -237,8 +236,7 @@ if __name__ == "__main__":
 
     # settings
     limit: int = 10
-    use_chat_graph: bool = False
-    use_retrieval_graph: bool = False
+    use_graph: Optional[graph_options_type] = "combined"  # or None for none of the options
     stream: bool = True
     use_tool_for_citations: bool = False
 
@@ -249,17 +247,7 @@ if __name__ == "__main__":
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        if use_tool_for_citations:
-            raise Exception("use_tool_for_citations may no longer work – need to check")
-
-        if use_chat_graph:
-            rag_chain = create_chat_graph()
-        elif use_tool_for_citations:
-            rag_chain = history_aware_rag_chain_with_citation_tool(
-                chat_history, use_retrieval_graph=use_retrieval_graph
-            )
-        else:
-            rag_chain = history_aware_rag_chain(use_retrieval_graph=use_retrieval_graph)
+        runnable = get_graph_or_rag_chain(use_graph=use_graph, use_tool_for_citations=use_tool_for_citations)
 
         st.set_page_config(layout="wide")
         st.markdown(
@@ -326,7 +314,7 @@ if __name__ == "__main__":
 
                 st.session_state["filter_condition"] = filter_conditions()
 
-                response = respond(rag_chain, message_placeholder)
+                response = respond(runnable, message_placeholder)
                 message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
                 message = {"role": "assistant", "html": response.as_html(), "content": response.content}
                 st.session_state.messages.append(message)

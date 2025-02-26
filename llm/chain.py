@@ -3,11 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Dict
+from typing import Optional
 
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.output_parsers.openai_tools import JsonOutputKeyToolsParser
 from langchain_core.runnables import RunnableParallel
 from langchain_core.runnables import RunnablePassthrough
+from lgraph.graph import create_chat_graph
+from lgraph.graph import graph_options_type
 from llm.llm import default_llm as llm
 from llm.prompt import qa_prompt
 from llm.tool import quoted_answer
@@ -19,6 +22,22 @@ if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.retrievers import BaseRetriever
     from langchain_core.runnables import Runnable
+
+
+def get_graph_or_rag_chain(
+    use_tool_for_citations: bool = False, use_graph: Optional[graph_options_type] = None
+) -> Runnable:
+    """Return a suitable graph or RAG chain depending on the arguments"""
+    if use_tool_for_citations:
+        raise Exception("use_tool_for_citations may no longer work – need to check")
+
+    if use_graph == "chat":
+        return create_chat_graph(use_tool_for_citations=use_tool_for_citations)
+
+    elif use_tool_for_citations:
+        return history_aware_rag_chain_with_citation_tool(use_graph=use_graph)
+    else:
+        return history_aware_rag_chain(use_graph=use_graph)
 
 
 def create_retrieval_chain(

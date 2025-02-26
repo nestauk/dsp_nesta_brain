@@ -5,11 +5,13 @@ import importlib
 
 from copy import deepcopy
 from typing import TYPE_CHECKING
+from typing import Literal
+from typing import Type
 
 from config import DEFAULT_START_YEAR
 from dsp_nesta_brain import logger
-from langchain_core.runnables.base import RunnableParallel
-from langchain_core.runnables.base import RunnablePassthrough
+from langchain_core.runnables import RunnableParallel
+from langchain_core.runnables import RunnablePassthrough
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
@@ -30,6 +32,8 @@ if TYPE_CHECKING:
 
 DEFAULT_FROM_YEAR_FILTER_CONDITION = f"source.date_pub >= to_timestamp('{DEFAULT_START_YEAR}-01-01')"
 LAST_CHAT_GRAPH_NODE_NAME = "currentness_comment"
+
+graph_options_type: Type = Literal["retrieval", "chat", "combined"]
 
 
 def append_filter_condition(state: State, new_filter_condition: str) -> State:
@@ -105,7 +109,7 @@ def decide_whether_needs_policy(state: State) -> State:
     if message.content != "NULL":
         file_id = message.content
         filter_condition = f'source.location LIKE "%{file_id}"'
-    state = append_filter_condition(state, filter_condition)
+        state = append_filter_condition(state, filter_condition)
 
     return state
 
@@ -166,7 +170,7 @@ def currentness_comment(state: State, writer: StreamWriter) -> State:
 def create_chat_graph(**kwargs) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
     """Compile and return a graph to assist with chat"""
 
-    rag_chain = importlib.import_module("llm.chain").history_aware_rag_chain(**kwargs)  # avoiding circular import
+    rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(**kwargs)  # avoiding circular import
 
     def call_model(
         state: State,

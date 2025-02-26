@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from google_api.policy import Policy
 from langchain.prompts import PromptTemplate
 
 
@@ -110,3 +111,27 @@ currentness_comment_prompt_template_4 = f"""
 currentness_comment_prompt = PromptTemplate(
     template=currentness_comment_prompt_template_4, input_variables=["input", "answer"]
 )
+
+needs_policy_template = f"""
+    You are a helpful assistant and an expert on the internal administration and organisational policies of the innovation agency Nesta.
+
+    Your role is to help staff with their queries about organisational policies.
+
+    Look at the following list of policy documents available to help you answer queries:
+
+    List:
+    {Policy.list_as_string()}
+
+    Look at the query below and decide whether the one of the policies in the list is needed to answer it.
+
+    If so, select the appropriate policy. As your response, give only the UID of the policy you have selected.
+
+    Otherwise, respond "NULL".
+
+    Query:
+    {{input}}
+    """  # noqa
+
+# print(needs_template_template,'\n\n')
+
+needs_policy_prompt = PromptTemplate(template=needs_policy_template, input_variables=["input"])

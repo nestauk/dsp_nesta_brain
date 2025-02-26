@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from typing import Dict
+from typing import Optional
 
 from langchain_core.runnables import RunnableBranch
 from langchain_core.runnables import RunnableParallel
 from langchain_core.runnables import RunnablePassthrough
 from lgraph.graph import create_retrieval_graph
+from lgraph.graph import graph_options_type
 from llm.llm import default_llm as llm
 from llm.message import InterimAIMessage
 from llm.prompt import contextualize_q_prompt
@@ -62,10 +64,10 @@ def create_history_aware_retriever(
     return retrieve_documents
 
 
-def retriever(use_retrieval_graph: bool = False) -> Runnable:
+def retriever(use_graph: Optional[graph_options_type] = None) -> Runnable:
     """Return a CustomRetriever with the option of chaining it with a graph in order to make retrieval more sophisticated"""
     retriever_ = CustomRetriever()
-    if use_retrieval_graph:
+    if use_graph in ["retrieval", "combined"]:
 
         # the output of the graph is a list of dicts in this format:
         # List[{'node_1_name':dict representing state returned by node 1} .. {'node_n_name': state returned by node n}]
