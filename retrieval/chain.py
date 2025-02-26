@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import Dict
 
-from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableBranch
 from langchain_core.runnables import RunnableParallel
 from langchain_core.runnables import RunnablePassthrough
 from lgraph.graph import create_retrieval_graph
 from llm.llm import default_llm as llm
+from llm.message import InterimAIMessage
 from llm.prompt import contextualize_q_prompt
 from retrieval.retrieve import CustomRetriever
 
@@ -20,15 +20,6 @@ if TYPE_CHECKING:
     from langchain_core.retrievers import RetrieverOutputLike
     from langchain_core.runnables import Runnable
     from retrieval.retrieve import RetrieverInput
-
-
-class IntermediateAIMessage(AIMessage):
-    """
-    AI Messages derived during intermediate steps (like recontextualisation) that are not
-    supposed to be part of the chat history
-    """  # noqa
-
-    pass
 
 
 def create_history_aware_retriever(
@@ -47,7 +38,7 @@ def create_history_aware_retriever(
     def reform_as_retriever_input(dict_: Dict) -> RetrieverInput:
         # turn the output of the contextualisation chain into retriever input
         original_input = dict_["input"]
-        contextualisation_response = IntermediateAIMessage(dict_["contextualisation"])
+        contextualisation_response = InterimAIMessage(dict_["contextualisation"])
         reformed_input = original_input
         reformed_input["messages"].append(contextualisation_response)
         return reformed_input

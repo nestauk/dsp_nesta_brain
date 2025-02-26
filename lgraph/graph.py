@@ -9,11 +9,13 @@ from typing import TYPE_CHECKING
 from config import DEFAULT_START_YEAR
 from dsp_nesta_brain import logger
 from langchain_core.runnables.base import RunnableParallel
+from langchain_core.runnables.base import RunnablePassthrough
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.types import StreamWriter
 from lgraph.prompt import currentness_comment_prompt
+from lgraph.prompt import needs_policy_prompt
 from lgraph.prompt import personnel_prompt
 from lgraph.prompt import year_constraint_prompt
 from llm.llm import default_llm as llm
@@ -93,6 +95,21 @@ def decide_if_need_time_constraint(state: State) -> State:
     return state
 
 
+def decide_whether_needs_policy(state: State) -> State:
+    """Decide whether an office template is needed"""
+
+    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
+
+    message = chain.invoke(state)
+
+    if message.content != "NULL":
+        file_id = message.content
+        filter_condition = f'source.location LIKE "%{file_id}"'
+    state = append_filter_condition(state, filter_condition)
+
+    return state
+
+
 # ------------
 
 
@@ -101,11 +118,14 @@ def create_retrieval_graph() -> CompiledStateGraph:  # doing it as a function to
 
     builder = StateGraph(State)
 
-    builder.add_node("decide_if_person_page", decide_if_person_page)
-    builder.add_node("decide_if_need_time_constraint", decide_if_need_time_constraint)
-    builder.add_edge(START, "decide_if_person_page")
-    builder.add_edge("decide_if_person_page", "decide_if_need_time_constraint")
-    builder.add_edge("decide_if_need_time_constraint", END)
+    #   builder.add_node("decide_if_person_page", decide_if_person_page)
+    #  builder.add_node("decide_if_need_time_constraint", decide_if_need_time_constraint)
+    # builder.add_edge(START, "decide_if_person_page")
+    # builder.add_edge("decide_if_person_page", "decide_if_need_time_constraint")
+    # builder.add_edge("decide_if_need_time_constraint", END)
+    builder.add_node("decide_whether_needs_policy", decide_whether_needs_policy)
+    builder.add_edge(START, "decide_whether_needs_policy")
+    builder.add_edge("decide_whether_needs_policy", END)
 
     return builder.compile()
 

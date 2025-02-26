@@ -208,3 +208,12 @@ class CustomAIMessage(AIMessage):
         """Reset how the reference numbering will appear if references are split into cited and uncited sources"""
         for i, reference in enumerate(self.cited_references + self.uncited_references):
             reference.reset_index = i + 1
+
+
+class InterimAIMessage(AIMessage):
+    """
+    AI Messages derived during intermediate steps (like recontextualisation) that are not
+    supposed to be part of the chat history
+    """  # noqa
+
+    pass
