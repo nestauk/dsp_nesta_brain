@@ -11,6 +11,7 @@ from typing import Optional
 import lancedb
 
 from config import DB_PATH
+from dsp_nesta_brain import logger
 from lancedb.pydantic import LanceModel
 from retrieval.db.schema.base import BaseChunk
 
@@ -30,9 +31,9 @@ class Document(LanceModel):
     missions: Optional[List[str]] = None
     authors: Optional[List[str]] = None
     contentType: Optional[str] = None
-    #
+    # other
+    drive_type: Optional[str] = None
     time_added: datetime
-    # vector: Vector(model.ndims())  #this is the vector of the Document title ... experimental
 
     def __init__(self, ingestion: bool = False, **kwargs) -> None:
 
@@ -80,6 +81,9 @@ class Document(LanceModel):
 
         super().__init__(**kwargs)
 
+        if self.is_on_drive and not self.drive_type:
+            logger.warning(f"Document {self.title}, {self.location} is on Google Drive but has no drive_type")
+
     def __eq__(self, other: object) -> bool:
         """Self-explanatory"""
         if not isinstance(other, Document):
@@ -90,14 +94,15 @@ class Document(LanceModel):
         """Self-explanatory"""
         return hash(self.location)
 
+    @property
+    def is_on_drive(self) -> bool:
+        """Test whether the document is on Google Drive"""
+        return "drive.google.com" in self.location
+
     def as_metadata(self) -> Dict:
         """Put important fields in a dict so LanceDB Document and
         Chunk objects can easily be converted into Langchain Documents"""  # noqa
         return self.__dict__
-
-    def is_pdf(self) -> bool:
-        """Test whether the document is a PDF"""
-        return self.location[-4:].lower() == ".pdf"
 
 
 class Chunk(BaseChunk):

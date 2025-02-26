@@ -406,7 +406,9 @@ def search_query_to_ingested_data(
     return bool(scraped_data)
 
 
-def ingest_from_drive(file_ids: Optional[List[str]] = None, all_pdfs: bool = False, **kwargs) -> None:
+def ingest_from_drive(
+    file_ids: Optional[List[str]] = None, all_pdfs: bool = False, drive_type: Optional[str] = None, **kwargs
+) -> None:
     """Ingest PDFs from Google Drive into the database"""
 
     def guess_metadata(file_id: str) -> Tuple[str, Union[None, datetime.date]]:
@@ -446,6 +448,7 @@ def ingest_from_drive(file_ids: Optional[List[str]] = None, all_pdfs: bool = Fal
         title_guess, date_guess = guess_metadata(file_id)
         metadata = pdf.guess_metadata(title_guess=title_guess, date_guess=date_guess, cautious=True, force_date=True)
         metadata["location"] = f"https://drive.google.com/file/d/{file_id}"
+        metadata["drive_type"] = drive_type
         doc = LangchainDocument(page_content=text, metadata=metadata)
         ingest([doc], **kwargs)
 
@@ -480,6 +483,9 @@ if __name__ == "__main__":
     subdirectories = sorted(
         ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
     )  # optional
+
+    # settings relevant to drive mode
+    drive_type = "policy"
 
     # global variable
     request_counter = ing.RequestCounter()
@@ -533,4 +539,4 @@ if __name__ == "__main__":
     elif mode == "drive":
 
         file_ids = ["1RVR3qrVDGVD3jtyMpUix7_rk1lXeSfkh"]
-        ingest_from_drive(file_ids=file_ids, replace=replace, split_documents=split_documents)
+        ingest_from_drive(file_ids=file_ids, replace=replace, split_documents=split_documents, drive_type=drive_type)
