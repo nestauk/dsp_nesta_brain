@@ -5,8 +5,10 @@ import os
 
 from datetime import datetime
 from datetime import timedelta
+from typing import Callable
 from typing import List
 from typing import Optional
+from typing import Union
 
 import lancedb
 import tiktoken
@@ -204,3 +206,44 @@ def split_documents(documents: List[LangchainDocument]) -> List[LangchainDocumen
         raise Exception(f"Investigate why you have zero chunks for {len(documents)} documents")
 
     return docs_split
+
+
+async def documents_to_Chunks_no_split(
+    documents: List[LangchainDocument],
+    skip_message_format: Optional[str] = None,
+    chunk_to_Chunk: Callable = chunk_to_Chunk,
+) -> List[Chunk]:
+    """Convert LangchainDocuments into objects of the Chunk class (without splitting them) which can be ingested into the DB"""
+
+    def log_exceptions(task_results: List[Union[Chunk, Exception]]) -> None:
+
+        message_format = 'Task {index} raised an exception "{exception}" within asyncio.gather'
+        exceptions = [(i, ele) for i, ele in enumerate(task_results) if isinstance(ele, Exception)]
+
+        for index, exception in exceptions:
+            message = message_format.format(index=index, exception=str(exception))
+            logger.error(message)
+
+        if exceptions:
+            raise Exception("Exceptions in documents_to_Chunks_no_split")
+
+    chunks = []
+    for doc in documents:
+
+        if chunk_already_in_db(doc):
+
+            if skip_message_format:
+                logger.info(skip_message_format.format(**doc.metadata))
+
+        else:
+            chunks.append(doc)
+
+    if chunks:
+        tasks = [asyncio.create_task(chunk_to_Chunk(chunk)) for chunk in chunks]
+        await throttle(request_counter, [chunk.page_content for chunk in chunks])
+        logger.info(f"Fetching embeddings for {len(documents)} chunks ...")
+        gather_results = await asyncio.gather(*tasks, return_exceptions=True)
+        log_exceptions(gather_results)
+        return gather_results
+
+    return []

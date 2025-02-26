@@ -81,8 +81,10 @@ class Document(LanceModel):
 
         super().__init__(**kwargs)
 
-        if self.is_on_drive and not self.drive_type:
-            logger.warning(f"Document {self.title}, {self.location} is on Google Drive but has no drive_type")
+        if ingestion and self.is_on_drive and not self.drive_type:
+            logger.warning(
+                f"Document {self.title}, {self.location} is on Google Drive but has no drive_type. Consider specifying drive_type via ingestion settings."  # noqa
+            )  # noqa
 
     def __eq__(self, other: object) -> bool:
         """Self-explanatory"""

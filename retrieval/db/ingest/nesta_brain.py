@@ -6,6 +6,7 @@ import sys
 
 from datetime import datetime
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
 from typing import Union
@@ -19,7 +20,9 @@ from bs4.element import Tag
 from config import DB_PATH
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
+from google_api.drive import PDF_SCOPES
 from google_api.drive import download_pdf
+from google_api.drive import drive_service
 from google_api.drive import get_file
 from google_api.drive import list_files
 from langchain.docstore.document import Document as LangchainDocument
@@ -120,8 +123,13 @@ async def documents_to_Chunks(
         return await asyncio.gather(*tasks)
 
     else:
-        return ing.documents_to_Chunks_no_split(
-            documents, skip_message_format="Skipping document {location} as it already seems to be in the DB"
+        chunk_to_Chunk_ = lambda doc: ing.chunk_to_Chunk(  # noqa
+            doc, source=doc
+        )  # order_index is not needed if not splitting
+        return await ing.documents_to_Chunks_no_split(
+            documents,
+            skip_message_format="Skipping document {location} as it already seems to be in the DB",
+            chunk_to_Chunk=chunk_to_Chunk_,
         )
 
 
@@ -413,11 +421,11 @@ def ingest_from_drive(
 
     def guess_metadata(file_id: str) -> Tuple[str, Union[None, datetime.date]]:
         file_metadata = get_file(file_id, is_pdf=True, silent=True)  # the only useful metadata here is file name
-        policy_filename_regex = r" - ((\d.. )?[A-Z][a-z]+ \d{4})(.+)?(\.(docx?|pdf))+"
+        policy_date_regex = r" - ((\d.. )?[A-Z][a-z]+ \d{4})(.+)?(\.(docx?|pdf))+"
         # Policy document file names generally have the format: name - Month Year(.docx)?.pdf
-        title_guess = re.sub(policy_filename_regex, "", file_metadata.get("name")).strip()  #
+        title_guess = re.sub(policy_date_regex, "", file_metadata.get("name")).strip().title()  #
         date_guess = None
-        match_ = re.search(policy_filename_regex, file_metadata.get("name"))
+        match_ = re.search(policy_date_regex, file_metadata.get("name"))
         if match_:
             date_formats = ["%B %Y", "%dth %B %Y", "%dst %B %Y", "%dnd %B %Y", "%drd %B %Y"]
             while not date_guess and date_formats:
@@ -436,9 +444,12 @@ def ingest_from_drive(
         file_ids = [file["id"] for file in files]
         logger.info(f"Found {len(file_ids)} PDFs in Google Drive")
 
+    if file_ids:
+        service = drive_service(scopes=PDF_SCOPES)
+
     for file_id in file_ids:
         pdf_path = "google_api/downloaded.pdf"
-        download_pdf(file_id, path=pdf_path)
+        download_pdf(file_id, path=pdf_path, service=service)
         pdf = PDF(pdf_path)
         text = (
             pdf.text
@@ -485,7 +496,7 @@ if __name__ == "__main__":
     )  # optional
 
     # settings relevant to drive mode
-    drive_type = "policy"
+    drive_type: Literal["policy"] = "policy"  # add other strings to the Literal as other types of documents are added
 
     # global variable
     request_counter = ing.RequestCounter()
@@ -538,5 +549,12 @@ if __name__ == "__main__":
 
     elif mode == "drive":
 
-        file_ids = ["1RVR3qrVDGVD3jtyMpUix7_rk1lXeSfkh"]
+        urls = [
+            "https://drive.google.com/file/d/1RsjGw2kNV3eqAqeTWqZX5m3tST_M73A4/view?usp=sharing",
+            "https://drive.google.com/file/d/1VKJAnhJypp0Hp0Pm00uuHecYxcg-bOop/view?usp=sharing",
+            "https://drive.google.com/file/d/1RVR3qrVDGVD3jtyMpUix7_rk1lXeSfkh/view?usp=sharing",
+        ]
+        file_ids = [
+            url.replace("https://drive.google.com/file/d/", "").replace("/view?usp=sharing", "") for url in urls
+        ]
         ingest_from_drive(file_ids=file_ids, replace=replace, split_documents=split_documents, drive_type=drive_type)
