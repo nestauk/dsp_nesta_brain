@@ -45,7 +45,7 @@ class RetrieverInput(MessagesState):
     # RetrieverInput inherits a `messages` property from MessagesState
     limit: int
     filter_condition: str
-    use_hybrid_search: bool = True  # if False, just use the filter_condition and don't use the limit
+    use_hybrid_search: bool  # if False, just use the filter_condition and don't use the limit
 
 
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")

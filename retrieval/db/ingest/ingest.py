@@ -176,12 +176,12 @@ def chunk_already_in_db(chunk: LangchainDocument, where_condition: Optional[str]
     Chunking strategy should have been the same.
     """  # noqa
 
-    where_condition = where_condition or f'text == "{chunk.page_content}"'
+    where_condition = where_condition or f'text == """{chunk.page_content}"""'
     try:
         results = CHUNK_TABLE.search().where(where_condition).limit(1).to_pydantic(Chunk)
     except Exception as e:
-        error_message_format = "Error while trying to check whether activity {id} exists in database"
-        logger.error(error_message_format.format(id=chunk.metadata.get("iati_identifier")))
+        error_message = "Error while trying to check whether a chunk exists in the database"
+        logger.error(error_message)
         raise Exception(e)
     return results
 

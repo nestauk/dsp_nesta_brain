@@ -170,13 +170,14 @@ if __name__ == "__main__":
         table.create_fts_index("text")
 
     # searching for records
-    if False:
+    if True:
         document_table = db.open_table("document")
         chunk_table = db.open_table("chunk")
 
         #   docs = document_table.search().where('title LIKE "%Birthing Parent%"').limit(10).to_pydantic(Document)
         #  print(docs)
-        results = chunk_table.search().where('source.location NOT LIKE "https://%"').limit(100).to_pydantic(Chunk)
+        # results = chunk_table.search().where('source.location NOT LIKE "https://%"').limit(100).to_pydantic(Chunk)
+        results = chunk_table.search("climate change").limit(100).select(["text"]).to_list()
         logger.info(len(results))
 
     # adding columns

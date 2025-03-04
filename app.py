@@ -115,7 +115,12 @@ def respond(
     else:
         config = {}
 
-    input = {"messages": chat_history(), "filter_condition": st.session_state["filter_condition"], "limit": limit}
+    input = {
+        "messages": chat_history(),
+        "filter_condition": st.session_state["filter_condition"],
+        "limit": limit,
+        "use_hybrid_search": True,
+    }
 
     if use_graph in ["chat", "combined"]:
 
