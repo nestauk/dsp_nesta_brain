@@ -117,7 +117,8 @@ def decide_whether_needs_policy(state: State) -> State:
 
     if file_id != "NULL":
         state["intermediate_outputs"]["file_id"] = file_id
-        filter_condition = f'source.location LIKE "%{file_id}"'
+        # filter_condition = f'source.location LIKE "%{file_id}"'
+        filter_condition = f'source.drive_type == "policy" or source.location LIKE "%{file_id}"'
         state = append_filter_condition(state, filter_condition)
 
     return state

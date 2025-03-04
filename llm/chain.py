@@ -13,6 +13,7 @@ from lgraph.graph import create_chat_graph
 from lgraph.graph import create_combined_graph
 from lgraph.graph import graph_options_type
 from llm.llm import default_llm as llm
+from llm.message import InterimAIMessage
 from llm.prompt import qa_prompt
 from llm.tool import quoted_answer
 from retrieval.chain import history_aware_retriever
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
     from langchain_core.prompts import BasePromptTemplate
     from langchain_core.retrievers import BaseRetriever
     from langchain_core.runnables import Runnable
+    from retrieval.retrieve import RetrieverInput
 
 
 def get_graph_or_rag_chain(
@@ -57,6 +59,12 @@ def get_graph_or_rag_chain(
         return runnable
 
 
+def filter_messages(input: RetrieverInput) -> RetrieverInput:
+    """Filter out InterimAIMessages as ther shouldn't be sent to the LLM"""
+    input["messages"] = [message for message in input["messages"] if not isinstance(message, InterimAIMessage)]
+    return input
+
+
 def create_retrieval_chain(
     retriever: BaseRetriever,
     combine_docs_chain: Runnable[Dict[str, Any], str],
@@ -69,6 +77,8 @@ def create_retrieval_chain(
     The modification is to allow a dict containing the query, filter conditions, and possibly other paramters to be passed through
     to _get_relevant_documents
     """
+
+    combine_docs_chain = (lambda x: filter_messages(x)) | combine_docs_chain
 
     retrieval_chain = (
         RunnablePassthrough.assign(
@@ -96,9 +106,8 @@ def rag_chain_with_citation_tool(
     )
     output_parser = JsonOutputKeyToolsParser(key_name="quoted_answer", first_tool_only=True)
 
-    # answer = create_stuff_documents_chain(llm_with_tool,prompt,output_parser=output_parser)
     answer = prompt | llm_with_tool | output_parser
-    chain = (
+    chain = (lambda x: filter_messages(x)) | (
         RunnableParallel(
             input=(lambda x: x["messages"][-1]),
             context=(lambda x: x["context"]),
