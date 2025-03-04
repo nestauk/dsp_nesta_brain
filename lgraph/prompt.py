@@ -122,9 +122,9 @@ needs_policy_template = f"""
     List:
     {Policy.list_as_string()}
 
-    Look at the query below and decide whether the one of the policies in the list is needed to answer it.
+    Look at the query below and decide whether one or more the policies in the list is needed to answer it.
 
-    If so, select the appropriate policy. As your response, give only the UID of the policy you have selected.
+    If so, select the appropriate policies. As your response, give only the UIDs of the policy you have selected separated by commas.
 
     Otherwise, respond "NULL".
 

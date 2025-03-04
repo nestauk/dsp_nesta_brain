@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import re
 
 from copy import deepcopy
 from typing import TYPE_CHECKING
@@ -113,13 +114,24 @@ def decide_whether_needs_policy(state: State) -> State:
     chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
 
     message = chain.invoke(state)
-    file_id = message.content
 
-    if file_id != "NULL":
-        state["intermediate_outputs"]["file_id"] = file_id
-        # filter_condition = f'source.location LIKE "%{file_id}"'
-        filter_condition = f'source.drive_type == "policy" or source.location LIKE "%{file_id}"'
-        state = append_filter_condition(state, filter_condition)
+    if message.content != "NULL":
+
+        file_ids = message.content
+        file_ids = [file_id.strip() for file_id in file_ids.split(",")]
+        file_ids_are_right_format = all(re.search(r"^[A-Za-z0-9\-_]+$", file_id) for file_id in file_ids)
+
+        if file_ids_are_right_format:
+            logger.info(f"Policy document IDs identified: {file_ids}")
+            state["intermediate_outputs"]["file_ids"] = file_ids
+            filter_condition = "(" + " or ".join([f'source.location LIKE "%{file_id}"' for file_id in file_ids]) + ")"
+            state["use_hybrid_search"] = False
+            # filter_condition = f'(source.drive_type == "policy" or source.location LIKE "%{file_id}")'
+            state = append_filter_condition(state, filter_condition)
+        else:
+            logger.warning(
+                f"Policy document IDs did not seem to be in the correct format. Message content: {message.content}"
+            )
 
     return state
 
@@ -228,7 +240,7 @@ def create_chat_graph(
 def choose_main_prompt(state: State) -> State:
     """Choose the main prompt based on whether retrieval has been restricted to policy documents"""
 
-    if state["intermediate_outputs"].get("file_id"):
+    if state["intermediate_outputs"].get("file_ids"):
         main_prompt = qa_verbatim_prompt
     else:
         main_prompt = qa_prompt

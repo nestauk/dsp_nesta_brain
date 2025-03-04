@@ -74,8 +74,8 @@ def create_retrieval_chain(
 
     Lightly modified version of:
     https://github.com/langchain-ai/langchain/blob/master/libs/langchain/langchain/chains/retrieval.py
-    The modification is to allow a dict containing the query, filter conditions, and possibly other paramters to be passed through
-    to _get_relevant_documents
+    The modification is to allow a dict containing the query, filter conditions, and possibly other
+    parameters to be passed through to _get_relevant_documents
     """
 
     combine_docs_chain = (lambda x: filter_messages(x)) | combine_docs_chain

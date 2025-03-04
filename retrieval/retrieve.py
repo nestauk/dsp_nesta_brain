@@ -6,6 +6,7 @@ import re
 from collections import OrderedDict
 from typing import List
 from typing import Optional
+from typing import Union
 
 import lancedb
 
@@ -43,6 +44,7 @@ class RetrieverInput(MessagesState):
     # RetrieverInput inherits a `messages` property from MessagesState
     limit: int
     filter_condition: str
+    use_hybrid_search: bool = True  # if False, just use the filter_condition and don't use the limit
 
 
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
@@ -137,20 +139,28 @@ class CustomRetriever(BaseRetriever):
         query = input["messages"][-1].content
         limit = input["limit"]
         filter_condition = input.get("filter_condition") or None  # if '' then want None
-        logger.info("Vectorizing query ...")
-        vector_ = vector(query)
 
-        logger.info("Retrieving most relevant chunks ...")
+        if input["use_hybrid_search"]:
+            logger.info("Vectorizing query ...")
+            vector_ = vector(query)
+            logger.info("Retrieving most relevant chunks ...")
+        else:
+            vector_ = None
+
         chunks = CustomRetriever.search_loop(
             chunk_table, query, vector_, limit, filter_condition=filter_condition, **kwargs
         )
         chunks = chunks[0:limit]
-        logger.info(f"Retreived {len(chunks)} chunks")
+        logger.info(f"Retrieved {len(chunks)} chunks. Relevance scores: {[chunk.relevance_score for chunk in chunks]}")
         return chunks
 
     @staticmethod
     def search_loop(
-        table: LanceTable, query: str, vector_: List[float], limit: int, filter_condition: Optional[str] = None
+        table: LanceTable,
+        query: str,
+        vector_: Union[List[float], None],
+        limit: int,
+        filter_condition: Optional[str] = None,
     ) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are limit unique chunks (synchronous)"""
 
@@ -158,24 +168,28 @@ class CustomRetriever(BaseRetriever):
         iteration_required = True
         while iteration_required:  # iteration only necessary if there are duplicates, for example,
             # some 'boilerplate' text from reports may be duplicated
-            chunks = (
-                table.search(query_type="hybrid")
-                .vector(vector_)
-                .text(query)
-                .where(
-                    filter_condition,
-                    prefilter=True,
+            if vector_:
+                chunks = (
+                    table.search(query_type="hybrid")
+                    .vector(vector_)
+                    .text(query)
+                    .where(
+                        filter_condition,
+                        prefilter=True,
+                    )
+                    .limit(limit)
                 )
-                .limit(limit)
-            )
 
-            relevance_scores = chunks.to_arrow()["_relevance_score"]
+                relevance_scores = chunks.to_arrow()["_relevance_score"]
 
-            chunks = chunks.to_pydantic(Chunk)
-            for i, chunk in enumerate(chunks):
-                chunk.relevance_score = relevance_scores[
-                    i
-                ].as_py()  # as_py converts a pyarrow.lib.FloatScalar to a float
+                chunks = chunks.to_pydantic(Chunk)
+                for i, chunk in enumerate(chunks):
+                    chunk.relevance_score = relevance_scores[
+                        i
+                    ].as_py()  # as_py converts a pyarrow.lib.FloatScalar to a float
+
+            else:
+                chunks = (table.search().where(filter_condition)).to_pydantic(Chunk)
 
             found_limit_chunks = len(chunks) == limit
             unique_chunks = unique(
@@ -204,7 +218,7 @@ if __name__ == "__main__":
 
     # code below is just for testing and experimenting
 
-    if True:
+    if False:
         # experimenting with search filter conditions
         query = "What work has Nesta done on educational technology"
         # query = 'Who has experience working in government'

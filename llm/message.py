@@ -100,6 +100,9 @@ class CustomAIMessage(AIMessage):
         chunks = chain_response["context"]
         references = [Reference(chunk, i + 1) for i, chunk in enumerate(chunks)]
 
+        # content standardisation
+        content = content.replace("__Verbatim__", "#####Verbatim:#####")
+
         super().__init__(content=content, references=references)
 
     def __repr__(self) -> str:
