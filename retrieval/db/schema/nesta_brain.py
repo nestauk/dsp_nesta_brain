@@ -176,13 +176,8 @@ if __name__ == "__main__":
 
         #   docs = document_table.search().where('title LIKE "%Birthing Parent%"').limit(10).to_pydantic(Document)
         #  print(docs)
-        chunks = (
-            chunk_table.search()
-            .where('source.location LIKE "https://drive.google.com/file/d%"')
-            .limit(100)
-            .to_pydantic(Chunk)
-        )
-    #   print(chunks)
+        results = chunk_table.search().where('source.location NOT LIKE "https://%"').limit(100).to_pydantic(Chunk)
+        logger.info(len(results))
 
     # adding columns
     if False:
@@ -196,11 +191,11 @@ if __name__ == "__main__":
         document_table = db.open_table("document")
         chunk_table = db.open_table("chunk")
 
-        document_table.delete('location LIKE "https://drive.google.com/file/d%"')
-        chunk_table.delete('source.location LIKE "https://drive.google.com/file/d%"')
+        #  document_table.delete('location LIKE "https://drive.google.com/file/d%"')
+        chunk_table.delete('source.location = "1NeuLG4DAHg-gd_iwAWCWKq80_iVUmXMp"')
 
     # copying tables from one db to another
-    if True:
+    if False:
 
         copy_from_path = "retrieval/db/full_site_demo_db_with_pdfs"
         copy_from_db = lancedb.connect(copy_from_path)

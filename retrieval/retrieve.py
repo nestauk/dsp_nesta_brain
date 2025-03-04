@@ -17,6 +17,7 @@ from dsp_nesta_brain import logger
 from lancedb.db import LanceDBConnection
 from lancedb.table import LanceTable
 from langchain.docstore.document import Document as LangchainDocument
+from langchain_core.messages import HumanMessage
 from langchain_core.retrievers import BaseRetriever
 from langgraph.graph import MessagesState
 from openai import OpenAI
@@ -218,18 +219,25 @@ if __name__ == "__main__":
 
     # code below is just for testing and experimenting
 
-    if False:
+    if True:
         # experimenting with search filter conditions
         query = "What work has Nesta done on educational technology"
         # query = 'Who has experience working in government'
-        filter_condition = "source.date_pub >= to_timestamp('2020-01-01')"  # filter by date
+        # filter_condition = "source.date_pub >= to_timestamp('2020-01-01')"  # filter by date
         # filter_condition = "array_contains(source.projects,'Digital Arts and Culture Accelerator')" #filter by project.
         # Remember the 'projects' field is a list of strings (there can be more than one project)
         # filter_condition = "source.contentType = 'person page'"  #filter by content type
         # filter_condition = "source.rank <= 100" #filter by page popularity
         #  filter_condition = None  #also works with no filter condition
-        filter_condition = "source.date_pub >= to_timestamp('2020-01-01') and source.contentType = 'person page'"
-        chunks = CustomRetriever().invoke(query, filter_condition=filter_condition)
+        #  filter_condition = "source.date_pub >= to_timestamp('2020-01-01') and source.contentType = 'person page'"
+        filter_condition = '(source.location LIKE "%1NeuLG4DAHg-gd_iwAWCWKq80_iVUmXMp")'
+        input = {
+            "messages": [HumanMessage(content=query)],
+            "limit": 10000,
+            "filter_condition": filter_condition,
+            "use_hybrid_search": False,
+        }
+        chunks = CustomRetriever().invoke(input)
         logger.info(len(chunks))
         for chunk in chunks:
             logger.info("\n\n", chunk)
