@@ -30,9 +30,9 @@ from langdetect import detect
 from pdf2image.exceptions import PDFInfoNotInstalledError
 from retrieval.db.schema.nesta_brain import Chunk
 from retrieval.db.schema.nesta_brain import Document as LanceDocument
+from scraping.pdf.unstructured import PDF
 from scraping.scrape import html_to_text
 from scraping.scrape import search_query_to_scraped_data
-from scraping.scrape_pdf import PDF
 from utils import unique
 
 
