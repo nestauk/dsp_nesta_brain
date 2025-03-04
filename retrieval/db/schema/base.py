@@ -22,6 +22,7 @@ class BaseChunk(LanceModel):
     vector: Vector(model.ndims())
     order_index: Optional[int] = None
     time_added: Optional[datetime] = None
+    relevance_score: Optional[float] = None
 
     @abstractmethod
     # @property  #should have a metadata method which uses @property decorator;

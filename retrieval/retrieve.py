@@ -167,8 +167,16 @@ class CustomRetriever(BaseRetriever):
                     prefilter=True,
                 )
                 .limit(limit)
-                .to_pydantic(Chunk)
             )
+
+            relevance_scores = chunks.to_arrow()["_relevance_score"]
+
+            chunks = chunks.to_pydantic(Chunk)
+            for i, chunk in enumerate(chunks):
+                chunk.relevance_score = relevance_scores[
+                    i
+                ].as_py()  # as_py converts a pyarrow.lib.FloatScalar to a float
+
             found_limit_chunks = len(chunks) == limit
             unique_chunks = unique(
                 chunks

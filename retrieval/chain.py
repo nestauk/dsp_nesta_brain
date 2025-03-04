@@ -54,7 +54,7 @@ def create_history_aware_retriever(
     retrieve_documents: RetrieverOutputLike = RunnableBranch(
         (
             lambda x: len(x.get("messages") or []) == 1,
-            # if the chat_history is only one message long, then it just includes the user's first input
+            # if the chat history is only one message long, then it just includes the user's first input
             # just pass input directly to the retriever
             retriever,
         ),
