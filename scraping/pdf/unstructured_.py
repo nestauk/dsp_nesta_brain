@@ -23,7 +23,12 @@ from utils import yesno
 
 
 class PDF:
-    """Represents a scraped PDF document"""
+    """
+    Represents a scraped PDF document
+
+    This is intended for any document which doesn't include a table, and in particular, long reports divided into sections
+    with elements to be excluded such as headers, footers, table of contents, etc.
+    """
 
     location: str
     elements: List[Element]
