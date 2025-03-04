@@ -14,6 +14,7 @@ from typing import Union
 
 import streamlit as st
 
+from config import DEBUG_MODE
 from config import EARLIEST_YEAR
 from config import USE_LANGFUSE
 from dotenv import load_dotenv
@@ -275,6 +276,11 @@ if __name__ == "__main__":
         """,
             unsafe_allow_html=True,
         )
+
+        if DEBUG_MODE:
+            st.markdown(
+                '<p style="color:red;font-size:125%"><b>WARNING: DEBUG MODE IS ON</b></p>', unsafe_allow_html=True
+            )
 
         st.markdown(
             INTRO,

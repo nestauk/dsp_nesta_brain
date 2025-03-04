@@ -6,6 +6,8 @@ PROJECT: Literal["NESTA_BRAIN", "POLICY_ATLAS"] = "NESTA_BRAIN"
 DEFAULT_MODEL: str = "gpt-4o-mini"
 DEFAULT_EMBEDDINGS_MODEL: str = "text-embedding-3-small"
 
+DEBUG_MODE = True
+
 USE_AZURE: bool = True
 USE_AZURE_LLM: bool = USE_AZURE
 AZURE_MODEL: str = DEFAULT_MODEL
@@ -17,7 +19,7 @@ if PROJECT == "NESTA_BRAIN":
     DB_PATH: str = "retrieval/db/nesta_brain"
     EARLIEST_YEAR: int = 2003  # 2003 is the earliest publication date in the DB
     DEFAULT_START_YEAR: int = 2019
-    USE_LANGFUSE: bool = False
+    USE_LANGFUSE: bool = False  # set as wanted
 
 if PROJECT == "POLICY_ATLAS":
     DB_PATH: str = "retrieval/db/policy_atlas"
