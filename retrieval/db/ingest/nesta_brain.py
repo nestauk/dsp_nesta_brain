@@ -30,7 +30,8 @@ from langdetect import detect
 from pdf2image.exceptions import PDFInfoNotInstalledError
 from retrieval.db.schema.nesta_brain import Chunk
 from retrieval.db.schema.nesta_brain import Document as LanceDocument
-from scraping.pdf.unstructured import PDF
+from scraping.pdf.openparse_ import OpenParsePDF
+from scraping.pdf.unstructured_ import PDF
 from scraping.scrape import html_to_text
 from scraping.scrape import search_query_to_scraped_data
 from utils import unique
@@ -417,7 +418,11 @@ def search_query_to_ingested_data(
 
 
 def ingest_from_drive(
-    file_ids: Optional[List[str]] = None, all_pdfs: bool = False, drive_type: Optional[str] = None, **kwargs
+    file_ids: Optional[List[str]] = None,
+    all_pdfs: bool = False,
+    drive_type: Optional[str] = None,
+    pdf_parser: str = "openparse",
+    **kwargs,
 ) -> None:
     """Ingest PDFs from Google Drive into the database"""
 
@@ -462,7 +467,12 @@ def ingest_from_drive(
 
             pdf_path = "google_api/downloaded.pdf"
             download_pdf(file_id, path=pdf_path, service=service)
-            pdf = PDF(pdf_path)
+            if pdf_parser == "openparse":
+                pdf = OpenParsePDF(pdf_path)
+                text = pdf.text
+            else:
+                pdf = PDF(pdf_path)
+
             text = (
                 pdf.text
             )  # use text rather than filtered_text because the formatting of policy documents is different to main reports
@@ -511,6 +521,9 @@ if __name__ == "__main__":
 
     # settings relevant to drive mode
     drive_type: Literal["policy"] = "policy"  # add other strings to the Literal as other types of documents are added
+    pdf_parser: Literal[
+        "unstructured", "openparse"
+    ] = "openparse"  # use openparse for simple documents which may contain tables
 
     # global variable
     request_counter = ing.RequestCounter()
@@ -568,10 +581,7 @@ if __name__ == "__main__":
         #   "https://drive.google.com/file/d/1VKJAnhJypp0Hp0Pm00uuHecYxcg-bOop/view?usp=sharing",
         #  "https://drive.google.com/file/d/1RVR3qrVDGVD3jtyMpUix7_rk1lXeSfkh/view?usp=sharing",
         # ]
-        urls = [
-            "https://drive.google.com/file/d/1q5V-LtYc8AUix_dIkDnDu3hXNnWlA0o4/view?usp=sharing",
-            "https://drive.google.com/file/d/1y6P6szmw-AfXAN4_HOqD04ijPE3imag-/view?usp=sharing",
-        ]
+        urls = ["https://drive.google.com/file/d/1NeuLG4DAHg-gd_iwAWCWKq80_iVUmXMp/view?usp=sharing"]
         file_ids = [
             url.replace("https://drive.google.com/file/d/", "").replace("/view?usp=sharing", "") for url in urls
         ]

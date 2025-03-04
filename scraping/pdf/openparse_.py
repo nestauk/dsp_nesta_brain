@@ -7,15 +7,15 @@ from typing import List
 
 import openparse
 
-from dsp_nesta_brain import logger
 from openparse.schemas import TableElement
+from scraping.pdf.base import BasePDF
 
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
 
-class OpenParsePDF:
+class OpenParsePDF(BasePDF):
     """
     Represents a scraped PDF document
 
@@ -26,9 +26,8 @@ class OpenParsePDF:
     location: str
     elements: List[BaseModel]
 
-    def __init__(self, location: str) -> None:
-        self.location = location
-        logger.info(f"\nReading PDF document {self.location} ...")
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         self.parse()
 
     @staticmethod
