@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-import re
 
 from copy import deepcopy
 from typing import TYPE_CHECKING
@@ -12,19 +11,19 @@ from typing import Type
 
 from config import DEFAULT_START_YEAR
 from dsp_nesta_brain import logger
+from google_api.office_template import OfficeTemplate
+from google_api.policy import Policy
 from langchain_core.runnables import RunnableParallel
-from langchain_core.runnables import RunnablePassthrough
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.types import StreamWriter
 from lgraph.prompt import currentness_comment_prompt
-from lgraph.prompt import needs_policy_prompt
 from lgraph.prompt import personnel_prompt
 from lgraph.prompt import year_constraint_prompt
 from llm.llm import default_llm as llm
 from llm.message import CustomAIMessage
-from llm.prompt import qa_prompt
+from llm.prompt import qa_prompt as default_prompt
 from llm.prompt import qa_verbatim_prompt
 from llm.tool import year_range
 from retrieval.retrieve import RetrieverInput
@@ -108,32 +107,14 @@ def decide_if_need_time_constraint(state: State) -> State:
     return state
 
 
+def decide_whether_needs_office_template(state: State) -> State:
+    """Decide whether an office template is needed to answer a query base on a state and amend the state accordingly if so"""
+    return OfficeTemplate.decide_whether_needs_document(state)
+
+
 def decide_whether_needs_policy(state: State) -> State:
-    """Decide whether an office template is needed"""
-
-    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
-
-    message = chain.invoke(state)
-
-    if message.content != "NULL":
-
-        file_ids = message.content
-        file_ids = [file_id.strip() for file_id in file_ids.split(",")]
-        file_ids_are_right_format = all(re.search(r"^[A-Za-z0-9\-_]+$", file_id) for file_id in file_ids)
-
-        if file_ids_are_right_format:
-            logger.info(f"Policy document IDs identified: {file_ids}")
-            state["intermediate_outputs"]["file_ids"] = file_ids
-            filter_condition = "(" + " or ".join([f'source.location LIKE "%{file_id}"' for file_id in file_ids]) + ")"
-            state["use_hybrid_search"] = False
-            # filter_condition = f'(source.drive_type == "policy" or source.location LIKE "%{file_id}")'
-            state = append_filter_condition(state, filter_condition)
-        else:
-            logger.warning(
-                f"Policy document IDs did not seem to be in the correct format. Message content: {message.content}"
-            )
-
-    return state
+    """Decide whether a policy document is needed to answer a query base on a state and amend the state accordingly if so"""
+    return Policy.decide_whether_needs_document(state)
 
 
 def initiate(state: State) -> State:
@@ -243,7 +224,7 @@ def choose_main_prompt(state: State) -> State:
     if state["intermediate_outputs"].get("file_ids"):
         main_prompt = qa_verbatim_prompt
     else:
-        main_prompt = qa_prompt
+        main_prompt = default_prompt
 
     state["intermediate_outputs"]["main_prompt"] = main_prompt
 
@@ -259,7 +240,7 @@ def create_combined_graph(
         state: State,
     ) -> State:  # function defined here to avoid circular import
 
-        prompt = state["intermediate_outputs"].get("main_prompt")
+        prompt = (state.get("intermediate_outputs") or {}).get("main_prompt") or default_prompt
         rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(prompt=prompt, **kwargs)
         response = rag_chain.invoke(state)
         state["messages"].append(CustomAIMessage(response))
@@ -268,15 +249,25 @@ def create_combined_graph(
 
     builder = StateGraph(State)
 
-    builder.add_node("initiate", initiate)
-    builder.add_node("decide_whether_needs_policy", decide_whether_needs_policy)
-    builder.add_node("choose_main_prompt", choose_main_prompt)
-    builder.add_node("call_model", call_model)
-    builder.add_edge(START, "initiate")
-    builder.add_edge("initiate", "decide_whether_needs_policy")
-    builder.add_edge("decide_whether_needs_policy", "choose_main_prompt")
-    builder.add_edge("choose_main_prompt", "call_model")
-    builder.add_edge("call_model", END)
+    if False:
+        builder.add_node("initiate", initiate)
+        builder.add_node("decide_whether_needs_policy", decide_whether_needs_policy)
+        builder.add_node("choose_main_prompt", choose_main_prompt)
+        builder.add_node("call_model", call_model)
+        builder.add_edge(START, "initiate")
+        builder.add_edge("initiate", "decide_whether_needs_policy")
+        builder.add_edge("decide_whether_needs_policy", "choose_main_prompt")
+        builder.add_edge("choose_main_prompt", "call_model")
+        builder.add_edge("call_model", END)
+
+    else:
+        builder.add_node("initiate", initiate)
+        builder.add_node("decide_whether_needs_office_template", decide_whether_needs_office_template)
+        builder.add_node("call_model", call_model)
+        builder.add_edge(START, "initiate")
+        builder.add_edge("initiate", "decide_whether_needs_office_template")
+        builder.add_edge("decide_whether_needs_office_template", "call_model")
+        builder.add_edge("call_model", END)
 
     stream_nodes = ["call_model"]  # list of nodes whose outputs are to be streamed IN ORDER
 
