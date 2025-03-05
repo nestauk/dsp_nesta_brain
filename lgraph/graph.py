@@ -250,27 +250,6 @@ def choose_main_prompt(state: State) -> State:
     return state
 
 
-def correct_verbatim_formatting(state: State) -> State:
-    # this won't work as often len(numbered_bullets) != len(verbatim_info)
-    # it will need to come from the prompt
-    """Correct the formatting of responses so that verbatim components are displayed with relevant bullets in the main response"""
-
-    content = state["messages"][-1].content
-    components = re.split("__Verbatim__:", content)
-    if len(components) == 2:
-        main_response, verbatim_response = tuple(components)
-        numbered_bullets = re.findall(r"\d+\. \*\*[^*]+\*\*:.+\n", main_response)
-        verbatim_info = re.findall(r'> "[^"]+"', verbatim_response)
-        if len(numbered_bullets) == len(verbatim_info):
-            for i in range(len(numbered_bullets)):
-                main_response = main_response.replace(
-                    numbered_bullets[i], f"{numbered_bullets[i]}{verbatim_info[i]}\n"
-                )
-            state["messages"][-1].content = main_response
-
-    return state
-
-
 def create_combined_graph(
     return_stream_nodes: bool = False, **kwargs
 ) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
@@ -292,13 +271,10 @@ def create_combined_graph(
     builder.add_node("initiate", initiate)
     builder.add_node("decide_whether_needs_policy", decide_whether_needs_policy)
     builder.add_node("choose_main_prompt", choose_main_prompt)
-    #  builder.add_node("correct_verbatim_formatting", correct_verbatim_formatting)
     builder.add_node("call_model", call_model)
     builder.add_edge(START, "initiate")
     builder.add_edge("initiate", "decide_whether_needs_policy")
     builder.add_edge("decide_whether_needs_policy", "choose_main_prompt")
-    #  builder.add_edge("choose_main_prompt", "correct_verbatim_formatting")
-    # builder.add_edge("correct_verbatim_formatting", "call_model")
     builder.add_edge("choose_main_prompt", "call_model")
     builder.add_edge("call_model", END)
 
