@@ -85,8 +85,8 @@ class GraphStreamEvent(dict):
     def stream(self) -> bool:
         """Test whether the AIMessageChunks in this event should be streamed"""
         condition_met = self["event"] == "on_chat_model_stream"
-        condition_met and (self.get("metadata") or {}).get("langgraph_node") in stream_nodes
-        condition_met and not self.is_interim_message
+        condition_met = condition_met and (self.get("metadata") or {}).get("langgraph_node") in stream_nodes
+        condition_met = condition_met and not self.is_interim_message
         return condition_met
 
 
@@ -166,6 +166,7 @@ def respond(
         if stream:
 
             async def stream_() -> State:
+
                 message_text = ""
                 id = None
 
@@ -177,7 +178,7 @@ def respond(
                         if id != event.ai_message_chunk.id:
                             if id:
                                 message_text += "\n\n"
-                            id = event.ai_message_chunk.id
+                        id = event.ai_message_chunk.id
                         message_text += event.ai_message_chunk.content
                         message_placeholder.markdown(message_text + "▌")
 

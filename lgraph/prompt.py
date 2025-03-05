@@ -120,7 +120,7 @@ needs_policy_template = f"""
     Look at the following list of policy documents available to help you answer queries:
 
     List:
-    {Policy.list_as_string()}
+    {Policy.list(as_string=True)}
 
     Look at the query below and decide whether one or more the policies in the list is needed to answer it.
 

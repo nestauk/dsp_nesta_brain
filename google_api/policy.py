@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import List
 
@@ -43,35 +45,21 @@ class Policy(BaseModel):
         return format_.format(**{k: getattr(self, k) for k in self.__class__.dict(self) if k in format_})
 
     @staticmethod
-    def list_as_string(include_summary: bool = False) -> str:
-        """Get the list of policies as a string"""
-        policies, chunks = get_policies(return_chunks=True)
-        if include_summary:
-            return "\n".join([f"{repr(policy)}: summary:{chunks[i].text[0:200]}" for i, policy in enumerate(policies)])
-        else:
+    def list(as_string: bool = False) -> List[Policy]:
+        """Get all the policies in the vector DB and convert to the Policy class"""
+
+        db = lancedb.connect(DB_PATH)
+
+        chunk_table = db.open_table(
+            "chunk"
+        )  # using the chunk table instead of the document table in case the latter is deleted
+
+        chunks = chunk_table.search().where('source.drive_type = "policy"').limit(-1).to_pydantic(Chunk)
+
+        policies = [Policy(chunk.source) for chunk in chunks]
+
+        if as_string:
             return "\n".join([repr(policy) for policy in policies])
 
-
-def get_policies(return_chunks: bool = False) -> List[Policy]:
-    """Get all the policies in the vector DB and convert to the Policy class"""
-
-    db = lancedb.connect(DB_PATH)
-
-    chunk_table = db.open_table(
-        "chunk"
-    )  # using the chunk table instead of the document table in case the latter is deleted
-
-    chunks = chunk_table.search().where('source.drive_type = "policy"').limit(-1).to_pydantic(Chunk)
-
-    policies = [Policy(chunk.source) for chunk in chunks]
-
-    if return_chunks:
-        return policies, chunks
-    else:
-        return policies
-
-
-if __name__ == "__main__":
-
-    policies = get_policies()
-# print(policies)
+        else:
+            return policies
