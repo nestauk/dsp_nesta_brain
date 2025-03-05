@@ -135,6 +135,7 @@ def respond(
                     if event["event"] == "on_chat_model_stream":
                         if (event.get("metadata") or {}).get("langgraph_node") in stream_nodes:
                             ai_message_chunk = event["data"]["chunk"]
+                            # print(ai_message_chunk)
                             if id != ai_message_chunk.id:
                                 if id:
                                     message_text += "\n\n"

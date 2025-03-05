@@ -202,7 +202,7 @@ class CustomRetriever(BaseRetriever):
                     ].as_py()  # as_py converts a pyarrow.lib.FloatScalar to a float
 
             else:
-                chunks = (table.search().where(filter_condition)).to_pydantic(Chunk)
+                chunks = (table.search().where(filter_condition)).limit(-1).to_pydantic(Chunk)
 
             found_limit_chunks = len(chunks) == limit
             unique_chunks = unique(
