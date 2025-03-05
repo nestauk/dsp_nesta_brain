@@ -109,7 +109,7 @@ def decide_if_need_time_constraint(state: State) -> State:
 
 
 def decide_whether_needs_policy(state: State) -> State:
-    """Decide whether an office template is needed"""
+    """Decide whether a policy document is needed"""
 
     chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
 
