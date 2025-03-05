@@ -152,7 +152,19 @@ class CustomRetriever(BaseRetriever):
             chunk_table, query, vector_, limit, filter_condition=filter_condition, **kwargs
         )
         chunks = chunks[0:limit]
-        logger.info(f"Retrieved {len(chunks)} chunks. Relevance scores: {[chunk.relevance_score for chunk in chunks]}")
+
+        if input["use_hybrid_search"]:
+            info_message_format = "Retrieved {N_chunks} chunks. Relevance scores: {relevance_scores}"
+        else:
+            info_message_format = (
+                "Retrieved {N_chunks} chunks. Relevance scores not available when not using hybrid or vector search."
+            )
+        logger.info(
+            info_message_format.format(
+                N_chunks=len(chunks), relevance_scores=[chunk.relevance_score for chunk in chunks]
+            )
+        )
+
         return chunks
 
     @staticmethod

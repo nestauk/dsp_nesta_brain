@@ -136,9 +136,13 @@ class Chunk(BaseChunk):
         return hash(self.source.location + self.text)
 
     @staticmethod
-    def reference_html_format() -> str:
+    def reference_html_format(add_date: bool = False) -> str:
         """Return format for references in HTML"""
-        return '<a href="{url}">[{index}] {title}{pdf}</a>'
+        format = '<a href="{url}">[{index}] {title}{pdf}'
+        if add_date:
+            format += " {date_pub}"
+        format += "</a>"
+        return format
 
     @staticmethod
     def reference_metadata(**metadata) -> Dict:
