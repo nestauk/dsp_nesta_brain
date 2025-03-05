@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import datetime
 from typing import List
 
 import lancedb
+import pandas as pd
 
 from config import DB_PATH
 from pydantic import BaseModel
@@ -45,7 +47,7 @@ class Policy(BaseModel):
         return format_.format(**{k: getattr(self, k) for k in self.__class__.dict(self) if k in format_})
 
     @staticmethod
-    def list(as_string: bool = False) -> List[Policy]:
+    def list(as_string: bool = False, to_csv: bool = False) -> List[Policy]:
         """Get all the policies in the vector DB and convert to the Policy class"""
 
         db = lancedb.connect(DB_PATH)
@@ -58,8 +60,19 @@ class Policy(BaseModel):
 
         policies = [Policy(chunk.source) for chunk in chunks]
 
+        if to_csv:
+            df = pd.DataFrame.from_records([policy.to_dict() for policy in policies])
+            df.to_csv("retrieval/db/ingest/policies.csv", index=False)
+
         if as_string:
             return "\n".join([repr(policy) for policy in policies])
 
         else:
             return policies
+
+    def to_dict(self) -> OrderedDict:
+        """Return fields of interest as an ordered dictionary, ready for conversion into a row in a dataframe"""
+
+        dict_ = self.__dict__
+        dict_["link"] = f"https://drive.google.com/file/d/{dict_['file_id']}"
+        return OrderedDict({k: dict_[k] for k in ["title", "date_pub", "link"]})

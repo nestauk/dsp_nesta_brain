@@ -174,7 +174,7 @@ if __name__ == "__main__":
         table.create_fts_index("text")
 
     # searching for records
-    if True:
+    if False:
         document_table = db.open_table("document")
         chunk_table = db.open_table("chunk")
 
@@ -198,6 +198,25 @@ if __name__ == "__main__":
 
         #  document_table.delete('location LIKE "https://drive.google.com/file/d%"')
         chunk_table.delete('source.location = "1NeuLG4DAHg-gd_iwAWCWKq80_iVUmXMp"')
+
+    # updating records
+    if False:
+
+        document_table = db.open_table("document")
+        chunk_table = db.open_table("chunk")
+
+        bad_title = "Sickness Absence Policy - Update July 2022"
+        good_title = "Sickness Absence Policy"
+        document_table.update(where=f'title LIKE "%{bad_title}%"', values={"title": good_title})
+        results = document_table.search().where(f'title LIKE "%{good_title}%"').limit(1).to_pydantic(Document)
+        updated_document = results[0]
+
+        bad_chunks = chunk_table.search().where(f'source.title LIKE "%{bad_title}%"').limit(1).to_pydantic(Chunk)
+        chunk_table.delete(f'source.title LIKE "%{bad_title}%"')
+        for bad_chunk in bad_chunks:
+            good_chunk = bad_chunk
+            good_chunk.source = updated_document
+            chunk_table.add([good_chunk])
 
     # copying tables from one db to another
     if False:

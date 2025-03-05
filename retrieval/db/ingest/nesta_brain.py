@@ -576,10 +576,16 @@ if __name__ == "__main__":
 
     elif mode == "drive":
 
+        all_pdfs = False
+        file_ids = ["11jOuU_ABSkLDMHwziolXt-zfUzvuVwN2"]
         #   urls = ["https://drive.google.com/file/d/1NeuLG4DAHg-gd_iwAWCWKq80_iVUmXMp/view?usp=sharing"]
         #  file_ids = [
         #     url.replace("https://drive.google.com/file/d/", "").replace("/view?usp=sharing", "") for url in urls
         # ]
         ingest_from_drive(
-            replace=replace, split_documents=split_documents, drive_type=drive_type, all_pdfs=True
-        )  # file_ids=file_ids)
+            replace=replace,
+            split_documents=split_documents,
+            drive_type=drive_type,
+            all_pdfs=all_pdfs,
+            file_ids=file_ids,
+        )
