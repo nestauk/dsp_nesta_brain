@@ -36,6 +36,7 @@ from streamlit_feedback import streamlit_feedback
 
 
 if TYPE_CHECKING:
+    from langchain_core.messages.ai import AIMessageChunk
     from retrieval.retrieve import RetrieverInput as State
 
 CURRENT_YEAR = datetime.now().year
@@ -49,6 +50,44 @@ langfuse_handler = CallbackHandler(
     host=os.getenv("LANGFUSE_HOST"),
     user_id=os.getenv("LANGFUSE_USER_ID"),
 )
+
+
+class GraphStreamEvent(dict):
+    """
+    A class to represent the outputs of the astream_events method of graphs,
+    in order to make the streaming syntax more readable
+    """  # noqa
+
+    @property
+    def ai_message_chunk(self) -> AIMessageChunk:
+        """Return the AI message chunk from the event"""
+        return self["data"]["chunk"]
+
+    @property
+    def return_final_state(self) -> bool:
+        """Test whether to return the final graph state"""
+        return self["event"] == "on_chain_end" and self["name"] == stream_nodes[-1]
+
+    @property
+    def is_interim_message(self) -> bool:
+        """
+        Test whether the AIMessageChunks relate to the content of an InterimMessage (e.g. from recontextualisation),
+        in which case it shouldn't be streamed
+
+        The seq:step:N tag represents a step number in the execution sequence of different steps in the graph
+
+        CAUTION!!!: if the stucture of the graph or chains changes, the step number may change and this test may need to be updated
+        """  # noqa
+
+        return "seq:step:2" in self.get("tags") or []
+
+    @property
+    def stream(self) -> bool:
+        """Test whether the AIMessageChunks in this event should be streamed"""
+        condition_met = self["event"] == "on_chat_model_stream"
+        condition_met and (self.get("metadata") or {}).get("langgraph_node") in stream_nodes
+        condition_met and not self.is_interim_message
+        return condition_met
 
 
 def check_password() -> bool:
@@ -132,20 +171,18 @@ def respond(
 
                 async for event in chain_or_graph.astream_events(input, config, version="v1", stream_mode="values"):
 
-                    if event["event"] == "on_chat_model_stream":
-                        if (event.get("metadata") or {}).get("langgraph_node") in stream_nodes:
-                            ai_message_chunk = event["data"]["chunk"]
-                            # print(ai_message_chunk)
-                            if id != ai_message_chunk.id:
-                                if id:
-                                    message_text += "\n\n"
-                                id = ai_message_chunk.id
-                            message_text += ai_message_chunk.content
-                            message_placeholder.markdown(message_text + "▌")
+                    event = GraphStreamEvent(event)
 
-                    elif event["event"] == "on_chain_end" and event["name"] == stream_nodes[-1]:
-                        final_state = event["data"]["input"]
-                return final_state
+                    if event.stream:
+                        if id != event.ai_message_chunk.id:
+                            if id:
+                                message_text += "\n\n"
+                            id = event.ai_message_chunk.id
+                        message_text += event.ai_message_chunk.content
+                        message_placeholder.markdown(message_text + "▌")
+
+                    elif event.return_final_state:
+                        return event["data"]["input"]
 
             final_state = asyncio.run(stream_())
 
