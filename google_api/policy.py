@@ -5,10 +5,9 @@ from datetime import datetime
 from typing import List
 
 import lancedb
-import pandas as pd
 
 from config import DB_PATH
-from google_drive.drive_doc import BaseDriveDoc
+from google_api.base import BaseDriveDoc
 from pydantic import Field
 from retrieval.db.schema.nesta_brain import Chunk
 from retrieval.db.schema.nesta_brain import Document as LanceDocument
@@ -17,12 +16,6 @@ from retrieval.db.schema.nesta_brain import Document as LanceDocument
 class Policy(BaseDriveDoc):
     """A class for describing Nesta policy documents."""
 
-    file_id: str = (
-        Field(
-            ...,
-            description="A unique identifier",
-        ),
-    )
     title: str = (
         Field(
             ...,
@@ -42,7 +35,7 @@ class Policy(BaseDriveDoc):
         super().__init__(file_id=document.file_id, title=document.title, date_pub=date_pub)
 
     @staticmethod
-    def list(as_string: bool = False, to_csv: bool = False) -> List[Policy]:
+    def list(as_string: bool = False, to_csv: bool = False, **kwargs) -> List[Policy]:
         """Get all the policies in the vector DB and convert to the Policy class"""
 
         db = lancedb.connect(DB_PATH)
@@ -55,12 +48,8 @@ class Policy(BaseDriveDoc):
 
         policies = [Policy(chunk.source) for chunk in chunks]
 
-        if to_csv:
-            df = pd.DataFrame.from_records([policy.to_dict() for policy in policies])
-            df.to_csv("retrieval/db/ingest/policies.csv", index=False)
-
-        if as_string:
-            return "\n".join([repr(policy) for policy in policies])
+        if kwargs:
+            return Policy.format_list(policies, **kwargs)
 
         else:
             return policies

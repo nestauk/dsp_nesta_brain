@@ -20,7 +20,7 @@ from bs4.element import Tag
 from config import DB_PATH
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
-from google_api.drive import PDF_SCOPES
+from google_api.drive import READ_ONLY_SCOPES
 from google_api.drive import download_pdf
 from google_api.drive import drive_service
 from google_api.drive import get_file
@@ -453,7 +453,7 @@ def ingest_from_drive(
 
     if file_ids:
         logger.info("Setting up connection to Google Drive API")
-        service = drive_service(scopes=PDF_SCOPES)
+        service = drive_service(scopes=READ_ONLY_SCOPES)
 
     for file_id in file_ids:
 
