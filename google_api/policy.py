@@ -15,7 +15,7 @@ from retrieval.db.schema.nesta_brain import Document as LanceDocument
 
 
 class Policy(BaseModel):
-    """A class for describing templates for Nesta policy documents."""
+    """A class for describing Nesta policy documents."""
 
     file_id: str = (
         Field(
