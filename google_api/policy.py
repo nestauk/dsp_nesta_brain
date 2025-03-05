@@ -8,14 +8,14 @@ import lancedb
 import pandas as pd
 
 from config import DB_PATH
-from pydantic import BaseModel
+from google_drive.drive_doc import BaseDriveDoc
 from pydantic import Field
 from retrieval.db.schema.nesta_brain import Chunk
 from retrieval.db.schema.nesta_brain import Document as LanceDocument
 
 
-class Policy(BaseModel):
-    """A class for describing templates for Nesta policy documents."""
+class Policy(BaseDriveDoc):
+    """A class for describing Nesta policy documents."""
 
     file_id: str = (
         Field(
@@ -40,11 +40,6 @@ class Policy(BaseModel):
         """Initialize the class with the document object"""
         date_pub = datetime.strftime(document.date_pub, "%B %Y")
         super().__init__(file_id=document.file_id, title=document.title, date_pub=date_pub)
-
-    def __repr__(self) -> str:
-        """Self-explanatory"""
-        format_ = "\n\tfield_id: {file_id}\n\ttitle: {title}\n\tdate_pub: {date_pub}"
-        return format_.format(**{k: getattr(self, k) for k in self.__class__.dict(self) if k in format_})
 
     @staticmethod
     def list(as_string: bool = False, to_csv: bool = False) -> List[Policy]:
@@ -71,7 +66,7 @@ class Policy(BaseModel):
             return policies
 
     def to_dict(self) -> OrderedDict:
-        """Return fields of interest as an ordered dictionary, ready for conversion into a row in a dataframe"""
+        """Return fields as an ordered dictionary, for example, for conversion into a row in a dataframe"""
 
         dict_ = self.__dict__
         dict_["link"] = f"https://drive.google.com/file/d/{dict_['file_id']}"
