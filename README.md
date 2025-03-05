@@ -42,13 +42,15 @@ dsp_nesta_brain/
 └── utils/            # Utility scripts and helper functions
 eval/                 # Evaluation metrics and Langfuse
 front_end/            # Constants and functions needed for the streamlit app (project-specific)
+google_api            # Interacting with Google Drive
 lgraph/               # LangGraph experiments
 llm/                  # LLM and LangChain use
 retrieval/            # RAG retrieval
 └── db/               # Vector database setup and maintenance
   ├── ingest/         # Vector database ingestion (one file for each project)
   └── schema/         # Vector database schema and setup (one file for each project)
-scraping/             # Web-scraping
+scraping/             # Web-scraping and PDF parsing
+└──pdf                #PDF parsing
 topic_model/          # Topic modelling and visualisation
 ```
 
