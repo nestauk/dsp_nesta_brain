@@ -76,7 +76,7 @@ class GraphStreamEvent(dict):
 
         The seq:step:N tag represents a step number in the execution sequence of different steps in the graph
 
-        CAUTION!!!: if the stucture of the graph or chains changes, the step number may change and this test may need to be updated
+        CAUTION!!!: if the structure of the graph or chains changes, the step number may change and this test may need to be updated
         """  # noqa
 
         return "seq:step:2" in self.get("tags") or []
