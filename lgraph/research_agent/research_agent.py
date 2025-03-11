@@ -3,22 +3,26 @@ from __future__ import annotations
 import ast
 
 from os import system
-from typing import TYPE_CHECKING
 
 import lgraph.research_agent.prompt as pt
 
 from dsp_nesta_brain import logger
+from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.messages import HumanMessage
+from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
 from lgraph.graph import State
+from llm.chain import create_retrieval_chain
 from llm.llm import default_llm as llm
 
+# from llm.prompt import qa_prompt
+from retrieval.retrieve import CustomRetriever
 
-if TYPE_CHECKING:
-    from langchain_core.prompts import PromptTemplate
+
+# from typing import TYPE_CHECKING
 
 
 MAX_REVISIONS = 2
@@ -55,6 +59,20 @@ def call_model(state: AgentState, prompt: PromptTemplate) -> AgentState:
     return result
 
 
+def call_retrieval_chain(state: AgentState) -> AgentState:
+    """Call a retrieval chain to generate a response to a prompt."""
+
+    prompt = PromptTemplate(
+        template=pt.write_prompt.template + "\nContext:\n{context}", input_variables=["request", "context"]
+    )
+    chat_qa_chain = RunnablePassthrough.assign(request=(lambda x: x["messages"][-1])) | create_stuff_documents_chain(
+        llm, prompt
+    )
+    retrieval_chain = create_retrieval_chain(CustomRetriever(), chat_qa_chain)
+    result = retrieval_chain.invoke(state)
+    return result
+
+
 def write(state: AgentState) -> AgentState:
     """
     Write the initial draft of the document.
@@ -66,8 +84,15 @@ def write(state: AgentState) -> AgentState:
         AgentState: The updated state of the research agent.
     """
 
-    result = call_model(state, pt.write_prompt)
-    state["draft"] = result.content
+    use_retrieval = True
+
+    if use_retrieval:
+        result = call_retrieval_chain(state)
+        state["draft"] = result
+    else:
+        result = call_model(state, pt.write_prompt)
+        state["draft"] = result.content
+
     return state
 
 

@@ -91,10 +91,11 @@ def get_review_prompt(state: State) -> PromptTemplate:
     prompt_template_1 = f"""
     You have been tasked with reviewing the draft which was written based on a specific template.
     Send it for revision, along with your notes to guide the revision.
+    DO NOT modify the template structure, for example, by suggesting new sections like an Executive Summary or Conclusions if they are not in the template.
     {reviser_addendum if state.get('revision_notes') else ""}
 
     Template: {my_office_template}\nDraft: {{draft}}\n
-    """
+    """  # noqa
 
     prompt_template_2 = f"""
     You have been tasked with reviewing the draft which was written based on a specific template.
@@ -104,12 +105,23 @@ def get_review_prompt(state: State) -> PromptTemplate:
     {reviser_addendum if state.get('revision_notes') else ""}
 
     Template: {my_office_template}\nDraft: {{draft}}\n
-    """
+    """  # noqa
+
+    prompt_template_3 = f"""
+    You have been tasked with reviewing the draft which was written based on a specific template.
+    Please accept the draft if it is good enough to publish, or send it for revision, along with your notes to guide the revision.
+    If the draft does not fit the provided template structure, you should include this in your revision notes.
+    DO NOT modify the template structure, for example, by suggesting new sections like an Executive Summary or Conclusions if they are not in the template.
+    If the draft meets all the guidelines, please return 'NULL'.
+    {reviser_addendum if state.get('revision_notes') else ""}
+
+    Template: {my_office_template}\nDraft: {{draft}}\n
+    """  # noqa
 
     if state.get("revision_number", 0) == 0:
         prompt_template = prompt_template_1  # do at least one revision
     else:
-        prompt_template = prompt_template_2
+        prompt_template = prompt_template_3
 
     input_variables = ["draft"]
     if state.get("revision_notes"):
