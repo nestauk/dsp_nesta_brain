@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import ast
+import importlib
 
 from os import system
+from typing import Dict
+from typing import List
+from typing import Literal
 
 import lgraph.research_agent.prompt as pt
 
@@ -17,6 +21,7 @@ from langgraph.graph import StateGraph
 from lgraph.graph import State
 from llm.chain import create_retrieval_chain
 from llm.llm import default_llm as llm
+from llm.message import CustomAIMessage
 
 # from llm.prompt import qa_prompt
 from retrieval.retrieve import CustomRetriever
@@ -49,6 +54,8 @@ class AgentState(State):
     revision_notes: str
     revision_number: int
     finalized_state: bool = False
+    context: List[Dict]
+    sidebar_options: Dict
 
 
 def call_model(state: AgentState, prompt: PromptTemplate) -> AgentState:
@@ -84,14 +91,17 @@ def write(state: AgentState) -> AgentState:
         AgentState: The updated state of the research agent.
     """
 
-    use_retrieval = True
+    use_retrieval_sidebar_option = importlib.import_module("app_research").WIDGET_SPEC.get("use_retrieval_option")
+    use_retrieval = state.get("sidebar_options", {}).get("knowledge_source") == use_retrieval_sidebar_option
 
     if use_retrieval:
         result = call_retrieval_chain(state)
-        state["draft"] = result
+        state["draft"] = result["answer"]
+        state["context"] = result["context"]
     else:
         result = call_model(state, pt.write_prompt)
         state["draft"] = result.content
+        state["context"] = []
 
     return state
 
@@ -124,18 +134,21 @@ def revise(state: AgentState) -> AgentState:
 
 def terminate(state: AgentState) -> AgentState:
     """Reject the draft of the document."""
-    logger.info("Draft terminated")
-    return state
 
+    if state.get("finalized_state"):
+        output_format = "Text after drafting and {revision_number} revision(s):\n\n{draft}"
+    else:
+        output_format = "Text after drafting and {revision_number} revision(s) (NB: revision process was not fully completed):\n\n{draft}"  # noqa
 
-def accept(state: AgentState) -> AgentState:
-    """Accept the draft of the document."""
-    logger.info("Draft accepted")
+    custom_ai_message_input_dict = state
+    custom_ai_message_input_dict["answer"] = output_format.format(**state)
+    state["messages"].append(CustomAIMessage(custom_ai_message_input_dict))
+
     return state
 
 
 # copied from https://medium.com/towards-data-science/building-a-research-agent-that-can-write-to-google-docs-part-1-4b49ea05a292
-def should_continue(state: AgentState) -> str:
+def should_continue(state: AgentState) -> Literal["terminate", "revise"]:
     """
     Determine whether the research process should continue based on the current state.
 
@@ -143,12 +156,12 @@ def should_continue(state: AgentState) -> str:
         state (AgentState): The current state of the research agent.
 
     Returns:
-        str: The next node to transition to ("to_review", "accepted", or "terminated").
+        str: The next node to transition to
     """
     # always send to review if editor hasn't made comments yet
 
     if state.get("finalized_state"):
-        return "accept"
+        return "terminate"
     elif state.get("revision_number", 0) >= MAX_REVISIONS:
         logger.info("The number of revisions has reached the maximum ... terminating")
         return "terminate"
@@ -164,21 +177,18 @@ agent.add_node("review", review)
 # if False:
 agent.add_node("terminate", terminate)
 agent.add_node("revise", revise)
-agent.add_node("accept", accept)
-
 
 # Edges
 agent.add_edge(START, "write")
 agent.add_edge("write", "review")
 agent.add_edge("revise", "review")
-agent.add_edge("accept", END)
 agent.add_edge("terminate", END)
 agent.add_conditional_edges("review", should_continue)
 
 
 # stream_nodes = ["call_model"]  # list of nodes whose outputs are to be streamed IN ORDER
 
-graph = agent.compile()
+agent = agent.compile()
 
 
 if __name__ == "__main__":
@@ -197,12 +207,12 @@ if __name__ == "__main__":
         }
 
         state = AgentState(input)
-        state = graph.invoke(state)
+        state = agent.invoke(state)
 
         for k, v in state.items():
             print("\n", f"{k}: {v}")  # noqa
 
     else:
 
-        graph.get_graph().draw_mermaid_png(output_file_path="lgraph/research_agent/mermaid.png")
+        agent.get_graph().draw_mermaid_png(output_file_path="lgraph/research_agent/mermaid.png")
         system("open lgraph/research_agent/mermaid.png")  # nosec

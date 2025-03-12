@@ -47,11 +47,15 @@ if PROJECT == "NESTA_BRAIN":
                 "default": "Yes",
                 "filter_condition_format": "source.contentType != 'person page'",
                 "options": ("Yes", "No"),
+                "label": "Include people pages",
+                "element_type": "radio",
             },
             "mission": {
                 "default": None,
                 "filter_condition_format": "array_contains(source.missions,'{current_value}')",
                 "options": ("A fairer start", "A healthy life", "A sustainable future", None),
+                "label": "Mission-specific content",
+                "element_type": "radio",
             },
         }
     )
