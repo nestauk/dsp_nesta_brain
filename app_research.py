@@ -1,42 +1,33 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import uuid
 
 from collections import OrderedDict
 from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
-from typing import Union
 
+import markdown
 import streamlit as st
 
 from config import DEBUG_MODE
-from config import EARLIEST_YEAR
-from config import USE_LANGFUSE
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from front_end.sidebar import sidebar
-from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
-from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from lgraph.research_agent.research_agent import agent
+from lgraph.research_agent.research_agent import create_agent
 from llm.message import CustomAIMessage
-from streamlit.delta_generator import DeltaGenerator
-from streamlit_feedback import streamlit_feedback
 
 
 stream_nodes = []  # temporary, to please Flake8
 
 if TYPE_CHECKING:
     from langchain_core.messages.ai import AIMessageChunk
-    from retrieval.retrieve import RetrieverInput as State
 
 CURRENT_YEAR = datetime.now().year
 
@@ -50,6 +41,8 @@ langfuse_handler = CallbackHandler(
     user_id=os.getenv("LANGFUSE_USER_ID"),
 )
 
+config = {"configurable": {"thread_id": "1"}}
+
 
 WIDGET_SPEC = OrderedDict(
     {
@@ -57,6 +50,7 @@ WIDGET_SPEC = OrderedDict(
             "default": "Nesta Vector DB",
             "filter_condition_format": None,
             "options": ("LLM internal knowledge", "Nesta Vector DB"),
+            "element_type": "radio",
         },
     }
 )
@@ -131,11 +125,8 @@ def check_password() -> bool:
 def chat_history() -> List[BaseMessage]:
     """Derive chat history from streamlit messages"""
 
-    def message_class(message: Dict) -> type:
-        return AIMessage if message["role"] == "assistant" else HumanMessage
-
     if len(st.session_state.messages) > 1:  # omit initial_message from chat history
-        return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
+        return st.session_state.messages[1:]
 
     return []
 
@@ -152,95 +143,6 @@ def trace_metadata() -> Dict:
     return metadata
 
 
-def respond(
-    chain_or_graph: Runnable,
-    message_placeholder: DeltaGenerator,
-    **kwargs,
-) -> CustomAIMessage:
-    """Get LLM response from chain"""
-
-    if USE_LANGFUSE:
-        trace_id = str(uuid.uuid4())
-        config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
-    else:
-        config = {}
-
-    input = {
-        "messages": chat_history(),
-        "filter_condition": st.session_state["filter_condition"],
-        "limit": limit,
-        "use_hybrid_search": True,
-        "sidebar_options": {key: st.session_state[key] for key in WIDGET_SPEC.keys()},
-    }
-
-    if stream:
-
-        async def stream_() -> State:
-
-            message_text = ""
-            id = None
-
-            async for event in chain_or_graph.astream_events(input, config, version="v1", stream_mode="values"):
-
-                event = GraphStreamEvent(event)
-
-                if event.stream:
-                    if id != event.ai_message_chunk.id:
-                        if id:
-                            message_text += "\n\n"
-                    id = event.ai_message_chunk.id
-                    message_text += event.ai_message_chunk.content
-                    message_placeholder.markdown(message_text + "▌")
-
-                elif event.return_final_state:
-                    return event["data"]["input"]
-
-        final_state = asyncio.run(stream_())
-
-    else:
-        final_state = chain_or_graph.invoke(input, config=config)
-
-    return_message = final_state["messages"][-1]
-
-    if stream:
-        # Remove the message placeholder text after all the text has been received, as
-        # it will be rendered in a nicer format with references
-        message_placeholder.markdown("")
-
-    if USE_LANGFUSE:
-        langfuse.trace(id=trace_id, metadata=trace_metadata())
-        st.session_state["current_trace_id"] = trace_id
-
-    return return_message
-
-
-def filter_conditions() -> Union[str, None]:
-    """Compute what the filter conditions are from widget values"""
-
-    filter_conditions = []
-
-    for key, spec in WIDGET_SPEC.items():
-
-        default = spec["default"]
-        filter_condition_format = spec["filter_condition_format"]
-        current_value = st.session_state[key]
-
-        if key == "from_year":
-            append_filter_condition = current_value != EARLIEST_YEAR
-        else:
-            append_filter_condition = current_value != default
-            # caution: if the rest of the widgets are at their default value then no filter is required
-            # if the defaults change, the logic here may also need to change
-
-        if append_filter_condition:
-            filter_conditions.append(filter_condition_format.format(current_value=current_value))
-
-    if filter_conditions:
-        return " and ".join(filter_conditions)
-
-    return None
-
-
 def push_feedback_to_langfuse(feedback: Dict) -> None:
     """Send the feedback score and comments to Langfuse"""
 
@@ -255,20 +157,33 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
 
 
+def update_agent_complete_graph() -> None:
+    """Update the agent with the edited draft and complete the graph – intended as a callback for the text_area widget"""
+
+    st.session_state["edited_draft"] = st.session_state.text_area
+    agent.update_state(config, {"draft": st.session_state.edited_draft, "finalized_state": True, "edited": True})
+    st.session_state.final_graph_state = agent.invoke(None, config)  # finish the graph after the checkpoint
+
+
 if __name__ == "__main__":
 
     # settings
     limit: int = 10
     stream: bool = False
+    editable: bool = True
 
     # UI settings
     initial_message: str = "Hi, how can I help?"
 
     if check_password():
+
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
+        agent = create_agent(editable=editable)
+
         st.set_page_config(layout="wide")
+
         st.markdown(
             """
         <style>
@@ -312,41 +227,93 @@ if __name__ == "__main__":
         # Store session variables
         if "messages" not in st.session_state.keys():
             st.session_state.messages = [
-                {"role": "assistant", "content": initial_message},
+                BaseMessage(content=initial_message, type="", role="assistant"),
             ]
+        if "edited_draft" not in st.session_state.keys():
+            st.session_state.edited_draft = None
+
+        if "filter_condition" not in st.session_state.keys():
+            st.session_state.filter_condition = None  # not needed at the moment
+
+        if "final_graph_state" not in st.session_state.keys():
+            st.session_state.final_graph_state = None
 
         # Display chat messages
         for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                if message.get("html"):
-                    st.markdown(message["html"], unsafe_allow_html=True)
+            with st.chat_message(message.role):
+                if isinstance(message, CustomAIMessage):
+                    st.markdown(message.as_html(), unsafe_allow_html=True)
                 else:
-                    st.write(message["content"])
+                    st.write(message.content)
 
         # User-provided input
         if input := st.chat_input():
-            st.session_state.messages.append({"role": "user", "content": input})
+            st.session_state.messages.append(HumanMessage(content=input, role="user"))
             with st.chat_message("user"):
                 st.write(input)
 
-        # Generate a new response if last message is not from assistant
-        responses = []
-        if st.session_state.messages[-1]["role"] != "assistant":
+        if isinstance(st.session_state.messages[-1], HumanMessage) and not st.session_state.edited_draft:
 
             with st.chat_message("assistant"):
-                message_placeholder = st.empty()
 
-                st.session_state["filter_condition"] = filter_conditions()
+                input = {
+                    "messages": chat_history(),
+                    "filter_condition": st.session_state["filter_condition"],
+                    "limit": limit,
+                    "use_hybrid_search": True,
+                    "sidebar_options": {key: st.session_state[key] for key in WIDGET_SPEC.keys()},
+                }
 
-                response = respond(agent, message_placeholder)
-                message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
-                message = {"role": "assistant", "html": response.as_html(), "content": response.content}
-                st.session_state.messages.append(message)
+                agent.invoke(
+                    input, config=config, interrupt_before="terminate" if editable else None
+                )  # NB config has no langfuse instructions
+                snapshot = agent.get_state(config)  # this only works because a checkpoint has been set
+                partial_state = snapshot.values
 
-        if USE_LANGFUSE:
-            feedback = streamlit_feedback(
-                feedback_type="faces",
-                optional_text_label="[Optional] Please provide an explanation",
-                key="feedback",
-                on_submit=push_feedback_to_langfuse,
-            )
+                with st.container():
+
+                    col1, col2 = st.columns(2, gap="medium")
+                    height = 500
+                    draft = markdown.markdown(partial_state["draft"])
+
+                    with col1:
+                        st.markdown("\n**Preview**")
+                        st.markdown(
+                            f"""
+                                <div style="border:1px solid #ccc; padding:1rem; height:{height}px; overflow:auto; background-color:#fafafa">
+                                    {draft}
+                                </div>
+                                """,  # noqa
+                            unsafe_allow_html=True,
+                        )
+
+                    with col2:
+                        st.markdown("\n**✍️ Edit Markdown**")
+                        st.text_area(
+                            "Report content",
+                            value=partial_state["draft"],
+                            height=height,
+                            label_visibility="collapsed",
+                            key="text_area",
+                            on_change=update_agent_complete_graph,
+                        )
+
+        if st.session_state.edited_draft:
+
+            # final_snapshot = agent.get_state(config)  #graph should have been completed in update_agent_complete_graph
+            # final_state = final_snapshot.values
+            # print(final_snapshot)
+            #  message = final_state['messages'][-1]
+
+            message = st.session_state.final_graph_state["messages"][-1]
+            st.markdown(message.as_html(), unsafe_allow_html=True)
+            st.session_state.messages.append(message)
+            st.session_state.edited_draft = None
+
+        #   if USE_LANGFUSE:
+        #      feedback = streamlit_feedback(
+        #         feedback_type="faces",
+        #        optional_text_label="[Optional] Please provide an explanation",
+        #       key="feedback",
+        #      on_submit=push_feedback_to_langfuse,
+        # )

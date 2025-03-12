@@ -22,7 +22,6 @@ from dsp_nesta_brain import logger
 from front_end.project_spec import INTRO
 from front_end.project_spec import WIDGET_SPEC
 from front_end.sidebar import sidebar
-from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
@@ -119,11 +118,8 @@ def check_password() -> bool:
 def chat_history() -> List[BaseMessage]:
     """Derive chat history from streamlit messages"""
 
-    def message_class(message: Dict) -> type:
-        return AIMessage if message["role"] == "assistant" else HumanMessage
-
     if len(st.session_state.messages) > 1:  # omit initial_message from chat history
-        return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
+        return st.session_state.messages[1:]
 
     return []
 
@@ -343,41 +339,39 @@ if __name__ == "__main__":
         # Store session variables
         if "messages" not in st.session_state.keys():
             st.session_state.messages = [
-                {"role": "assistant", "content": initial_message},
+                BaseMessage(content=initial_message, type="", role="assistant"),
             ]
 
         # Display chat messages
         for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                if message.get("html"):
-                    st.markdown(message["html"], unsafe_allow_html=True)
+            with st.chat_message(message.role):
+                if isinstance(message, CustomAIMessage):
+                    st.markdown(message.as_html(), unsafe_allow_html=True)
                 else:
-                    st.write(message["content"])
+                    st.write(message.content)
 
         # User-provided input
         if input := st.chat_input():
-            st.session_state.messages.append({"role": "user", "content": input})
+            st.session_state.messages.append(HumanMessage(content=input, role="user"))
             with st.chat_message("user"):
                 st.write(input)
 
         # Generate a new response if last message is not from assistant
-        responses = []
-        if st.session_state.messages[-1]["role"] != "assistant":
+        if isinstance(st.session_state.messages[-1], HumanMessage):
 
             with st.chat_message("assistant"):
                 message_placeholder = st.empty()
 
                 st.session_state["filter_condition"] = filter_conditions()
 
-                response = respond(runnable, message_placeholder)
-                message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
-                message = {"role": "assistant", "html": response.as_html(), "content": response.content}
+                message = respond(runnable, message_placeholder)
+                message_placeholder.markdown(message.as_html(), unsafe_allow_html=True)
                 st.session_state.messages.append(message)
 
-        if USE_LANGFUSE:
-            feedback = streamlit_feedback(
-                feedback_type="faces",
-                optional_text_label="[Optional] Please provide an explanation",
-                key="feedback",
-                on_submit=push_feedback_to_langfuse,
-            )
+            if USE_LANGFUSE:
+                feedback = streamlit_feedback(
+                    feedback_type="faces",
+                    optional_text_label="[Optional] Please provide an explanation",
+                    key="feedback",
+                    on_submit=push_feedback_to_langfuse,
+                )

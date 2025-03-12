@@ -19,7 +19,7 @@ if PROJECT == "NESTA_BRAIN":
     DB_PATH: str = "retrieval/db/nesta_brain"
     EARLIEST_YEAR: int = 2003  # 2003 is the earliest publication date in the DB
     DEFAULT_START_YEAR: int = 2019
-    USE_LANGFUSE: bool = True  # set as wanted
+    USE_LANGFUSE: bool = False  # set as wanted
 
 if PROJECT == "POLICY_ATLAS":
     DB_PATH: str = "retrieval/db/policy_atlas"

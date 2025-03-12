@@ -4,17 +4,20 @@ import ast
 import importlib
 
 from os import system
+from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
 from typing import Literal
 
 import lgraph.research_agent.prompt as pt
+import streamlit as st
 
 from dsp_nesta_brain import logger
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
@@ -27,11 +30,13 @@ from llm.message import CustomAIMessage
 from retrieval.retrieve import CustomRetriever
 
 
-# from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
 
 
-MAX_REVISIONS = 2
+MAX_REVISIONS = 3
 
+pause = input
 
 # inspiration:
 # https://medium.com/towards-data-science/building-a-research-agent-that-can-write-to-google-docs-part-1-4b49ea05a292
@@ -56,6 +61,7 @@ class AgentState(State):
     finalized_state: bool = False
     context: List[Dict]
     sidebar_options: Dict
+    edited: bool
 
 
 def call_model(state: AgentState, prompt: PromptTemplate) -> AgentState:
@@ -94,6 +100,8 @@ def write(state: AgentState) -> AgentState:
     use_retrieval_sidebar_option = importlib.import_module("app_research").WIDGET_SPEC.get("use_retrieval_option")
     use_retrieval = state.get("sidebar_options", {}).get("knowledge_source") == use_retrieval_sidebar_option
 
+    st.toast(f'Writing draft no. {state.get("revision_number",0)+1}', icon="💡")
+
     if use_retrieval:
         result = call_retrieval_chain(state)
         state["draft"] = result["answer"]
@@ -108,6 +116,8 @@ def write(state: AgentState) -> AgentState:
 
 def review(state: AgentState) -> AgentState:
     """Review the draft of the document."""
+
+    st.toast(f'Reviewing draft no. {state.get("revision_number",0)+1}', icon="💡")
 
     result = call_model(state, pt.get_review_prompt(state))
     if result.content == "NULL":
@@ -125,6 +135,8 @@ def revise(state: AgentState) -> AgentState:
 
     state["revision_number"] = state.get("revision_number", 0) + 1
     logger.info(f"Undertaking revision number {state['revision_number']}")
+    st.toast(f"Revising draft no. {state.get('revision_number',0)}", icon="💡")
+
     result = call_model(state, pt.revision_prompt)
     result = ast.literal_eval(result.content)
     state["draft"] = result.get("draft")
@@ -135,10 +147,12 @@ def revise(state: AgentState) -> AgentState:
 def terminate(state: AgentState) -> AgentState:
     """Reject the draft of the document."""
 
-    if state.get("finalized_state"):
-        output_format = "Text after drafting and {revision_number} revision(s):\n\n{draft}"
+    if state.get("edited"):
+        output_format = "Document after editing:\n\n{draft}"
+    elif state.get("finalized_state"):
+        output_format = "Document after {revision_number} revision(s):\n\n{draft}"
     else:
-        output_format = "Text after drafting and {revision_number} revision(s) (NB: revision process was not fully completed):\n\n{draft}"  # noqa
+        output_format = "Document after {revision_number} revision(s) (NB: revision process was not fully completed):\n\n{draft}"  # noqa
 
     custom_ai_message_input_dict = state
     custom_ai_message_input_dict["answer"] = output_format.format(**state)
@@ -169,31 +183,40 @@ def should_continue(state: AgentState) -> Literal["terminate", "revise"]:
         return "revise"
 
 
-agent = StateGraph(AgentState)
+def create_agent(editable: bool = False) -> CompiledStateGraph:
+    """Create the research agent."""
 
-# agent.add_node("initial_plan", nodes.plan_node)
-agent.add_node("write", write)
-agent.add_node("review", review)
-# if False:
-agent.add_node("terminate", terminate)
-agent.add_node("revise", revise)
+    agent = StateGraph(AgentState)
 
-# Edges
-agent.add_edge(START, "write")
-agent.add_edge("write", "review")
-agent.add_edge("revise", "review")
-agent.add_edge("terminate", END)
-agent.add_conditional_edges("review", should_continue)
+    # agent.add_node("initial_plan", nodes.plan_node)
+    agent.add_node("write", write)
+    agent.add_node("review", review)
+    # if False:
+    agent.add_node("terminate", terminate)
+    agent.add_node("revise", revise)
 
+    # Edges
+    agent.add_edge(START, "write")
+    agent.add_edge("write", "review")
+    agent.add_edge("revise", "review")
+    agent.add_edge("terminate", END)
+    agent.add_conditional_edges("review", should_continue)
 
-# stream_nodes = ["call_model"]  # list of nodes whose outputs are to be streamed IN ORDER
+    # stream_nodes = ["call_model"]  # list of nodes whose outputs are to be streamed IN ORDER
 
-agent = agent.compile()
+    if editable:
+        memory = MemorySaver()
+        return agent.compile(interrupt_before=["terminate"], checkpointer=memory)
+    else:
+        return agent.compile()
 
 
 if __name__ == "__main__":
 
-    toggle = True
+    toggle = False
+
+    config = {}
+    agent = create_agent(editable=True)
 
     if toggle:
 
@@ -207,10 +230,8 @@ if __name__ == "__main__":
         }
 
         state = AgentState(input)
-        state = agent.invoke(state)
 
-        for k, v in state.items():
-            print("\n", f"{k}: {v}")  # noqa
+        config = {"configurable": {"thread_id": "1"}}
 
     else:
 
