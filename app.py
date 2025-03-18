@@ -13,6 +13,7 @@ from typing import Union
 
 import streamlit as st
 
+from config import DEBUG_MODE
 from config import EARLIEST_YEAR
 from config import PROJECT
 from dotenv import load_dotenv
@@ -237,7 +238,9 @@ if __name__ == "__main__":
     # settings
     limit: int = 10
     use_graph: bool = False
-    use_langfuse: bool = PROJECT == "NESTA_BRAIN"  # Langfuse is not currently set up for other projects –
+    use_langfuse: bool = (
+        not DEBUG_MODE and PROJECT == "NESTA_BRAIN"
+    )  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
     stream: bool = True
     use_tool_for_citations: bool = False
@@ -280,6 +283,11 @@ if __name__ == "__main__":
         """,
             unsafe_allow_html=True,
         )
+
+        if DEBUG_MODE:
+            st.markdown(
+                '<p style="color:red;font-size:125%"><b>WARNING: DEBUG MODE IS ON</b></p>', unsafe_allow_html=True
+            )
 
         st.markdown(
             INTRO,
