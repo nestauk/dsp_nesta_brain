@@ -61,10 +61,9 @@ class Reference(LangchainDocument):
         super().__init__(
             page_content=chunk.page_content, metadata=chunk_class.reference_metadata(**chunk.metadata), index=index
         )
-        
+
         self.chunk_class = chunk_class
         # oddly, this syntax raised a pydantic error: self.chunk_class = getattr(SCHEMA_MODULE,chunk.metadata.get('schema'))
-
 
     @property
     def is_internal_policy_document(self) -> bool:
@@ -155,10 +154,10 @@ class CustomAIMessage(AIMessage):
             self.flag_citations()
         return [reference for reference in self.references if reference.cited]
 
-    @property
-    def p_element(self) -> str:
-        """Return content as an HTML paragraph"""
-        return f"<p>{self.content_with_superscript_citations}</p>"
+    #  @property
+    # def p_element(self) -> str:
+    #    """Return content as an HTML paragraph"""
+    #   return f"<p>{self.content_with_superscript_citations}</p>"
 
     @property
     def references_(self) -> str:
@@ -186,6 +185,16 @@ class CustomAIMessage(AIMessage):
         return actual_references + the_rest + projects
 
     @property
+    def content_as_html(self) -> str:
+        """Convert the content into HTML"""
+        html = markdown.markdown(self.content)
+        # in lists of bullet points with blockquotes, this tends to render each bullet point as its own ordered list,
+        # losing the numbering
+        html = re.sub(r"</ol>\n<blockquote>", "<blockquote>", html, re.M)
+        html = re.sub(r"</blockquote>\n<ol>", "</blockquote>", html, re.M)
+        return html
+
+    @property
     def content_with_superscript_citations(self) -> str:
         """
         Return content converting all citations in square brackets to a clickable superscript
@@ -197,7 +206,7 @@ class CustomAIMessage(AIMessage):
         if not self.reference_indices_have_been_reset:
             self.reset_reference_indices()
 
-        content = markdown.markdown(self.content)
+        content = self.content_as_html
         N_references = len(self.references)
         for citation in self.citations_in_content:
             citation_index = int(citation[1:-1])  # remove the square brackets
@@ -236,7 +245,11 @@ class CustomAIMessage(AIMessage):
 
     def as_html(self) -> str:
         """Convert the response into HTML"""
-        return f'<div class="response">{self.p_element}{self.references_ if self.references else ""}</div>'
+        format = '<div class="response">{main_content}{references}</div>'
+        return format.format(
+            main_content=self.content_with_superscript_citations,
+            references=self.references_ if self.references else "",
+        )
 
     def flag_citations(self) -> None:
         """Flag references which have been cited"""
