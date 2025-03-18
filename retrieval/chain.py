@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from typing import Dict
+from typing import Optional
 
-from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableBranch
 from langchain_core.runnables import RunnableParallel
 from langchain_core.runnables import RunnablePassthrough
 from lgraph.graph import create_retrieval_graph
+from lgraph.graph import graph_options_type
 from llm.llm import default_llm as llm
+from llm.message import InterimAIMessage
 from llm.prompt import contextualize_q_prompt
 from retrieval.retrieve import CustomRetriever
 
@@ -20,15 +22,6 @@ if TYPE_CHECKING:
     from langchain_core.retrievers import RetrieverOutputLike
     from langchain_core.runnables import Runnable
     from retrieval.retrieve import RetrieverInput
-
-
-class IntermediateAIMessage(AIMessage):
-    """
-    AI Messages derived during intermediate steps (like recontextualisation) that are not
-    supposed to be part of the chat history
-    """  # noqa
-
-    pass
 
 
 def create_history_aware_retriever(
@@ -47,7 +40,7 @@ def create_history_aware_retriever(
     def reform_as_retriever_input(dict_: Dict) -> RetrieverInput:
         # turn the output of the contextualisation chain into retriever input
         original_input = dict_["input"]
-        contextualisation_response = IntermediateAIMessage(dict_["contextualisation"])
+        contextualisation_response = InterimAIMessage(dict_["contextualisation"])
         reformed_input = original_input
         reformed_input["messages"].append(contextualisation_response)
         return reformed_input
@@ -61,7 +54,7 @@ def create_history_aware_retriever(
     retrieve_documents: RetrieverOutputLike = RunnableBranch(
         (
             lambda x: len(x.get("messages") or []) == 1,
-            # if the chat_history is only one message long, then it just includes the user's first input
+            # if the chat history is only one message long, then it just includes the user's first input
             # just pass input directly to the retriever
             retriever,
         ),
@@ -71,11 +64,11 @@ def create_history_aware_retriever(
     return retrieve_documents
 
 
-def retriever(use_langgraph: bool = False) -> Runnable:
+def retriever(use_graph: Optional[graph_options_type] = None) -> Runnable:
     """Return a CustomRetriever with the option of chaining it with a graph in order to make retrieval more sophisticated"""
     retriever_ = CustomRetriever()
 
-    if use_langgraph:
+    if use_graph in ["retrieval", "combined"]:
 
         # the output of the graph is a list of dicts in this format:
         # List[{'node_1_name':dict representing state returned by node 1} .. {'node_n_name': state returned by node n}]

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import datetime as dt
 import itertools as it
 import re
 
@@ -11,6 +10,7 @@ from typing import Union
 
 from dsp_nesta_brain import logger
 from nltk.tokenize import sent_tokenize
+from scraping.pdf.base import BasePDF
 from unstructured.documents.elements import Element
 from unstructured.documents.elements import ListItem
 from unstructured.documents.elements import NarrativeText
@@ -20,8 +20,13 @@ from unstructured.partition.pdf import partition_pdf
 from utils import first
 
 
-class PDF:
-    """Represents a scraped PDF document"""
+class PDF(BasePDF):
+    """
+    Represents a scraped PDF document
+
+    This is intended for any document which doesn't include a table, and in particular, long reports divided into sections
+    with elements to be excluded such as headers, footers, table of contents, etc.
+    """
 
     location: str
     elements: List[Element]
@@ -31,9 +36,8 @@ class PDF:
     good_sections: Optional[List[PDFSection]] = None
     linking_url: Optional[str] = None
 
-    def __init__(self, location: str, linking_url: Optional[str] = None) -> None:
-        self.location = location
-        logger.info(f"\nReading PDF document {self.location} ...")
+    def __init__(self, *args, linking_url: Optional[str] = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         self.elements = partition_pdf(self.location)
         logger.info("Converting elements to pages and sections ...")
         self.pages = self.elements_to_pages(self.elements)
@@ -89,7 +93,8 @@ class PDF:
         is_about_licensing = re.match(
             "This work is licensed under a Creative Commons|creativecommons.org/licenses", element.text
         )
-        return is_page_number or is_about_licensing or PDF.is_malformed_string(element)
+        is_blank = not str(element).strip()
+        return is_page_number or is_about_licensing or is_blank or PDF.is_malformed_string(element)
 
     @staticmethod
     def is_bad_title(element: Title) -> bool:
@@ -140,6 +145,11 @@ class PDF:
 
         return self.executive_summary and self.end_section
 
+    @property
+    def text(self) -> str:
+        """Return the full text"""
+        return "\n\n".join([element.text for element in self.elements if PDF.is_good_text_element(element)])
+
     def filter(self) -> None:
         """
         Filter the document content according to rules:
@@ -171,21 +181,13 @@ class PDF:
             msg = f"I was not sure how to identify undesirable content for PDF {self.location} - the entire contents will be ingested"  # noqa
             logger.warning(msg)
 
-    def guess_metadata(
-        self,
-        title_guess: Optional[Union[str, List[str]]] = None,
-        date_guess: Optional[str] = None,
-        cautious: bool = False,
-        indent: Optional[str] = "",
-    ) -> Dict:
+    def guess_metadata(self, title_guess: Optional[Union[str, List[str]]] = None, **kwargs) -> Dict:
         """Guess the title and check whether the title guess and date guess (if any) are correct"""
 
         if isinstance(title_guess, list):
             title_guesses = title_guess
         else:
             title_guesses = [title_guess] if title_guess else []
-
-        logger.info(indent + "Guessing metadata ...")
 
         if self.pages[0].is_title_page and self.pages[0].title:
             title_guesses.append(str(self.pages[0].title))
@@ -195,32 +197,7 @@ class PDF:
         if first_page_with_title:
             title_guesses.append(first(first_page_with_title.elements, lambda element: isinstance(element, Title)))
 
-        title = None
-        while title_guesses and not title:
-            title_guess = title_guesses.pop(0)
-            if title_guess:  # it might be None by mistake
-                if not cautious or input(
-                    indent + f'Is this the document title: "{str(title_guess)}"? (any key except enter = "yes")'
-                ):
-                    title = str(title_guess)
-        if not title:
-            title = input(indent + "Enter document title: ")
-
-        metadata = {"title": title}
-
-        date_pub = None
-        if date_guess:
-            if not cautious or input(
-                indent + f'Is this the publication date: "{date_guess}"? (any key except enter = "yes")'
-            ):
-                date_pub = date_guess
-            while not metadata.get("date_pub"):
-                try:
-                    metadata["date_pub"] = dt.datetime.strptime(date_pub, "%Y-%m-%d")
-                except Exception:
-                    date_pub = input(indent + "Enter publication date (yyyy-mm-dd): ")
-
-        return metadata
+        return super().guess_metadata(title_guess=title_guesses, **kwargs)
 
 
 class PDFPage:
@@ -350,6 +327,11 @@ class PDFPage:
         return [element for element in self.elements if re.match(r"0\d\s+[A-Za-z]+", element.text)]
 
     @property
+    def text(self) -> str:
+        """Return the text"""
+        return "\n\n".join([element.text for element in self.text_elements])
+
+    @property
     def text_elements_assigned_to_section(self) -> List[Union[NarrativeText, ListItem]]:
         """Return any text-like elements assigned to a section"""
         return sum([section.text_elements for section in self.sections], [])
@@ -425,13 +407,22 @@ class PDFSection:
 
 if __name__ == "__main__":
 
-    paths = []
+    # from google_api.drive import download_pdf
+
+    url = "https://drive.google.com/file/d/1RsjGw2kNV3eqAqeTWqZX5m3tST_M73A4/view?usp=sharing"
+    file_id = url.replace("https://drive.google.com/file/d/", "").replace("/view?usp=sharing", "")
+    # download_pdf(file_id)
+
+    paths = ["google_api/downloaded.pdf"]
 
     for path in paths:
 
         pdf = PDF(path)
 
-        pdf.filter()
+        #   for element in pdf.elements:
+        #      print(f'{type(element)}:{element.metadata.is_continuation}\n{element}\n\n')  # noqa
+
+    #  print(pdf.text)
 
     # for testing and development
 

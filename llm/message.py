@@ -4,6 +4,7 @@ import importlib
 import logging
 import re
 
+from datetime import datetime
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -13,7 +14,6 @@ import markdown
 
 from config import DEBUG_MODE
 from config import PROJECT
-from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
@@ -61,28 +61,42 @@ class Reference(LangchainDocument):
         super().__init__(
             page_content=chunk.page_content, metadata=chunk_class.reference_metadata(**chunk.metadata), index=index
         )
-
+        
         self.chunk_class = chunk_class
         # oddly, this syntax raised a pydantic error: self.chunk_class = getattr(SCHEMA_MODULE,chunk.metadata.get('schema'))
+
+
+    @property
+    def is_internal_policy_document(self) -> bool:
+        """Return whether the document is an internal policy document"""
+        return self.metadata.get("drive_type") == "policy" and "https://drive.google.com/file/d" in self.metadata.get(
+            "location"
+        )
 
     def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
 
-        reference_html_format = self.chunk_class.reference_html_format()
+        date_format = None
+        if self.is_internal_policy_document:
+            date_format = "(%B %Y)"
+
+        reference_html_format = self.chunk_class.reference_html_format(add_date=bool(date_format) or DEBUG_MODE)
 
         index = self.reset_index if reset_index is not None else self.index
         if DEBUG_MODE:
-            if self.index == 1:
-                logger.warning(
-                    "Formatting of links for testing retrieval filtering is in use – do not use for production"
-                )
-            reference_html_format = reference_html_format.replace("</a>", "{date_pub} {contentType} {missions}</a>")
+            # a warning that DEBUG_MODE is on is displayed via the UI
+            reference_html_format = reference_html_format.replace("</a>", " {contentType} {missions}</a>")
+
         # quick hack for the policy atlas
         if PROJECT == "POLICY_ATLAS":
             self.metadata["reporting_org_narrative"] = str(self.metadata["reporting_org_narrative"]).replace(
                 "UK - Foreign, Commonwealth Development Office (FCDO)", "FCDO"
             )
-        return reference_html_format.format(index=index, **self.metadata)
+
+        metadata = self.metadata.copy()
+        if date_format:
+            metadata["date_pub"] = datetime.strftime(metadata["date_pub"], date_format)
+        return reference_html_format.format(index=index, **metadata)
 
     def as_superscript(self, reset_index: bool = False) -> str:
         """Return index as a (usually) clickable link within a superscript, suitable for inline citations"""
@@ -235,3 +249,12 @@ class CustomAIMessage(AIMessage):
         """Reset how the reference numbering will appear if references are split into cited and uncited sources"""
         for i, reference in enumerate(self.cited_references + self.uncited_references):
             reference.reset_index = i + 1
+
+
+class InterimAIMessage(AIMessage):
+    """
+    AI Messages derived during intermediate steps (like recontextualisation) that are not
+    supposed to be part of the chat history
+    """  # noqa
+
+    pass

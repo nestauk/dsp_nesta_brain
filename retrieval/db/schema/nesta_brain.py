@@ -12,6 +12,7 @@ from typing import Optional
 import lancedb
 
 from config import DB_PATH
+from dsp_nesta_brain import logger
 from lancedb.pydantic import LanceModel
 from retrieval.db.schema.base import BaseChunk
 
@@ -31,13 +32,14 @@ class Document(LanceModel):
     missions: Optional[List[str]] = None
     authors: Optional[List[str]] = None
     contentType: Optional[str] = None
-    #
+    # other
+    drive_type: Optional[str] = None
     time_added: datetime
-    # vector: Vector(model.ndims())  #this is the vector of the Document title ... experimental
 
     def __init__(self, ingestion: bool = False, **kwargs) -> None:
 
         if ingestion:  # this code is only needed at the time of ingestion, not when retrieving Documents from the DB
+
             # correcting field names
             if kwargs.get("url"):
                 kwargs["location"] = kwargs.pop("url")
@@ -81,6 +83,11 @@ class Document(LanceModel):
 
         super().__init__(**kwargs)
 
+        if ingestion and self.is_on_drive and not self.drive_type:
+            logger.warning(
+                f"Document {self.title}, {self.location} is on Google Drive but has no drive_type. Consider specifying drive_type via ingestion settings."  # noqa
+            )  # noqa
+
     def __eq__(self, other: object) -> bool:
         """Self-explanatory"""
         if not isinstance(other, Document):
@@ -91,14 +98,21 @@ class Document(LanceModel):
         """Self-explanatory"""
         return hash(self.location)
 
+    @property
+    def file_id(self) -> str:
+        """Extract the file ID from Drive location"""
+        if self.is_on_drive:
+            return self.location.replace("https://drive.google.com/file/d/", "")
+
+    @property
+    def is_on_drive(self) -> bool:
+        """Test whether the document is on Google Drive"""
+        return "drive.google.com" in self.location
+
     def as_metadata(self) -> Dict:
         """Put important fields in a dict so LanceDB Document and
         Chunk objects can easily be converted into Langchain Documents"""  # noqa
         return self.__dict__
-
-    def is_pdf(self) -> bool:
-        """Test whether the document is a PDF"""
-        return self.location[-4:].lower() == ".pdf"
 
 
 class Chunk(BaseChunk):
@@ -123,9 +137,13 @@ class Chunk(BaseChunk):
         return hash(self.source.location + self.text)
 
     @staticmethod
-    def reference_html_format() -> str:
+    def reference_html_format(add_date: bool = False) -> str:
         """Return format for references in HTML"""
-        return '<a href="{url}">[{index}] {title}{pdf}</a>'
+        format = '<a href="{url}">[{index}] {title}{pdf}'
+        if add_date:
+            format += " {date_pub}"
+        format += "</a>"
+        return format
 
     @staticmethod
     def reference_metadata(**metadata) -> Dict:
@@ -239,19 +257,79 @@ if __name__ == "__main__":
         table = db.open_table("chunk")
         table.create_fts_index("text")
 
-    # fixing a cock up
+    # searching for records
     if False:
-        # import pandas as pd
-        copy_from_path = "retrieval/db/full_site_demo_db_first_attempt"
+        document_table = db.open_table("document")
+        chunk_table = db.open_table("chunk")
+
+        #   docs = document_table.search().where('title LIKE "%Birthing Parent%"').limit(10).to_pydantic(Document)
+        #  print(docs)
+        # results = chunk_table.search().where('source.location NOT LIKE "https://%"').limit(100).to_pydantic(Chunk)
+        results = chunk_table.search("climate change").limit(100).select(["text"]).to_list()
+        logger.info(len(results))
+
+    # adding columns
+    if False:
+        table = db.open_table("document")
+        table.add_columns({"drive_type": "cast(NULL as string)"})
+
+    # deleting records
+    if False:
+
+        input("You are about to delete some records. Press any key to continue.")
+        document_table = db.open_table("document")
+        chunk_table = db.open_table("chunk")
+
+        #  document_table.delete('location LIKE "https://drive.google.com/file/d%"')
+        chunk_table.delete('source.location = "1NeuLG4DAHg-gd_iwAWCWKq80_iVUmXMp"')
+
+    # updating records
+    if False:
+
+        document_table = db.open_table("document")
+        chunk_table = db.open_table("chunk")
+
+        bad_title = "Sickness Absence Policy - Update July 2022"
+        good_title = "Sickness Absence Policy"
+        document_table.update(where=f'title LIKE "%{bad_title}%"', values={"title": good_title})
+        results = document_table.search().where(f'title LIKE "%{good_title}%"').limit(1).to_pydantic(Document)
+        updated_document = results[0]
+
+        bad_chunks = chunk_table.search().where(f'source.title LIKE "%{bad_title}%"').limit(1).to_pydantic(Chunk)
+        chunk_table.delete(f'source.title LIKE "%{bad_title}%"')
+        for bad_chunk in bad_chunks:
+            good_chunk = bad_chunk
+            good_chunk.source = updated_document
+            chunk_table.add([good_chunk])
+
+    # copying tables from one db to another
+    if False:
+
+        copy_from_path = "retrieval/db/full_site_demo_db_with_pdfs"
         copy_from_db = lancedb.connect(copy_from_path)
-        document_table = copy_from_db.open_table("document")
-        chunk_table = copy_from_db.open_table("chunk")
+        copy_from_document_table = copy_from_db.open_table("document")
+        copy_from_chunk_table = copy_from_db.open_table("chunk")
 
-        docs = document_table.search().where('NOT location LIKE "%.pdf"').limit(1000000).to_pydantic(Document)
-        chunks = chunk_table.search().where('NOT source.location LIKE "%.pdf"').limit(1000000).to_pydantic(Chunk)
+        copy_to_document_table = db.open_table("document")
+        copy_to_chunk_table = db.open_table("chunk")
 
-        new_doc_table = db.create_table("document", schema=Document)
-        new_doc_table.add(docs)
-        new_chunk_table = db.create_table("chunk", schema=Chunk)
-        new_chunk_table.add(chunks)
-        new_chunk_table.create_fts_index("text")
+        # docs = copy_from_document_table.search().to_pydantic(Document)
+        # copy_to_document_table.add(docs)
+
+        chunks_df = (
+            copy_from_chunk_table.search().limit(-1).to_pandas()
+        )  # too many records to convert to pydantic straight away
+
+        batch_size = 10000
+        for i in range(0, chunks_df.shape[0], batch_size):
+            rows = chunks_df.iloc[i : i + batch_size]
+            chunks = [Chunk(**row.to_dict()) for _, row in rows.iterrows()]
+            copy_to_chunk_table.add(chunks)
+
+    if False:
+        copy_from_path = "retrieval/db/full_site_demo_db_with_pdfs"
+        copy_from_db = lancedb.connect(copy_from_path)
+        copy_from_chunk_table = copy_from_db.open_table("chunk")
+        chunks = copy_from_chunk_table.search().limit(None).to_pandas()  # .to_pydantic(Chunk)
+    #  print(chunks.shape)
+    #  copy_to_chunk_table.add(chunks)

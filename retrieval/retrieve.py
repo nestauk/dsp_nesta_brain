@@ -14,7 +14,6 @@ import lancedb
 import numpy as np
 
 from config import DB_PATH
-from config import DEFAULT_EMBEDDINGS_MODEL
 from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
@@ -24,12 +23,12 @@ from langchain.docstore.document import Document as LangchainDocument
 from langchain_community.vectorstores import LanceDB
 from langchain_core.messages import HumanMessage
 from langchain_core.retrievers import BaseRetriever
-from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import MessagesState
 from openai import OpenAI
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
 from retrieval.db.schema.nesta_brain import MissionProject
 from retrieval.db.schema.policy_atlas import Activity
+from retrieval.embeddings import vector
 from utils import unique
 
 
@@ -56,6 +55,7 @@ class RetrieverInput(MessagesState):
     # RetrieverInput inherits a `messages` property from MessagesState
     limit: int
     filter_condition: str
+    use_hybrid_search: bool  # if False, just use the filter_condition and don't use the limit
 
 
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
@@ -168,6 +168,7 @@ class CustomRetriever(BaseRetriever):
         """Retrieve chunks synchrously"""
 
         chunk_table = db.open_table(CHUNK_TABLE_NAME)
+
         if include_projects:
             project_table = db.open_table("mission_project")
             tables = [chunk_table, project_table]
@@ -177,26 +178,43 @@ class CustomRetriever(BaseRetriever):
         query = input["messages"][-1].content
         limit = input["limit"]
         filter_condition = input.get("filter_condition") or None  # if '' then want None
-        logger.info("Vectorizing query ...")
-        vector_ = CustomRetriever.vector(query)
 
-        logger.info("Retrieving most relevant chunks ...")
+        if input["use_hybrid_search"]:
+            logger.info("Vectorizing query ...")
+            vector_ = vector(query)
+            logger.info("Retrieving most relevant chunks ...")
+        else:
+            vector_ = None
+
         chunks = CustomRetriever.search_loop(
             tables, query, vector_, limit, filter_condition=filter_condition, **kwargs
         )
+
+        if input["use_hybrid_search"]:
+            info_message_format = "Retrieved {N_chunks} chunks. Relevance scores: {relevance_scores}"
+        else:
+            info_message_format = (
+                "Retrieved {N_chunks} chunks. Relevance scores not available when not using hybrid or vector search."
+            )
+        logger.info(
+            info_message_format.format(
+                N_chunks=len(chunks), relevance_scores=[chunk.relevance_score for chunk in chunks]
+            )
+        )
+
         ranked_chunks = sorted(chunks, key=lambda chunk: chunk.relevance_score, reverse=True)
         quantile = np.quantile([chunk.relevance_score for chunk in chunks], quantile_limit)
         top_chunks = [chunk for chunk in ranked_chunks if chunk.relevance_score >= quantile]
         chunks = top_chunks[0:limit]  # ranked_chunks[0:limit]
-        logger.info(f"Retrieved {len(chunks)} chunks")
 
         return chunks
 
     @staticmethod
     def search_loop(
+      
         table_or_tables: Union[LanceTable, List[LanceTable]],
         query: str,
-        vector_: List[float],
+        vector_: Union[List[float], None],
         limit: int,
         filter_condition: Optional[str] = None,
     ) -> List[Chunk]:
@@ -215,28 +233,31 @@ class CustomRetriever(BaseRetriever):
             chunk_class = table_name_to_schema_class_map[table.name]
             is_main_chunk_class = chunk_class is Chunk
 
-            iteration_required = True
-            while iteration_required:  # iteration only necessary if there are duplicates, for example,
-                # some 'boilerplate' text from reports may be duplicated
-                chunks = (
-                    table.search(query_type="hybrid")
-                    .vector(vector_)
-                    .text(query)
-                    .where(
-                        filter_condition if is_main_chunk_class else None,
-                        prefilter=True,
-                    )
-                    .limit(limit)
-                )
+            if vector_:
+              iteration_required = True
+              while iteration_required:  # iteration only necessary if there are duplicates, for example,
+                  # some 'boilerplate' text from reports may be duplicated
 
-                relevance_scores = chunks.to_arrow()["_relevance_score"]
+                  chunks = (
+                      table.search(query_type="hybrid")
+                      .vector(vector_)
+                      .text(query)
+                      .where(
+                          filter_condition if is_main_chunk_class else None,
+                          prefilter=True,
+                      )
+                      .limit(limit)
+                  )
 
-                chunks = chunks.to_pydantic(chunk_class)
-                for i, chunk in enumerate(chunks):
-                    chunk.relevance_score = relevance_scores[
-                        i
-                    ].as_py()  # as_py converts a pyarrow.lib.FloatScalar to a float
-                    chunk.use_as_context = is_main_chunk_class
+                  relevance_scores = chunks.to_arrow()["_relevance_score"]
+
+                  chunks = chunks.to_pydantic(chunk_class)
+
+                  for i, chunk in enumerate(chunks):
+                      chunk.relevance_score = relevance_scores[
+                          i
+                      ].as_py()  # as_py converts a pyarrow.lib.FloatScalar to a float
+                      chunk.use_as_context = is_main_chunk_class
 
                 found_limit_chunks = len(chunks) == limit
                 unique_chunks = unique(
@@ -246,17 +267,14 @@ class CustomRetriever(BaseRetriever):
                 iteration_required = found_limit_chunks and chunks_arent_unique
                 if iteration_required:
                     limit = limit * 2  # may need to increase the limit if chunks weren't unique and try again
-
+            
+            else:
+              unique_chunks = (table.search().where(filter_condition)).limit(-1).to_pydantic(Chunk)
+                    
             all_chunks += unique_chunks
 
         return all_chunks
 
-    @staticmethod
-    def vector(string: str) -> List[float]:
-        """Calculate the embedding vector of string"""
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        vector = client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=string).data[0].embedding
-        return vector
 
 
 if __name__ == "__main__":
@@ -323,62 +341,21 @@ if __name__ == "__main__":
         # experimenting with search filter conditions
         query = "What work has Nesta done on educational technology"
         # query = 'Who has experience working in government'
-        filter_condition = "source.date_pub >= to_timestamp('2020-01-01')"  # filter by date
+        # filter_condition = "source.date_pub >= to_timestamp('2020-01-01')"  # filter by date
         # filter_condition = "array_contains(source.projects,'Digital Arts and Culture Accelerator')" #filter by project.
         # Remember the 'projects' field is a list of strings (there can be more than one project)
         # filter_condition = "source.contentType = 'person page'"  #filter by content type
         # filter_condition = "source.rank <= 100" #filter by page popularity
         #  filter_condition = None  #also works with no filter condition
-        filter_condition = "source.date_pub >= to_timestamp('2020-01-01') and source.contentType = 'person page'"
-        chunks = CustomRetriever().invoke(query, filter_condition=filter_condition)
+        #  filter_condition = "source.date_pub >= to_timestamp('2020-01-01') and source.contentType = 'person page'"
+        filter_condition = '(source.location LIKE "%1NeuLG4DAHg-gd_iwAWCWKq80_iVUmXMp")'
+        input = {
+            "messages": [HumanMessage(content=query)],
+            "limit": 10000,
+            "filter_condition": filter_condition,
+            "use_hybrid_search": False,
+        }
+        chunks = CustomRetriever().invoke(input)
         logger.info(len(chunks))
         for chunk in chunks:
             logger.info("\n\n", chunk)
-
-    if False:
-        # experimenting with asynchronous search
-        # see https://lancedb.github.io/lancedb/hybrid_search/hybrid_search/#hybrid-search-in-lancedb
-        # Doesn't work
-        async def foo():  # noqa
-            query = "What work has Nesta done on educational technology"
-            v = CustomRetriever.vector(query)
-            async_db = await lancedb.connect_async(DB_PATH)
-            async_tbl = await async_db.open_table("chunk")
-            return await async_tbl.query().nearest_to(v).nearest_to_text(query).limit(1).to_pandas()
-
-        res = asyncio.run(foo())
-    #   print(res)
-
-    if False:
-        # experimenting with queries
-        # lancedb's neater syntax for handling embeddings doesn't work because of the way the schema has been specified
-
-        query = "HACID"
-        #  vector_ = client.embeddings.create(model=DEFAULT_EMBEDDINGS_MODEL, input=query).data[0].embedding
-        # chunk_table.create_fts_index("text")
-        # chunk_results = chunk_table.search()
-        #                   .where('source.location = "https://www.nesta.org.uk/project/centre-collective-intelligence-design/"')
-        #                   .to_list()
-
-        chunk_results = (
-            chunk_table.search(query)
-            .where("source.date_pub >= to_timestamp('2019-01-01')")
-            .limit(3)
-            .to_pydantic(Chunk)
-        )
-
-        for result in chunk_results:
-            logger.info("\n\n", result, "\n\n")
-
-    if False:
-        # experimenting with Langchain
-
-        vector_store = LanceDB(
-            uri=DB_PATH,
-            embedding=OpenAIEmbeddings(),
-            table_name=CHUNK_TABLE_NAME,
-        )
-
-        retriever = vector_store.as_retriever()
-        docs = retriever.invoke("climate change projects")  # bug in lancedb prevents this from working
-        logger.info(docs)

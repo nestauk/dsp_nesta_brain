@@ -1,4 +1,4 @@
-# Byte-compiled / optimized / DLL files
+__# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -177,5 +177,8 @@ retrieval/db/ccid_demo_db/*
 retrieval/db/full_site_demo_db
 retrieval/db/full_site_demo_db_with_pdfs
 retrieval/db/policy_atlas
+retrieval/db/nesta_brain
 .streamlit/
+#other
+documentation/policy_documents_ingested.csv
 client_secret.json

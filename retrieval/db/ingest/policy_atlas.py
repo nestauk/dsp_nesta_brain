@@ -1,6 +1,9 @@
 import logging
 import sys
 
+from typing import List
+
+import lancedb
 import pandas as pd
 import retrieval.db.ingest.const as const
 import retrieval.db.ingest.ingest as ing

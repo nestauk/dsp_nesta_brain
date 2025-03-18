@@ -4351,6 +4351,30 @@ files = [
 numpy = {version = ">=1.23.5", markers = "python_version >= \"3.11\""}
 
 [[package]]
+name = "openparse"
+version = "0.7.0"
+description = "Streamlines the process of preparing documents for LLM's."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "openparse-0.7.0-py3-none-any.whl", hash = "sha256:70a07d944a5a99aa628367ede81fe7cc3b16a38fd18314e6a410c4991ba23fb6"},
+    {file = "openparse-0.7.0.tar.gz", hash = "sha256:965a84ebed051063516c7e0e6e3bc7352c216d6bb54bf2786c369481689554fa"},
+]
+
+[package.dependencies]
+numpy = "*"
+openai = ">=1.0.0"
+"pdfminer.six" = ">=20200401"
+pillow = ">=8.3"
+pydantic = ">=2.0"
+PyMuPDF = ">=1.23.2"
+pypdf = ">=4.0.0"
+tiktoken = ">=0.3"
+
+[package.extras]
+ml = ["tokenizers", "torch", "torchvision", "transformers"]
+
+[[package]]
 name = "orderly-set"
 version = "5.2.2"
 description = "Orderly set"
@@ -8246,4 +8270,5 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "9c6edf8b4059e66b528b51bdea58e155a1f12cd9da6ed52c1e6b5f29e6a53903"
+content-hash = "9b3bfdec722bf92a1011a3be62bfdc74299e7e90236f17b5c202e0f24952f7a6"
+

@@ -9,13 +9,14 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
+from typing import Optional
 from typing import Union
 
 import streamlit as st
 
 from config import DEBUG_MODE
 from config import EARLIEST_YEAR
-from config import PROJECT
+from config import USE_LANGFUSE
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from front_end.auth.authenticate import Authenticator
@@ -28,16 +29,15 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from lgraph.graph import LAST_CHAT_GRAPH_NODE_NAME
-from lgraph.graph import create_chat_graph
-from llm.chain import history_aware_rag_chain
-from llm.chain import history_aware_rag_chain_with_citation_tool
+from lgraph.graph import graph_options_type
+from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_feedback import streamlit_feedback
 
 
 if TYPE_CHECKING:
+    from langchain_core.messages.ai import AIMessageChunk
     from retrieval.retrieve import RetrieverInput as State
 
 CURRENT_YEAR = datetime.now().year
@@ -51,6 +51,46 @@ langfuse_handler = CallbackHandler(
     host=os.getenv("LANGFUSE_HOST"),
     user_id=os.getenv("LANGFUSE_USER_ID"),
 )
+
+
+
+class GraphStreamEvent(dict):
+    """
+    A class to represent the outputs of the astream_events method of graphs,
+    in order to make the streaming syntax more readable
+    """  # noqa
+
+    @property
+    def ai_message_chunk(self) -> AIMessageChunk:
+        """Return the AI message chunk from the event"""
+        return self["data"]["chunk"]
+
+    @property
+    def return_final_state(self) -> bool:
+        """Test whether to return the final graph state"""
+        return self["event"] == "on_chain_end" and self["name"] == stream_nodes[-1]
+
+    @property
+    def is_interim_message(self) -> bool:
+        """
+        Test whether the AIMessageChunks relate to the content of an InterimMessage (e.g. from recontextualisation),
+        in which case it shouldn't be streamed
+
+        The seq:step:N tag represents a step number in the execution sequence of different steps in the graph
+
+        CAUTION!!!: if the structure of the graph or chains changes, the step number may change and this test may need to be updated
+        """  # noqa
+
+        return "seq:step:2" in (self.get("tags") or [])
+
+    @property
+    def stream(self) -> bool:
+        """Test whether the AIMessageChunks in this event should be streamed"""
+        return (
+            self["event"] == "on_chat_model_stream"
+            and (self.get("metadata") or {}).get("langgraph_node") in stream_nodes
+            and not self.is_interim_message
+        )
 
 
 def chat_history() -> List[BaseMessage]:
@@ -79,44 +119,53 @@ def trace_metadata() -> Dict:
 
 
 def respond(
-    chain: Runnable,
+    chain_or_graph: Runnable,
     message_placeholder: DeltaGenerator,
     **kwargs,
 ) -> CustomAIMessage:
     """Get LLM response from chain"""
 
-    if use_langfuse:
+    if USE_LANGFUSE:
         trace_id = str(uuid.uuid4())
         config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
     else:
         config = {}
 
-    input = {"messages": chat_history(), "filter_condition": st.session_state["filter_condition"], "limit": limit}
+    input = {
+        "messages": chat_history(),
+        "filter_condition": st.session_state["filter_condition"],
+        "limit": limit,
+        "use_hybrid_search": True,
+    }
 
-    if use_graph:
+    if use_graph in ["chat", "combined"]:
 
         if stream:
 
             async def stream_() -> State:
+
                 message_text = ""
                 id = None
-                async for event in chain.astream_events(input, config, version="v1", stream_mode="values"):
-                    if event["event"] == "on_chat_model_stream":
-                        ai_message_chunk = event["data"]["chunk"]
-                        if id != ai_message_chunk.id:
+
+                async for event in chain_or_graph.astream_events(input, config, version="v1", stream_mode="values"):
+
+                    event = GraphStreamEvent(event)
+
+                    if event.stream:
+                        if id != event.ai_message_chunk.id:
                             if id:
                                 message_text += "\n\n"
-                            id = ai_message_chunk.id
-                        message_text += ai_message_chunk.content
+                        id = event.ai_message_chunk.id
+                        message_text += event.ai_message_chunk.content
                         message_placeholder.markdown(message_text + "▌")
-                    elif event["event"] == "on_chain_end" and event["name"] == LAST_CHAT_GRAPH_NODE_NAME:
-                        final_state = event["data"]["input"]
-                return final_state
+
+                    elif event.return_final_state:
+                        return event["data"]["input"]
 
             final_state = asyncio.run(stream_())
 
         else:
-            final_state = chain.invoke(input, config=config)
+            final_state = chain_or_graph.invoke(input, config=config)
 
         return_message = final_state["messages"][-1]
 
@@ -125,7 +174,7 @@ def respond(
         if stream:
 
             message_text = ""
-            for item in chain.stream(input, config=config):
+            for item in chain_or_graph.stream(input, config=config):
                 # Process each item
                 if "answer" in item:
                     if use_tool_for_citations:
@@ -151,7 +200,7 @@ def respond(
             response = {"answer": message_text, "context": context}
 
         else:
-            response = chain.invoke(input, config=config)
+            response = chain_or_graph.invoke(input, config=config)
 
         return_message = CustomAIMessage(response)
 
@@ -160,7 +209,7 @@ def respond(
         # it will be rendered in a nicer format with references
         message_placeholder.markdown("")
 
-    if use_langfuse:
+    if USE_LANGFUSE:
         langfuse.trace(id=trace_id, metadata=trace_metadata())
         st.session_state["current_trace_id"] = trace_id
 
@@ -212,12 +261,12 @@ if __name__ == "__main__":
 
     # settings
     limit: int = 10
-    use_graph: bool = False
+    use_graph: Optional[graph_options_type] = "combined"  # or None for none of the options
     use_langfuse: bool = (
         not DEBUG_MODE and PROJECT == "NESTA_BRAIN"
     )  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
-    use_graph: bool = False
+
     stream: bool = True
     use_tool_for_citations: bool = False
 
@@ -227,15 +276,14 @@ if __name__ == "__main__":
     if use_tool_for_citations:
         raise Exception("use_tool_for_citations may no longer work – need to check")
 
+
+    runnable, stream_nodes = get_graph_or_rag_chain(
+          use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
+    )
+
     load_dotenv()
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    if use_graph:
-        rag_chain = create_chat_graph()
-    elif use_tool_for_citations:
-        rag_chain = history_aware_rag_chain_with_citation_tool(chat_history)
-    else:
-        rag_chain = history_aware_rag_chain()
 
     st.set_page_config(layout="wide")
 
@@ -254,6 +302,7 @@ if __name__ == "__main__":
     authenticator.login()
 
     if st.session_state["connected"]:
+
 
         st.markdown(
             """
@@ -324,12 +373,12 @@ if __name__ == "__main__":
 
                 st.session_state["filter_condition"] = filter_conditions()
 
-                response = respond(rag_chain, message_placeholder)
+                response = respond(runnable, message_placeholder)
                 message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
                 message = {"role": "assistant", "html": response.as_html(), "content": response.content}
                 st.session_state.messages.append(message)
 
-        if use_langfuse:
+        if USE_LANGFUSE:
             feedback = streamlit_feedback(
                 feedback_type="faces",
                 optional_text_label="[Optional] Please provide an explanation",
