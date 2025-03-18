@@ -12,7 +12,6 @@ from typing import Optional
 from typing import Tuple
 from typing import Type
 from typing import Union
-from typing import get_args
 
 import lancedb
 import pandas as pd
@@ -36,12 +35,14 @@ from scraping.scrape_pdf import PDF
 from utils import unique
 
 
+mode_type: Type = Literal["web_dump", "web_search", "given_urls", "from_csv"]  # possible modes
+
 _prefix = "2024-10-29"
 WEBSITE_DATA_PATH = PROJECT_DIR / f"scraping/data/website_{_prefix}"
 METADATA_PATH = WEBSITE_DATA_PATH / "metadata.jsonl"
 PDF_PATH = WEBSITE_DATA_PATH / "pdf_files"
+CSV_PATH = PROJECT_DIR / "data/Mission Project List.csv"
 NESTA_SITE_URL = "https://nesta.org.uk"
-
 
 DB = lancedb.connect(DB_PATH)
 DOCUMENT_TABLE = DB.open_table("document")
@@ -59,22 +60,42 @@ def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
     return bool(results)
 
 
-def chunk_already_in_db(*args) -> bool:
+def chunk_already_in_db(chunk: LangchainDocument, mode: Optional[mode_type] = None, **kwargs) -> bool:
     """Determine whether identical chunks have already been added to the database.
     Chunking strategy should have been the same.
     """  # noqa
 
-    results = ing.chunk_already_in_db(*args)
-    return bool(results), results[0].source.location if results else None
+    if mode == "from_csv":
+
+        where_condition = f'''name == "{chunk.metadata.get("Project Name (Asana)") or chunk.metadata.get("name")}"'''
+        results = ing.chunk_already_in_db(chunk, where_condition=where_condition, **kwargs)
+        return bool(results)
+
+    else:
+
+        results = ing.chunk_already_in_db(chunk)
+        return bool(results), results[0].source.location if results else None
 
 
-async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: LanceDocument) -> NestaBrainChunk:
+async def chunk_to_Chunk(
+    chunk: LangchainDocument, order_index: int, source: LanceDocument, mode: Optional[mode_type] = None
+) -> const.Chunk:
     """
     Convert a Langchain chunk (as returned from a text splitter) into an object
     of the Chunk class which can be ingested into the DB
     (including deriving an embedding for the Chunk)
     """  # noqa
-    return await ing.chunk_to_Chunk(chunk, order_index=order_index, source=source)
+
+    if mode == "from_csv":
+
+        try:
+            return await ing.chunk_to_Chunk(chunk, ingestion=True, **chunk.metadata)
+        except Exception as e:
+            raise e
+
+    else:
+
+        return await ing.chunk_to_Chunk(chunk, order_index=order_index, source=source)
 
 
 async def documents_to_Chunks(
@@ -187,7 +208,6 @@ def webpages_to_ingested_data(
         )
 
     if uids:
-        METADATA_PATH = WEBSITE_DATA_PATH / "metadata.jsonl"  # noqa
         metadata_df = pd.read_json(METADATA_PATH, lines=True)
         rows = [metadata_df[metadata_df["uid"] == uid].iloc[0] for uid in uids]
         df = pd.DataFrame(rows)
@@ -410,6 +430,7 @@ class mode_arg(Enum):
 
     wd = "wd"
     ws = "ws"
+    csv = "csv"
 
 
 if __name__ == "__main__":
@@ -420,14 +441,15 @@ if __name__ == "__main__":
     # command line argument interpretation
 
     # possible modes and their command line instructions
-    mode_type: Type = Literal["web_dump", "web_search", "given_urls"]
     # if 'web_dump': ingest data which has already been downloaded from the Nesta website.
     #                Use '-m wd' in the command line.
     # if 'web_search': do a web search, scrape and ingest the results.
     #                  Use '-m ws' in the command line.
+    # if 'from_csv': ingest from the CSV file specified by CSV_PATH.
+    #                  Use '-m csv' in the command line.
     # if 'given_urls': scrape webpages from a list of known urls otherwise.
     #                  Omit -m and specify the urls via --urls in the command line.
-    mode_args_map = {"wd": "web_dump", "ws": "web_search"}
+    mode_args_map = {"wd": "web_dump", "ws": "web_search", "csv": "from_csv"}
 
     parser = argparse.ArgumentParser()
 
@@ -449,10 +471,6 @@ if __name__ == "__main__":
         "-c", "--cautious", action="store_true"
     )  # cautious flag. If present, asks whether you want to scrape the PDF
     # and whether the metadata guesses are correct
-    parser.add_argument(
-        "--start_index", type=int, default=0
-    )  # the row of metadata.jsonl to start ingesting; everything prior to this will be ignored
-    parser.add_argument("--batch_size", type=int, default=10)  # the number of webpages to ingest at a time
 
     # arguments only relevant in web_search mode
     parser.add_argument("--query")
@@ -463,6 +481,12 @@ if __name__ == "__main__":
 
     # arguments only relevant in given_urls mode
     parser.add_argument("--urls", nargs="*")
+
+    # argumrents relevant to web_dump mode and from_csv mode
+    parser.add_argument(
+        "--start_index", type=int, default=0
+    )  # the row of the relevant data file to start ingesting; everything prior to this will be ignored
+    parser.add_argument("--batch_size", type=int, default=10)  # the number of webpages/rows to ingest at a time
 
     args = parser.parse_args()
 
@@ -475,23 +499,6 @@ if __name__ == "__main__":
         ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
     )
 
-      
-    # settings relevant to from_csv mode
-    CSV_PATH = PROJECT_DIR / "data/Mission Project List.csv"
-    csv_mode_chunk_schema_class = MissionProject
-    csv_mode_chunk_table_name = "mission_project"
-
-    if mode == "from_csv":
-        # settings constants which may be needed in other files
-
-        const.Chunk = csv_mode_chunk_schema_class
-        const.CHUNK_TABLE_NAME = csv_mode_chunk_table_name
-
-    else:
-
-        const.Chunk = NestaBrainChunk
-        const.CHUNK_TABLE_NAME = "chunk"
-    
     error_instructions = "\n* give the command line argument '-m wd' or '-m ws' to signify 'web_dump' mode or 'web_search' mode; OR\n* give a list of urls to go into 'given_urls' mode"  # noqa
     if not mode:
         raise Exception("No mode detected: You must either:" + error_instructions)
@@ -514,6 +521,18 @@ if __name__ == "__main__":
     info.append("Refer to instructions if these are not correct")
     logger.info("\n".join(info))
 
+    if mode == "from_csv":
+        # settings constants which may be needed in other files
+
+        const.Chunk = MissionProject
+        const.CHUNK_TABLE_NAME = "mission_project"
+
+    else:
+
+        const.Chunk = NestaBrainChunk
+        const.CHUNK_TABLE_NAME = "chunk"
+
+    chunk_table = DB.open_table(const.CHUNK_TABLE_NAME)
 
     if mode == "web_dump":
         # if scraping/ingesting from entire Nesta website data dump
@@ -555,46 +574,17 @@ if __name__ == "__main__":
     elif mode == "from_csv":
         # if ingesting data from a csv
 
-        const.Chunk = MissionProject
-        const.CHUNK_TABLE_NAME = "mission_project"
-
-        def chunk_already_in_db(chunk: LangchainDocument, **kwargs) -> bool:  # noqa
-            """Determine whether identical chunks have already been added to the database.
-            Chunking strategy should have been the same.
-            """  # noqa
-
-            where_condition = (
-                f'''name == "{chunk.metadata.get("Project Name (Asana)") or chunk.metadata.get("name")}"'''
-            )
-            results = ing.chunk_already_in_db(chunk, where_condition=where_condition, **kwargs)
-            return bool(results)
-
-        async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> const.Chunk:  # noqa
-            """
-            Convert a Langchain document into an object
-            of the Chunk class which can be ingested into the DB
-            (including deriving an embedding for the Chunk)
-            """  # noqa
-
-            try:
-                return await ing.chunk_to_Chunk(chunk, ingestion=ingestion, **chunk.metadata)
-            except Exception as e:
-                return e
-
-        batch_size = 20
         data = pd.read_csv(CSV_PATH)
         N_rows = data.shape[0]
 
-        for start_index_ in range(start_index, N_rows, batch_size):
+        for start_index_ in range(args.start_index, N_rows, args.batch_size):
 
             ing.csv_rows_to_ingested_data(
                 CSV_PATH,
                 start_index_,
-                batch_size,
+                args.batch_size,
                 identifier="name",
                 text_col=["Project Name (Asana)", "Research Question"],
-                Chunk_func=chunk_to_Chunk,
-                chunk_presence_test=chunk_already_in_db,
+                Chunk_func=lambda *args, **kwargs: chunk_to_Chunk(*args, mode="from_csv", **kwargs),
+                chunk_presence_test=lambda *args, **kwargs: chunk_already_in_db(*args, mode="from_csv", **kwargs),
             )
-
-    chunk_table = DB.open_table(const.CHUNK_TABLE_NAME)
