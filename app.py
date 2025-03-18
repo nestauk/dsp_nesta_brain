@@ -16,6 +16,7 @@ import streamlit as st
 
 from config import DEBUG_MODE
 from config import EARLIEST_YEAR
+from config import PROJECT
 from config import USE_LANGFUSE
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
@@ -51,7 +52,6 @@ langfuse_handler = CallbackHandler(
     host=os.getenv("LANGFUSE_HOST"),
     user_id=os.getenv("LANGFUSE_USER_ID"),
 )
-
 
 
 class GraphStreamEvent(dict):
@@ -267,7 +267,7 @@ if __name__ == "__main__":
     )  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
 
-    stream: bool = True
+    stream: bool = False
     use_tool_for_citations: bool = False
 
     # UI settings
@@ -276,14 +276,12 @@ if __name__ == "__main__":
     if use_tool_for_citations:
         raise Exception("use_tool_for_citations may no longer work – need to check")
 
-
     runnable, stream_nodes = get_graph_or_rag_chain(
-          use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
+        use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
     )
 
     load_dotenv()
     logging.getLogger("httpx").setLevel(logging.WARNING)
-
 
     st.set_page_config(layout="wide")
 
@@ -302,7 +300,6 @@ if __name__ == "__main__":
     authenticator.login()
 
     if st.session_state["connected"]:
-
 
         st.markdown(
             """

@@ -103,9 +103,8 @@ def create_stuff_documents_chain(
     """
 
     _validate_prompt(prompt, document_variable_name)
-    _document_prompt = document_prompt or 
-    
-    
+    _document_prompt = document_prompt or DEFAULT_DOCUMENT_PROMPT
+
     _output_parser = output_parser or StrOutputParser()
 
     def format_docs(inputs: dict) -> str:

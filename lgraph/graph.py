@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import importlib
 import re
 
@@ -262,7 +261,8 @@ def create_combined_graph(
         prompt = state["intermediate_outputs"].get("main_prompt")
         rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(prompt=prompt, **kwargs)
         response = rag_chain.invoke(state)
-        state["messages"].append(CustomAIMessage(response))
+        message = CustomAIMessage(response)
+        state["messages"].append(message)
 
         return state
 
@@ -286,19 +286,3 @@ def create_combined_graph(
         return graph, stream_nodes
     else:
         return graph
-
-
-if __name__ == "__main__":
-
-    graph = create_retrieval_graph()
-    #  input = "What work has Nesta done on heat pumps?"
-    # input = "Who has data science skills at Nesta?"
-    # input = 'Are you a lemon?'
-    #  input = "List all the reports published last year"
-    input = "List all the reports published recently"
-    # messages =
-    res = asyncio.run(graph.ainvoke({"input": input, "filter_condition": "", "merge": True}))
-    logger.info(res)
-
-    # for m in messages['messages']:
-    #   m.pretty_print()

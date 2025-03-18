@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import importlib
 import os
 import re
@@ -20,13 +19,11 @@ from dsp_nesta_brain import logger
 from lancedb.db import LanceDBConnection
 from lancedb.table import LanceTable
 from langchain.docstore.document import Document as LangchainDocument
-from langchain_community.vectorstores import LanceDB
 from langchain_core.messages import HumanMessage
 from langchain_core.retrievers import BaseRetriever
 from langgraph.graph import MessagesState
 from openai import OpenAI
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
-from retrieval.db.schema.nesta_brain import MissionProject
 from retrieval.db.schema.policy_atlas import Activity
 from retrieval.embeddings import vector
 from utils import unique
@@ -161,7 +158,7 @@ class CustomRetriever(BaseRetriever):
     def retrieve_chunks(
         db: LanceDBConnection,
         input: RetrieverInput,
-        include_projects: bool = True,
+        include_projects: bool = False,
         quantile_limit: float = 0.333,
         **kwargs,
     ) -> List[Chunk]:
@@ -192,26 +189,27 @@ class CustomRetriever(BaseRetriever):
 
         if input["use_hybrid_search"]:
             info_message_format = "Retrieved {N_chunks} chunks. Relevance scores: {relevance_scores}"
+            relevance_scores = [chunk.relevance_score for chunk in chunks]
         else:
             info_message_format = (
                 "Retrieved {N_chunks} chunks. Relevance scores not available when not using hybrid or vector search."
             )
-        logger.info(
-            info_message_format.format(
-                N_chunks=len(chunks), relevance_scores=[chunk.relevance_score for chunk in chunks]
-            )
-        )
+            relevance_scores = None
+        logger.info(info_message_format.format(N_chunks=len(chunks), relevance_scores=relevance_scores))
 
-        ranked_chunks = sorted(chunks, key=lambda chunk: chunk.relevance_score, reverse=True)
-        quantile = np.quantile([chunk.relevance_score for chunk in chunks], quantile_limit)
-        top_chunks = [chunk for chunk in ranked_chunks if chunk.relevance_score >= quantile]
-        chunks = top_chunks[0:limit]  # ranked_chunks[0:limit]
+        if include_projects and input["use_hybrid_search"]:
+            ranked_chunks = sorted(chunks, key=lambda chunk: chunk.relevance_score, reverse=True)
+            quantile = np.quantile([chunk.relevance_score for chunk in chunks], quantile_limit)
+            top_chunks = [chunk for chunk in ranked_chunks if chunk.relevance_score >= quantile]
+            chunks = top_chunks[0:limit]
+
+        else:
+            chunks = chunks[0:limit]
 
         return chunks
 
     @staticmethod
     def search_loop(
-      
         table_or_tables: Union[LanceTable, List[LanceTable]],
         query: str,
         vector_: Union[List[float], None],
@@ -234,47 +232,46 @@ class CustomRetriever(BaseRetriever):
             is_main_chunk_class = chunk_class is Chunk
 
             if vector_:
-              iteration_required = True
-              while iteration_required:  # iteration only necessary if there are duplicates, for example,
-                  # some 'boilerplate' text from reports may be duplicated
+                iteration_required = True
+                while iteration_required:  # iteration only necessary if there are duplicates, for example,
+                    # some 'boilerplate' text from reports may be duplicated
 
-                  chunks = (
-                      table.search(query_type="hybrid")
-                      .vector(vector_)
-                      .text(query)
-                      .where(
-                          filter_condition if is_main_chunk_class else None,
-                          prefilter=True,
-                      )
-                      .limit(limit)
-                  )
+                    chunks = (
+                        table.search(query_type="hybrid")
+                        .vector(vector_)
+                        .text(query)
+                        .where(
+                            filter_condition if is_main_chunk_class else None,
+                            prefilter=True,
+                        )
+                        .limit(limit)
+                    )
 
-                  relevance_scores = chunks.to_arrow()["_relevance_score"]
+                    relevance_scores = chunks.to_arrow()["_relevance_score"]
 
-                  chunks = chunks.to_pydantic(chunk_class)
+                    chunks = chunks.to_pydantic(chunk_class)
 
-                  for i, chunk in enumerate(chunks):
-                      chunk.relevance_score = relevance_scores[
-                          i
-                      ].as_py()  # as_py converts a pyarrow.lib.FloatScalar to a float
-                      chunk.use_as_context = is_main_chunk_class
+                    for i, chunk in enumerate(chunks):
+                        chunk.relevance_score = relevance_scores[
+                            i
+                        ].as_py()  # as_py converts a pyarrow.lib.FloatScalar to a float
+                        chunk.use_as_context = is_main_chunk_class
 
-                found_limit_chunks = len(chunks) == limit
-                unique_chunks = unique(
-                    chunks
-                )  # there shouldn't be many duplicate chunks in the DB, but this removes the possibility of returning them
-                chunks_arent_unique = len(unique_chunks) < len(chunks)
-                iteration_required = found_limit_chunks and chunks_arent_unique
-                if iteration_required:
-                    limit = limit * 2  # may need to increase the limit if chunks weren't unique and try again
-            
+                    found_limit_chunks = len(chunks) == limit
+                    unique_chunks = unique(
+                        chunks
+                    )  # there shouldn't be many duplicate chunks in the DB, but this removes the possibility of returning them
+                    chunks_arent_unique = len(unique_chunks) < len(chunks)
+                    iteration_required = found_limit_chunks and chunks_arent_unique
+                    if iteration_required:
+                        limit = limit * 2  # may need to increase the limit if chunks weren't unique and try again
+
             else:
-              unique_chunks = (table.search().where(filter_condition)).limit(-1).to_pydantic(Chunk)
-                    
+                unique_chunks = (table.search().where(filter_condition)).limit(-1).to_pydantic(Chunk)
+
             all_chunks += unique_chunks
 
         return all_chunks
-
 
 
 if __name__ == "__main__":
@@ -291,44 +288,6 @@ if __name__ == "__main__":
     project_table = db.open_table("mission_project")
 
     # code below is just for testing and experimenting
-
-    if False:
-        # experimenting with combining results and reranking
-
-        import pyarrow as pa
-
-        from lancedb.rerankers.rrf import RRFReranker
-
-        query = "How do you design a Collective Intelligence Project?"
-        vector_ = CustomRetriever.vector(query)
-        reranker = RRFReranker()
-
-        chunks = chunk_table.search(query_type="hybrid").vector(vector_).text(query).limit(10)
-
-        projects = project_table.search(query_type="hybrid").vector(vector_).text(query).limit(10)
-
-        all_relevance_scores = []
-        results = []
-        for i, query_result in enumerate([chunks, projects]):
-            arrow_result = query_result.to_arrow()
-            relevance_scores = [score.as_py() for score in arrow_result["_relevance_score"]]
-            all_relevance_scores += relevance_scores
-            pydantic_class = Chunk if i == 0 else MissionProject
-            pydantic_result = query_result.to_pydantic(pydantic_class)
-            for j, element in enumerate(pydantic_result):
-                element.relevance_score = relevance_scores[j]
-            results += pydantic_result
-
-        # print(all_relevance_scores)
-
-        if False:
-            t1 = pa.table([chunks["text"], chunks["vector"]], names=["text", "vector"])
-            t2 = pa.table([projects["text"], projects["vector"]], names=["text", "vector"])
-            res = pa.concat_tables([t1, t2])
-            v = pa.table([pa.array(["1", "2", "3", "4"]), res["vector"]], names=["_rowid", "vector"])
-            t = pa.table([pa.array(["1", "2", "3", "4"]), res["text"]], names=["_rowid", "text"])
-            res = reranker.rerank_multivector([v], query=query)
-        #   print(res)
 
     if False:
         # testing search_loop with a different table
