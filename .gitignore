@@ -179,3 +179,5 @@ retrieval/db/full_site_demo_db_with_pdfs
 retrieval/db/policy_atlas
 retrieval/db/nesta_brain
 .streamlit/
+#other
+documentation/policy_documents_ingested.csv

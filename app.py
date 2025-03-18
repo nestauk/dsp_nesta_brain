@@ -79,15 +79,16 @@ class GraphStreamEvent(dict):
         CAUTION!!!: if the structure of the graph or chains changes, the step number may change and this test may need to be updated
         """  # noqa
 
-        return "seq:step:2" in self.get("tags") or []
+        return "seq:step:2" in (self.get("tags") or [])
 
     @property
     def stream(self) -> bool:
         """Test whether the AIMessageChunks in this event should be streamed"""
-        condition_met = self["event"] == "on_chat_model_stream"
-        condition_met = condition_met and (self.get("metadata") or {}).get("langgraph_node") in stream_nodes
-        condition_met = condition_met and not self.is_interim_message
-        return condition_met
+        return (
+            self["event"] == "on_chat_model_stream"
+            and (self.get("metadata") or {}).get("langgraph_node") in stream_nodes
+            and not self.is_interim_message
+        )
 
 
 def check_password() -> bool:
