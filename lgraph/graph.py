@@ -9,6 +9,7 @@ from typing import Dict
 from typing import Literal
 from typing import Type
 
+from config import ALLOW_POLICY_DOCS
 from config import DEFAULT_START_YEAR
 from dsp_nesta_brain import logger
 from langchain_core.runnables import RunnableParallel
@@ -18,7 +19,11 @@ from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.types import StreamWriter
 from lgraph.prompt import currentness_comment_prompt
-from lgraph.prompt import needs_policy_prompt
+
+
+if ALLOW_POLICY_DOCS:
+    from lgraph.prompt import needs_policy_prompt
+
 from lgraph.prompt import personnel_prompt
 from lgraph.prompt import year_constraint_prompt
 from llm.llm import default_llm as llm

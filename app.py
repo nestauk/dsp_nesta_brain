@@ -14,6 +14,7 @@ from typing import Union
 
 import streamlit as st
 
+from config import ALLOW_POLICY_DOCS
 from config import DEBUG_MODE
 from config import EARLIEST_YEAR
 from config import PROJECT
@@ -261,7 +262,10 @@ if __name__ == "__main__":
 
     # settings
     limit: int = 10
-    use_graph: Optional[graph_options_type] = "combined"  # or None for none of the options
+    if ALLOW_POLICY_DOCS:
+        use_graph: Optional[graph_options_type] = "combined"  # or None for none of the options
+    else:
+        use_graph = None
     use_langfuse: bool = (
         not DEBUG_MODE and PROJECT == "NESTA_BRAIN"
     )  # Langfuse is not currently set up for other projects –

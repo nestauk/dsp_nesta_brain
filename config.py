@@ -17,7 +17,7 @@ USE_AZURE_EMBEDDINGS: bool = USE_AZURE
 AZURE_EMBEDDINGS_MODEL: str = DEFAULT_EMBEDDINGS_MODEL
 
 if PROJECT == "NESTA_BRAIN":
-    ALLOW_POLICY_DOCS: bool = True  # set as wanted
+    ALLOW_POLICY_DOCS: bool = False  # set as wanted
     if ALLOW_POLICY_DOCS:
         DB_PATH: str = "retrieval/db/knowledge_bases/nesta_brain"
     else:
