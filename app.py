@@ -267,7 +267,7 @@ if __name__ == "__main__":
     )  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
 
-    stream: bool = False
+    stream: bool = True
     use_tool_for_citations: bool = False
 
     # UI settings
