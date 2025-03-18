@@ -67,6 +67,7 @@ def create_history_aware_retriever(
 def retriever(use_graph: Optional[graph_options_type] = None) -> Runnable:
     """Return a CustomRetriever with the option of chaining it with a graph in order to make retrieval more sophisticated"""
     retriever_ = CustomRetriever()
+
     if use_graph in ["retrieval", "combined"]:
 
         # the output of the graph is a list of dicts in this format:

@@ -1,4 +1,4 @@
-# Byte-compiled / optimized / DLL files
+__# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -181,3 +181,4 @@ retrieval/db/nesta_brain
 .streamlit/
 #other
 documentation/policy_documents_ingested.csv
+client_secret.json
