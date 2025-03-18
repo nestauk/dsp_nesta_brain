@@ -1,9 +1,6 @@
+import argparse
 import logging
-import sys
 
-from typing import List
-
-import lancedb
 import pandas as pd
 import retrieval.db.ingest.const as const
 import retrieval.db.ingest.ingest as ing
@@ -45,13 +42,14 @@ if __name__ == "__main__":
 
     logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 
-    # SETTINGS
-    start_index = (
-        int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    # command line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--start_index", type=int, default=0
     )  # the row of the policy data CSV to start ingesting; everything prior to this will be ignored
-    batch_size = (
-        225  # the number of CSV rows to ingest at a time. Batch sizes of 230+ seem to get errors back from OpenAI.
-    )
+    parser.add_argument(
+        "--batch_size", type=int, default=10
+    )  # the number of CSV rows to ingest at a time. Batch sizes of 230+ seem to get errors back from OpenAI.
 
     # settings constants which may be needed in other files
     const.Chunk = Activity
@@ -60,16 +58,18 @@ if __name__ == "__main__":
     # global variable
     request_counter = ing.RequestCounter()
 
+    args = parser.parse_args()
+
     data = pd.read_csv(DATA_PATH)
     N_rows = data.shape[0]
 
-    for start_index_ in range(start_index, N_rows, batch_size):
+    for start_index_ in range(args.start_index, N_rows, args.batch_size):
 
-        logger.info(f"Ingesting records {start_index_} to {start_index_ + batch_size - 1} ...")
+        logger.info(f"Ingesting records {start_index_} to {start_index_ + args.batch_size - 1} ...")
         ing.csv_rows_to_ingested_data(
             DATA_PATH,
             start_index_,
-            batch_size,
+            args.batch_size,
             identifier="iati_identifier",
             Chunk_func=chunk_to_Chunk,
             chunk_presence_test=chunk_already_in_db,
