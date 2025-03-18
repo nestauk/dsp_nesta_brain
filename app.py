@@ -13,10 +13,12 @@ from typing import Union
 
 import streamlit as st
 
+from config import DEBUG_MODE
 from config import EARLIEST_YEAR
 from config import PROJECT
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
+from front_end.auth.authenticate import Authenticator
 from front_end.project_spec import INTRO
 from front_end.project_spec import WIDGET_SPEC
 from front_end.sidebar import sidebar
@@ -49,32 +51,6 @@ langfuse_handler = CallbackHandler(
     host=os.getenv("LANGFUSE_HOST"),
     user_id=os.getenv("LANGFUSE_USER_ID"),
 )
-
-
-def check_password() -> bool:
-    """Return `True` if the user had the correct password."""
-
-    def password_entered() -> None:
-        """Check whether a password entered by the user is correct."""
-        if st.session_state["password"] == st.secrets["password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        # First run, show input for password.
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"]:
-        # Password not correct, show input + error.
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.error("😕 Password incorrect")
-        return False
-    else:
-        # Password correct.
-
-        return True
 
 
 def chat_history() -> List[BaseMessage]:
@@ -235,8 +211,11 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
 if __name__ == "__main__":
 
     # settings
-    limit: int = 10  # the number of retrieval results
-    use_langfuse: bool = PROJECT == "NESTA_BRAIN"  # Langfuse is not currently set up for other projects –
+    limit: int = 10
+    use_graph: bool = False
+    use_langfuse: bool = (
+        not DEBUG_MODE and PROJECT == "NESTA_BRAIN"
+    )  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
     use_graph: bool = False
     stream: bool = True
@@ -245,21 +224,37 @@ if __name__ == "__main__":
     # UI settings
     initial_message: str = "Hi, how can I help?"
 
-    if check_password():
-        load_dotenv()
-        logging.getLogger("httpx").setLevel(logging.WARNING)
+    if use_tool_for_citations:
+        raise Exception("use_tool_for_citations may no longer work – need to check")
 
-        if use_tool_for_citations:
-            raise Exception("use_tool_for_citations may no longer work – need to check")
+    load_dotenv()
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        if use_graph:
-            rag_chain = create_chat_graph()
-        elif use_tool_for_citations:
-            rag_chain = history_aware_rag_chain_with_citation_tool(chat_history)
-        else:
-            rag_chain = history_aware_rag_chain()
+    if use_graph:
+        rag_chain = create_chat_graph()
+    elif use_tool_for_citations:
+        rag_chain = history_aware_rag_chain_with_citation_tool(chat_history)
+    else:
+        rag_chain = history_aware_rag_chain()
 
-        st.set_page_config(layout="wide")
+    st.set_page_config(layout="wide")
+
+    # -------authentication credit------
+    # credit: https://medium.com/@coding-otter
+    # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
+
+    authenticator = Authenticator(
+        # allowed_users=allowed_users,   #adapted to allow any email address with a nesta.org.uk domain
+        token_key=os.getenv("AUTH_TOKEN_KEY"),
+        secret_path="client_secret.json",  # nosec
+        redirect_uri="http://localhost:8501",
+    )
+
+    authenticator.check_auth()
+    authenticator.login()
+
+    if st.session_state["connected"]:
+
         st.markdown(
             """
         <style>
@@ -280,6 +275,11 @@ if __name__ == "__main__":
         """,
             unsafe_allow_html=True,
         )
+
+        if DEBUG_MODE:
+            st.markdown(
+                '<p style="color:red;font-size:125%"><b>WARNING: DEBUG MODE IS ON</b></p>', unsafe_allow_html=True
+            )
 
         st.markdown(
             INTRO,

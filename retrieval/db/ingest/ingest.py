@@ -190,8 +190,8 @@ def chunk_already_in_db(
     try:
         results = chunk_table.search().where(where_condition).limit(1).to_pydantic(const.Chunk)
     except Exception as e:
-        error_message_format = "Error while trying to check whether chunk {id} exists in database"
-        logger.error(error_message_format.format(id=chunk.metadata.get(identifier)))
+        error_message = "Error while trying to check whether chunk exists in database"
+        logger.error(error_message)
         raise Exception(e)
     return results
 

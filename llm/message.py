@@ -11,6 +11,7 @@ from typing import Type
 
 import markdown
 
+from config import DEBUG_MODE
 from config import PROJECT
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
@@ -69,9 +70,8 @@ class Reference(LangchainDocument):
 
         reference_html_format = self.chunk_class.reference_html_format()
 
-        test_mode = False
         index = self.reset_index if reset_index is not None else self.index
-        if test_mode:
+        if DEBUG_MODE:
             if self.index == 1:
                 logger.warning(
                     "Formatting of links for testing retrieval filtering is in use – do not use for production"
