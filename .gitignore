@@ -178,3 +178,4 @@ retrieval/db/full_site_demo_db
 retrieval/db/full_site_demo_db_with_pdfs
 retrieval/db/policy_atlas
 .streamlit/
+client_secret.json
