@@ -76,7 +76,7 @@ def call_retrieval_chain(state: AgentState) -> AgentState:
     """Call a retrieval chain to generate a response to a prompt."""
 
     prompt = PromptTemplate(
-        template=pt.write_prompt.template + "\nContext:\n{context}", input_variables=["request", "context"]
+        template=pt.get_write_prompt().template + "\nContext:\n{context}", input_variables=["request", "context"]
     )
     chat_qa_chain = RunnablePassthrough.assign(request=(lambda x: x["messages"][-1])) | create_stuff_documents_chain(
         llm, prompt
@@ -107,7 +107,7 @@ def write(state: AgentState) -> AgentState:
         state["draft"] = result["answer"]
         state["context"] = result["context"]
     else:
-        result = call_model(state, pt.write_prompt)
+        result = call_model(state, pt.get_write_prompt())
         state["draft"] = result.content
         state["context"] = []
 
@@ -183,7 +183,7 @@ def should_continue(state: AgentState) -> Literal["terminate", "revise"]:
         return "revise"
 
 
-def create_agent(editable: bool = False) -> CompiledStateGraph:
+def create_research_agent(editable: bool = False) -> CompiledStateGraph:
     """Create the research agent."""
 
     agent = StateGraph(AgentState)
@@ -216,7 +216,7 @@ if __name__ == "__main__":
     toggle = False
 
     config = {}
-    agent = create_agent(editable=True)
+    agent = create_research_agent(editable=True)
 
     if toggle:
 

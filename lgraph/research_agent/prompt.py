@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 from langchain_core.prompts import PromptTemplate
@@ -9,9 +8,7 @@ if TYPE_CHECKING:
     pass
 
 
-today = datetime.now().strftime("%d %B %Y")
-
-my_office_template = """
+test_template = """
 Project Proposal Template
 
 A project proposal should have three components:
@@ -22,41 +19,45 @@ Partners: which external organisations you will work with
 """
 
 
-write_template = f"""
-    You are a helpful assistant and an expert on the internal administration, personnel and projects of the innovation agency Nesta.
+def get_write_prompt(state: State) -> PromptTemplate:
+    """Return a prompt for writing the first draft based on an office template"""
 
-    Your job is to apply the given template to structure the output of the request.
+    google_doc_template = state["intermediate_outputs"]["template"]
 
-    REQUEST:
-    {{request}}
+    write_template = f"""
+        You are a helpful assistant and an expert on the internal administration, personnel and projects of the innovation agency Nesta.
+
+        Your job is to apply the given template to structure the output of the request.
+
+        REQUEST:
+        {{request}}
 
 
-    TEMPLATE:
-    {my_office_template}
+        TEMPLATE:
+        {google_doc_template.text}
 
-"""  # noqa
+    """  # noqa
 
-write_prompt = PromptTemplate(template=write_template, input_variables=["request"])
+    return PromptTemplate(template=write_template, input_variables=["request"])
 
 
 # copied/adapted from GPT Researcher
 
+# edit_prompt_template = f"""
+#            Your task is to generate an outline of sections headers for the document based on the
+#           template and user request below.
+#           You must return nothing but a JSON with the fields 'title' (str) and
+#          'sections' with the following structure:
+#         '{{title: string research title, date: {datetime.now().strftime("%d %B %Y")},
+#        sections: ['section header 1', 'section header 2', 'section header 3' ...]}}'.
 
-edit_prompt_template = f"""
-            Your task is to generate an outline of sections headers for the document based on the template and user request below.
-            You must return nothing but a JSON with the fields 'title' (str) and
-            'sections' with the following structure:
-            '{{title: string research title, date: {today},
-            sections: ['section header 1', 'section header 2', 'section header 3' ...]}}'.
+#       TEMPLATE:
+#      {{template}}
 
-            TEMPLATE:
-            {{template}}
+#     USER REQUEST:
+#    {{request}}
+#   """
 
-            USER REQUEST:
-            {{request}}
-            """
-
-edit_prompt = PromptTemplate(template=edit_prompt_template, input_variables=["request", "template"])
 
 revision_format = """
 {{
@@ -88,13 +89,15 @@ If you think the article is sufficient or that non critical revisions are requir
 def get_review_prompt(state: State) -> PromptTemplate:
     """Return a prompt for reviewing a draft based on an office template"""
 
+    google_doc_template = state["intermediate_outputs"]["template"]
+
     prompt_template_1 = f"""
     You have been tasked with reviewing the draft which was written based on a specific template.
     Send it for revision, along with your notes to guide the revision.
     DO NOT modify the template structure, for example, by suggesting new sections like an Executive Summary or Conclusions if they are not in the template.
     {reviser_addendum if state.get('revision_notes') else ""}
 
-    Template: {my_office_template}\nDraft: {{draft}}\n
+    Template: {google_doc_template.text}\nDraft: {{draft}}\n
     """  # noqa
 
     prompt_template_2 = f"""
@@ -104,7 +107,7 @@ def get_review_prompt(state: State) -> PromptTemplate:
     If the draft meets all the guidelines, please return 'NULL'.
     {reviser_addendum if state.get('revision_notes') else ""}
 
-    Template: {my_office_template}\nDraft: {{draft}}\n
+    Template: {google_doc_template.text}\nDraft: {{draft}}\n
     """  # noqa
 
     prompt_template_3 = f"""
@@ -115,7 +118,7 @@ def get_review_prompt(state: State) -> PromptTemplate:
     If the draft meets all the guidelines, please return 'NULL'.
     {reviser_addendum if state.get('revision_notes') else ""}
 
-    Template: {my_office_template}\nDraft: {{draft}}\n
+    Template: {google_doc_template.text}\nDraft: {{draft}}\n
     """  # noqa
 
     if state.get("revision_number", 0) == 0:

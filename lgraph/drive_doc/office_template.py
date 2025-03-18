@@ -1,0 +1,209 @@
+from __future__ import annotations
+
+import importlib
+
+from typing import TYPE_CHECKING
+from typing import Literal
+
+from dsp_nesta_brain import logger
+from google_api.drive import create_document_in_folder_from_markdown
+from google_api.drive import create_document_in_folder_from_string
+from google_api.drive import get_document
+from google_api.drive_doc.office_template import OfficeTemplate
+from googleapiclient.errors import HttpError
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import MessagesPlaceholder
+from langchain_core.runnables import RunnableParallel
+from langgraph.graph import END
+from langgraph.graph import START
+from langgraph.graph import StateGraph
+from lgraph.drive_doc.base import BaseDriveDoc
+from llm.llm import default_llm as llm
+from llm.message import InterimAIMessage
+from llm.prompt import qa_system_prompt
+from utils import yesno
+
+
+# THIS IS AN ADAPTED VERSION OF PREVIOUS docgen branch CODE AND HASN'T BEEN TESTED YET
+
+
+if TYPE_CHECKING:
+    from langgraph.graph import State
+    from langgraph.graph.state import CompiledStateGraph
+
+
+MAX_ROUTER_RETRIES = 3
+
+
+apply_template_appendix = """
+
+    Finally, apply the given template to structure your answer. Give only the final document in Markdown as your answer.
+
+    TEMPLATE:
+    {template}
+"""
+
+
+class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
+    """A class for describing templates for proposals, project updates, etc."""
+
+    @classmethod
+    def prompt_template(cls) -> str:
+        """Return a string for a prompt template to use in a LangGraph node relating to the document"""
+
+        return """
+            You are a helpful assistant and an expert in the internal administration, personnel and projects of the innovation agency Nesta.
+
+            Look at the following list of office document templates available to you to help staff write documents: {list}
+
+            Look at the request below and decide whether the one of the document templates in the list is needed to fulfil it.
+
+            If so, select the appropriate template. As your response, give only the file_id of the template you have selected.
+
+            Otherwise, respond "NULL".
+
+            Request:
+            {{input}}
+            """  # noqa
+
+    @classmethod
+    def sub_graph(cls) -> CompiledStateGraph:
+        """Return the subgraph for the OfficeTemplate class"""
+
+        builder = StateGraph(State)
+
+        builder.add_node("decide_whether_needs_document", cls.decide_whether_needs_document)
+        builder.add_node("fetch_template", fetch_template)
+        builder.add_node("apply_template", apply_template)
+        builder.add_node("upload_output", upload_output)
+
+        builder.add_edge(START, "decide_whether_needs_document")
+        builder.add_conditional_edges("decide_whether_needs_document", template_router)
+        builder.add_edge("fetch_template", "filter_messages")
+        builder.add_edge("filter_messages", "apply_template")
+        builder.add_conditional_edges("apply_template", upload_router)
+        builder.add_edge("upload_output", END)
+        builder.add_edge("call_default_chain", END)
+
+        graph = builder.compile()
+        return graph
+
+
+# -----nodes
+
+
+def fetch_template(state: State) -> State:
+    """Retrieve an office document template from Google Drive to help write a document"""
+
+    file_ids = state["intermediate_outputs"].get("file_ids")
+    if file_ids:
+
+        file_id = file_ids[0]  # there should only be one, but test this
+
+        try:
+            google_doc = get_document(file_id, as_google_doc=True)
+            state["intermediate_outputs"]["template"] = google_doc
+            return state
+
+        except HttpError as http_error:
+            logger.error(f'Error finding Google Doc with ID "{file_id}": {http_error}')
+
+
+def apply_template(state: State) -> State:
+    """Apply a template retrieved from Drive to format the input request"""
+
+    google_doc_template = state["intermediate_outputs"]["template"]
+
+    prompt_template = qa_system_prompt + apply_template_appendix
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", prompt_template),
+            MessagesPlaceholder("messages"),
+        ]
+    )
+    state["messages"] = [msg for msg in state["messages"] if not isinstance(msg, InterimAIMessage)]
+
+    chain = (
+        RunnableParallel(
+            template=(lambda: google_doc_template.text),
+            context=(lambda x: x["context"]),
+            messages=(lambda x: x["messages"]),
+        )
+        | prompt
+        | llm
+    )
+
+    rag_chain = importlib.import_module("llm.chain").history_aware_rag_chain(chain)
+
+    logger.info(f'Applying template "{google_doc_template.title}" to fulfil the request')
+    response = rag_chain.invoke(state)
+
+    state["messages"].append(response["answer"])
+
+    return state
+
+
+def upload_output(state: State) -> State:
+    """
+    Upload the content of the last message to Google Drive.
+
+    Ideally the output should be in Markdown format
+    """
+
+    output = state["messages"][-1].content
+    try:
+        start_of_markdown = output.index(
+            "#"
+        )  # this is a bit weak – need a better way of detecting whether the string is Markdown
+        markdown = output[start_of_markdown:]
+        create_document_in_folder_from_markdown(markdown)
+    except ValueError:
+        logger.warning("Markdown not detected in LLM output – output will be uploaded to a text file")
+        create_document_in_folder_from_string(output)
+
+    return state
+
+
+# -----conditional edges
+
+
+def template_router(
+    state: State,
+) -> Literal["fetch_template", "call_default_chain", "decide_whether_needs_template"]:
+    """Go the appropriate node, depending on whether an office template is needed"""
+
+    file_ids = state["intermediate_outputs"].get("file_ids")
+
+    if file_ids:
+        file_id = file_ids[0]
+
+        if file_id in OfficeTemplate.list():  # this will be time-consuming – find a better way
+            return "fetch_template"
+
+        else:
+            invalid_template_message = "decide_whether_needs_template node returned an invalid template UID"
+            previous_calls = [
+                message
+                for message in state["messages"]
+                if getattr(message, "caller", None) == "decide_whether_needs_template"
+            ]
+            if len(previous_calls) <= MAX_ROUTER_RETRIES:
+                logger.info(invalid_template_message + " – retrying")
+                return "decide_whether_needs_template"
+            else:
+                logger.info(
+                    invalid_template_message
+                    + " - however, the maximum number of retries for decide_whether_needs_template node have already been met. Proceeding without using template"  # noqa
+                )
+
+    return "call_default_chain"
+
+
+def upload_router(state: State) -> Literal["upload_output", "wash_up"]:
+    """Go the appropriate node, depending on whether the output should be uploaded to Google Drive"""
+
+    if yesno("Upload the output?"):  # temporary decision process to check it works
+        # – obviously users ultimately won't be interacting with this via the command line
+        return "upload_output"
+
+    return "wash_up"
