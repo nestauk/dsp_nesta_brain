@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import importlib
 import logging
 import re
 
 from typing import Dict
 from typing import List
 from typing import Optional
+from typing import Type
 
 import markdown
 
@@ -15,14 +17,17 @@ from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
+from retrieval.db.schema.nesta_brain import MissionProject
 from retrieval.db.schema.policy_atlas import Activity
 
 
 if PROJECT == "NESTA_BRAIN":
     Chunk = NestaBrainChunk
+    SCHEMA_MODULE = importlib.import_module("retrieval.db.schema.nesta_brain")
 
 elif PROJECT == "POLICY_ATLAS":
     Chunk = Activity
+    SCHEMA_MODULE = importlib.import_module("retrieval.db.schema.policy_atlas")
 
 
 class Reference(LangchainDocument):
@@ -44,16 +49,26 @@ class Reference(LangchainDocument):
     index: int
     reset_index: Optional[int] = None
     cited: bool = False
+    chunk_class: Type = Chunk
 
     def __init__(self, chunk: LangchainDocument, index: int) -> None:
+
+        if chunk.metadata.get("schema"):
+            chunk_class = getattr(SCHEMA_MODULE, chunk.metadata.get("schema"))
+        else:
+            chunk_class = Chunk
+
         super().__init__(
-            page_content=chunk.page_content, metadata=Chunk.reference_metadata(**chunk.metadata), index=index
+            page_content=chunk.page_content, metadata=chunk_class.reference_metadata(**chunk.metadata), index=index
         )
+
+        self.chunk_class = chunk_class
+        # oddly, this syntax raised a pydantic error: self.chunk_class = getattr(SCHEMA_MODULE,chunk.metadata.get('schema'))
 
     def as_html(self, reset_index: bool = False) -> str:
         """Return reference metadata as an anchor element (indexed)"""
 
-        reference_html_format = Chunk.reference_html_format()
+        reference_html_format = self.chunk_class.reference_html_format()
 
         index = self.reset_index if reset_index is not None else self.index
         if DEBUG_MODE:
@@ -134,15 +149,27 @@ class CustomAIMessage(AIMessage):
     @property
     def references_(self) -> str:
         """Return formatted reference list"""
-        cited = [reference.as_html(reset_index=True) for reference in self.cited_references]
-        not_cited = [reference.as_html(reset_index=True) for reference in self.uncited_references]
+        cited = [
+            reference.as_html(reset_index=True) for reference in self.cited_references
+        ]  # self.cited_references could also include projects – let them be listed here if cited
+        not_cited = [
+            reference.as_html(reset_index=True)
+            for reference in self.uncited_references
+            if reference.chunk_class is Chunk
+        ]  # self.uncited_references could also include projects
         actual_references = "<br><em>Cited references:</em><br>" + "<br>".join(cited) if cited else ""
         the_rest = (
             f"<br><br><em>{'May be useful' if cited else 'May be useful'}:</em><br>" + "<br>".join(not_cited)
             if not_cited
             else ""
         )
-        return actual_references + the_rest
+        projects = [
+            reference.as_html(reset_index=True)
+            for reference in self.uncited_references
+            if reference.chunk_class is MissionProject
+        ]
+        projects = "<br><em>Potentially relevant projects:</em><br>" + "<br>".join(projects) if projects else ""
+        return actual_references + the_rest + projects
 
     @property
     def content_with_superscript_citations(self) -> str:

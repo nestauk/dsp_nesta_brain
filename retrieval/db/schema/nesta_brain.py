@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 
 from datetime import date
@@ -139,19 +140,102 @@ class Chunk(BaseChunk):
         return self.source.as_metadata()
 
 
+class MissionProject(BaseChunk):
+    """Represents a record in data/Mission Project List.csv"""
+
+    mission: Optional[str] = None
+    name: str
+    code: Optional[str] = None
+    lifecycle_stage: Optional[str] = None
+    area_of_focus: Optional[str] = None
+    intermediate_goal: Optional[str] = None
+    geography: Optional[str] = None
+
+    time_added: datetime  # not Optional for MissionProject
+
+    def __init__(self, ingestion: bool = False, **kwargs) -> None:
+
+        #  print({k:v for k,v in kwargs.items() if k != 'vector'})
+
+        if ingestion:
+
+            for k, v in kwargs.items():
+
+                if (type(v) is float and math.isnan(v)) or str(v).lower() in ["nan", "", " "]:
+                    kwargs[k] = None
+
+                elif k == "Area of Focus":
+                    v = re.sub(r"[0-9]+\.", "", v)
+
+                if type(v) is str:
+                    v = v.strip()
+
+            super().__init__(
+                mission=kwargs.get("Team"),
+                name=kwargs.get("Project Name (Asana)"),
+                code=kwargs.get("Project Code (Nesta)"),
+                lifecycle_stage=kwargs.get("Lifecycle Stage"),
+                area_of_focus=kwargs.get("Area of Focus"),
+                time_added=datetime.now(),
+                **kwargs,
+            )  # I tried doing this a clever way but kept getting error messages relating to changing the size/keys of kwargs
+
+        else:
+            super().__init__(**kwargs)
+
+    def __eq__(self, other: object) -> bool:
+        """Self-explanatory"""
+        if not isinstance(other, MissionProject):
+            return False
+        return self.code == other.code and self.text == other.text
+
+    def __hash__(self) -> int:
+        """Define the hash value"""
+        return hash((self.code or "") + self.name)
+
+    @staticmethod
+    def reference_html_format() -> str:
+        """Return format for references in HTML"""
+        return "[{index}] Project {code}: {name} ({lifecycle_stage})</a>"
+
+    @staticmethod
+    def reference_metadata(**metadata) -> Dict:
+        """Metadata useful to presentation of references"""
+        if not metadata.get("code"):
+            metadata["code"] = "(unknown code)"
+        return metadata
+
+    @property
+    def metadata(self) -> Dict:
+        """MissionProject metadata"""  # noqa
+        metadata = {k: v for k, v in self.__dict__.items() if k not in ["time_added", "text", "vector"]}
+        return metadata
+
+    @property
+    def research_question(self) -> str:
+        """Return research_question field dynamically rather than duplicating data"""
+        return self.text.replace(self.name, "", 1).strip()
+
+
+table_name_to_schema_class_map = {"chunk": Chunk, "mission_project": MissionProject}
+
 if __name__ == "__main__":
 
     # creata a database with a Document table and a Chunk table
     db = lancedb.connect(DB_PATH)
 
     # creating tables
-    if False:
-        db.create_table("document", schema=Document)
-        table = db.create_table("chunk", schema=Chunk)
+    if True:
+        #  db.create_table("document", schema=Document)
+        table = db.create_table("mission_project", schema=MissionProject)
         table.create_fts_index("text")
 
+    # dropping tables
+    if False:
+        db.drop_table("mission_project")
+
     # adding full text search index retrospectively
-    if True:
+    if False:
         table = db.open_table("chunk")
         table.create_fts_index("text")
 

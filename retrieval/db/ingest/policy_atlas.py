@@ -1,39 +1,31 @@
-import asyncio
 import logging
 import sys
 
-from typing import List
-from typing import Union
-
-import lancedb
 import pandas as pd
+import retrieval.db.ingest.const as const
 import retrieval.db.ingest.ingest as ing
 
-from config import DB_PATH
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
-from retrieval.db.schema.policy_atlas import Activity as Chunk
+from retrieval.db.schema.policy_atlas import Activity
 
 
 DATA_PATH = PROJECT_DIR / "data/policy_atlas/fcdo_iati_data_2025_01_17.csv"
 
-DB = lancedb.connect(DB_PATH)
-CHUNK_TABLE = DB.open_table("activity")
 
-
-def chunk_already_in_db(chunk: LangchainDocument) -> bool:
+def chunk_already_in_db(chunk: LangchainDocument, **kwargs) -> bool:
     """Determine whether identical chunks have already been added to the database.
 
     Chunking strategy should have been the same.
     """
 
     where_condition = f'iati_identifier == "{chunk.metadata["iati_identifier"]}"'
-    results = ing.chunk_already_in_db(chunk, where_condition=where_condition)
+    results = ing.chunk_already_in_db(chunk, where_condition=where_condition, **kwargs)
     return bool(results)
 
 
-async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Chunk:
+async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Activity:
     """
     Convert a Langchain document into an object
     of the Chunk class which can be ingested into the DB
@@ -44,77 +36,6 @@ async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Ch
         return await ing.chunk_to_Chunk(chunk, ingestion=ingestion, **chunk.metadata)
     except Exception as e:
         return e
-
-
-async def documents_to_Chunks(documents: List[LangchainDocument]) -> List[Chunk]:
-    """
-    Split Langchain documents into chunks and convert these into objects
-    of the Chunk class which can be ingested into the DB
-    """  # noqa
-
-    def log_exceptions(task_results: List[Union[Chunk, Exception]]) -> None:
-
-        message_format = 'Task {index} raised an exception "{exception}" within asyncio.gather'
-        exceptions = [(i, ele) for i, ele in enumerate(task_results) if isinstance(ele, Exception)]
-
-        for index, exception in exceptions:
-            message = message_format.format(index=index, exception=str(exception))
-            logging.error(message)
-
-        if exceptions:
-            raise Exception("Exceptions in documents_to_Chunks")
-
-    chunks = []
-    for chunk in documents:  # the variable name 'chunk' is possibly a bit misleading here.
-        # There should be no need to split documents into chunks as activity texts aren't long enough
-
-        if chunk_already_in_db(chunk):
-
-            logger.info(f"Skipping chunk {chunk.metadata.get('iati_identifier')} as it already seems to be in the DB")
-
-        else:
-            chunks.append(chunk)
-
-    if chunks:
-        tasks = [asyncio.create_task(chunk_to_Chunk(chunk)) for chunk in chunks]
-        await ing.throttle(request_counter, [chunk.page_content for chunk in chunks])
-        logger.info(f"Fetching embeddings for {len(documents)} chunks ...")
-        gather_results = await asyncio.gather(*tasks, return_exceptions=True)
-        log_exceptions(gather_results)
-        return gather_results
-
-    return []
-
-
-def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
-    """
-    Find out which documents are not already in the database, convert them into
-    Document and Chunk data in accordance with the db schema
-    and insert this into the database
-    """  # noqa
-
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-
-    chunks = asyncio.run(documents_to_Chunks(documents))
-
-    if chunks:
-        logger.info(f"Ingested {len(chunks)} Chunks into the database")
-        CHUNK_TABLE.add(chunks)
-    else:
-        logger.info("No chunks to ingest into the database")
-
-    logging.getLogger("httpx").setLevel(logging.INFO)
-
-
-def csv_rows_to_ingested_data(start_index: int, batch_size: int) -> None:
-    """Perform a search, scrape the webpages from the search results, and ingest the data"""
-
-    data = pd.read_csv(DATA_PATH)
-    rows = data[start_index : (start_index + batch_size)].to_dict(orient="records")
-
-    docs = [LangchainDocument(page_content=row.pop("text"), metadata=row) for row in rows]
-
-    ingest(docs)
 
 
 if __name__ == "__main__":
@@ -129,6 +50,10 @@ if __name__ == "__main__":
         225  # the number of CSV rows to ingest at a time. Batch sizes of 230+ seem to get errors back from OpenAI.
     )
 
+    # settings constants which may be needed in other files
+    const.Chunk = Activity
+    const.CHUNK_TABLE_NAME = "activity"
+
     # global variable
     request_counter = ing.RequestCounter()
 
@@ -138,4 +63,11 @@ if __name__ == "__main__":
     for start_index_ in range(start_index, N_rows, batch_size):
 
         logger.info(f"Ingesting records {start_index_} to {start_index_ + batch_size - 1} ...")
-        csv_rows_to_ingested_data(start_index_, batch_size)
+        ing.csv_rows_to_ingested_data(
+            DATA_PATH,
+            start_index_,
+            batch_size,
+            identifier="iati_identifier",
+            Chunk_func=chunk_to_Chunk,
+            chunk_presence_test=chunk_already_in_db,
+        )

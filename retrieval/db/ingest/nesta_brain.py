@@ -15,6 +15,7 @@ from typing import Union
 
 import lancedb
 import pandas as pd
+import retrieval.db.ingest.const as const
 import retrieval.db.ingest.ingest as ing
 
 from bs4 import BeautifulSoup
@@ -25,24 +26,26 @@ from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langdetect import detect
 from pdf2image.exceptions import PDFInfoNotInstalledError
-from retrieval.db.schema.nesta_brain import Chunk
+from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
 from retrieval.db.schema.nesta_brain import Document as LanceDocument
+from retrieval.db.schema.nesta_brain import MissionProject
 from scraping.scrape import html_to_text
 from scraping.scrape import search_query_to_scraped_data
 from scraping.scrape_pdf import PDF
 from utils import unique
 
 
+mode_type: Type = Literal["web_dump", "web_search", "given_urls", "from_csv"]  # possible modes
+
 _prefix = "2024-10-29"
 WEBSITE_DATA_PATH = PROJECT_DIR / f"scraping/data/website_{_prefix}"
 METADATA_PATH = WEBSITE_DATA_PATH / "metadata.jsonl"
 PDF_PATH = WEBSITE_DATA_PATH / "pdf_files"
+CSV_PATH = PROJECT_DIR / "data/Mission Project List.csv"
 NESTA_SITE_URL = "https://nesta.org.uk"
 
-
-db = lancedb.connect(DB_PATH)
-document_table = db.open_table("document")
-chunk_table = db.open_table("chunk")
+DB = lancedb.connect(DB_PATH)
+DOCUMENT_TABLE = DB.open_table("document")
 
 
 def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
@@ -57,25 +60,47 @@ def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
     return bool(results)
 
 
-def chunk_already_in_db(*args) -> bool:
+def chunk_already_in_db(chunk: LangchainDocument, mode: Optional[mode_type] = None, **kwargs) -> bool:
     """Determine whether identical chunks have already been added to the database.
     Chunking strategy should have been the same.
     """  # noqa
 
-    results = ing.chunk_already_in_db(*args)
-    return bool(results), results[0].source.location if results else None
+    if mode == "from_csv":
+
+        where_condition = f'''name == "{chunk.metadata.get("Project Name (Asana)") or chunk.metadata.get("name")}"'''
+        results = ing.chunk_already_in_db(chunk, where_condition=where_condition, **kwargs)
+        return bool(results)
+
+    else:
+
+        results = ing.chunk_already_in_db(chunk)
+        return bool(results), results[0].source.location if results else None
 
 
-async def chunk_to_Chunk(chunk: LangchainDocument, order_index: int, source: LanceDocument) -> Chunk:
+async def chunk_to_Chunk(
+    chunk: LangchainDocument, order_index: int, source: LanceDocument, mode: Optional[mode_type] = None
+) -> const.Chunk:
     """
     Convert a Langchain chunk (as returned from a text splitter) into an object
     of the Chunk class which can be ingested into the DB
     (including deriving an embedding for the Chunk)
     """  # noqa
-    return await ing.chunk_to_Chunk(chunk, order_index=order_index, source=source)
+
+    if mode == "from_csv":
+
+        try:
+            return await ing.chunk_to_Chunk(chunk, ingestion=True, **chunk.metadata)
+        except Exception as e:
+            raise e
+
+    else:
+
+        return await ing.chunk_to_Chunk(chunk, order_index=order_index, source=source)
 
 
-async def documents_to_Chunks(documents: List[LangchainDocument], sources: List[LanceDocument]) -> List[Chunk]:
+async def documents_to_Chunks(
+    documents: List[LangchainDocument], sources: List[LanceDocument]
+) -> List[NestaBrainChunk]:
     """
     Split Langchain documents into chunks and convert these into objects
     of the Chunk class which can be ingested into the DB
@@ -135,7 +160,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
             logger.info(f"{N_in_db} documents were already in the database and will be replaced")
             for doc in already_in_db:
                 chunk_table.delete(f'source.location = "{doc.metadata["location"]}"')
-                document_table.delete(f'location = "{doc.metadata["location"]}"')
+                DOCUMENT_TABLE.delete(f'location = "{doc.metadata["location"]}"')
 
         else:
             logger.info(
@@ -149,7 +174,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         chunks = asyncio.run(documents_to_Chunks(documents, lance_documents))
 
         # ====CAUTION====
-        # document_table.add(lance_documents) introduces data redundancy in the database
+        # DOCUMENT_TABLE.add(lance_documents) introduces data redundancy in the database
         # and should be removed for later versions.
         # The source field in the chunk table does not link to a Document record.
         # If the title of a record in the document table is updated,
@@ -158,7 +183,7 @@ def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
         # I am keeping this in temporarily for purposes of experimentation
         if chunks:
             logger.info(f"Ingested {len(lance_documents)} Document(s) and {len(chunks)} Chunks into the database")
-            document_table.add(lance_documents)
+            DOCUMENT_TABLE.add(lance_documents)
             chunk_table.add(chunks)
         else:
             logger.info(f"No chunks from document(s) {lance_documents} into ingest to the database")
@@ -183,8 +208,7 @@ def webpages_to_ingested_data(
         )
 
     if uids:
-        metadata_path = WEBSITE_DATA_PATH / "metadata.jsonl"  # noqa
-        metadata_df = pd.read_json(metadata_path, lines=True)
+        metadata_df = pd.read_json(METADATA_PATH, lines=True)
         rows = [metadata_df[metadata_df["uid"] == uid].iloc[0] for uid in uids]
         df = pd.DataFrame(rows)
 
@@ -406,6 +430,7 @@ class mode_arg(Enum):
 
     wd = "wd"
     ws = "ws"
+    csv = "csv"
 
 
 if __name__ == "__main__":
@@ -416,14 +441,15 @@ if __name__ == "__main__":
     # command line argument interpretation
 
     # possible modes and their command line instructions
-    mode_type: Type = Literal["web_dump", "web_search", "given_urls"]
     # if 'web_dump': ingest data which has already been downloaded from the Nesta website.
     #                Use '-m wd' in the command line.
     # if 'web_search': do a web search, scrape and ingest the results.
     #                  Use '-m ws' in the command line.
+    # if 'from_csv': ingest from the CSV file specified by CSV_PATH.
+    #                  Use '-m csv' in the command line.
     # if 'given_urls': scrape webpages from a list of known urls otherwise.
     #                  Omit -m and specify the urls via --urls in the command line.
-    mode_args_map = {"wd": "web_dump", "ws": "web_search"}
+    mode_args_map = {"wd": "web_dump", "ws": "web_search", "csv": "from_csv"}
 
     parser = argparse.ArgumentParser()
 
@@ -445,10 +471,6 @@ if __name__ == "__main__":
         "-c", "--cautious", action="store_true"
     )  # cautious flag. If present, asks whether you want to scrape the PDF
     # and whether the metadata guesses are correct
-    parser.add_argument(
-        "--start_index", type=int, default=0
-    )  # the row of metadata.jsonl to start ingesting; everything prior to this will be ignored
-    parser.add_argument("--batch_size", type=int, default=10)  # the number of webpages to ingest at a time
 
     # arguments only relevant in web_search mode
     parser.add_argument("--query")
@@ -459,6 +481,12 @@ if __name__ == "__main__":
 
     # arguments only relevant in given_urls mode
     parser.add_argument("--urls", nargs="*")
+
+    # argumrents relevant to web_dump mode and from_csv mode
+    parser.add_argument(
+        "--start_index", type=int, default=0
+    )  # the row of the relevant data file to start ingesting; everything prior to this will be ignored
+    parser.add_argument("--batch_size", type=int, default=10)  # the number of webpages/rows to ingest at a time
 
     args = parser.parse_args()
 
@@ -492,6 +520,19 @@ if __name__ == "__main__":
     info += [f"{k}: {v}" for k, v in args.__dict__.items() if k in present_args]
     info.append("Refer to instructions if these are not correct")
     logger.info("\n".join(info))
+
+    if mode == "from_csv":
+        # settings constants which may be needed in other files
+
+        const.Chunk = MissionProject
+        const.CHUNK_TABLE_NAME = "mission_project"
+
+    else:
+
+        const.Chunk = NestaBrainChunk
+        const.CHUNK_TABLE_NAME = "chunk"
+
+    chunk_table = DB.open_table(const.CHUNK_TABLE_NAME)
 
     if mode == "web_dump":
         # if scraping/ingesting from entire Nesta website data dump
@@ -529,3 +570,21 @@ if __name__ == "__main__":
                 results_returned = search_query_to_ingested_data(args.query, url, start=start, replace=args.replace)
                 if not results_returned:
                     break
+
+    elif mode == "from_csv":
+        # if ingesting data from a csv
+
+        data = pd.read_csv(CSV_PATH)
+        N_rows = data.shape[0]
+
+        for start_index_ in range(args.start_index, N_rows, args.batch_size):
+
+            ing.csv_rows_to_ingested_data(
+                CSV_PATH,
+                start_index_,
+                args.batch_size,
+                identifier="name",
+                text_col=["Project Name (Asana)", "Research Question"],
+                Chunk_func=lambda *args, **kwargs: chunk_to_Chunk(*args, mode="from_csv", **kwargs),
+                chunk_presence_test=lambda *args, **kwargs: chunk_already_in_db(*args, mode="from_csv", **kwargs),
+            )

@@ -217,6 +217,7 @@ if __name__ == "__main__":
         not DEBUG_MODE and PROJECT == "NESTA_BRAIN"
     )  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
+    use_graph: bool = False
     stream: bool = True
     use_tool_for_citations: bool = False
 

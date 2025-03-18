@@ -74,6 +74,7 @@ def create_history_aware_retriever(
 def retriever(use_langgraph: bool = False) -> Runnable:
     """Return a CustomRetriever with the option of chaining it with a graph in order to make retrieval more sophisticated"""
     retriever_ = CustomRetriever()
+
     if use_langgraph:
 
         # the output of the graph is a list of dicts in this format:
