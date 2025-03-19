@@ -67,15 +67,23 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
             """  # noqa
 
     @classmethod
-    def sub_graph(cls) -> CompiledStateGraph:
+    def sub_graph(cls, **nodes) -> CompiledStateGraph:
         """Return the subgraph for the OfficeTemplate class"""
 
         builder = StateGraph(State)
 
-        builder.add_node("decide_whether_needs_document", cls.decide_whether_needs_document)
-        builder.add_node("fetch_template", fetch_template)
-        builder.add_node("apply_template", apply_template)
-        builder.add_node("upload_output", upload_output)
+        default_nodes = {
+            "decide_whether_needs_document": cls.decide_whether_needs_document,
+            "fetch_template": fetch_template,
+            "apply_template": apply_template,
+            "upload_output": upload_output,
+        }
+
+        default_nodes.update(nodes)
+        nodes = default_nodes
+
+        for node_name, node in nodes.items():
+            builder.add_node(node_name, node)
 
         builder.add_edge(START, "decide_whether_needs_document")
         builder.add_conditional_edges("decide_whether_needs_document", template_router)

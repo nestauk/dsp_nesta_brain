@@ -21,6 +21,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
+from lgraph.drive_doc.office_template import OfficeTemplate
 from lgraph.graph import State
 from llm.chain import create_retrieval_chain
 from llm.llm import default_llm as llm
@@ -211,12 +212,24 @@ def create_research_agent(editable: bool = False) -> CompiledStateGraph:
         return agent.compile()
 
 
+def create_graph(**kwargs) -> CompiledStateGraph:
+    """Create the research agent graph."""
+
+    builder = StateGraph(AgentState)
+
+    nodes = {"apply_template": create_research_agent()}  # research agent subgraph will be used as a node
+
+    agent = OfficeTemplate.sub_graph(builder, **nodes)
+
+    return agent
+
+
 if __name__ == "__main__":
 
     toggle = False
 
     config = {}
-    agent = create_research_agent(editable=True)
+    agent = create_graph()
 
     if toggle:
 
