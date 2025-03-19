@@ -118,7 +118,7 @@ def check_template(state: State) -> State:
 
         st.toast("Look at command line", icon="👀")
         input(
-            f'This is temporary and will be replaced with a checkpoint in the graph where the user answers this question via the UI\n.I think I need "{OfficeTemplate.list_as_dict()[file_id].title}" from Google Drive. Proceed?'  # noqa
+            f'This is temporary and will be replaced with a checkpoint in the graph where the user answers this question via the UI\n.I think I need "{OfficeTemplate.list_as_dict()[file_id].title}" from Google Drive. Is this correct? Press any key to proceed.'  # noqa
         )
 
     return state
@@ -229,6 +229,9 @@ def template_router(
 
         else:
             invalid_template_message = "decide_whether_needs_template node returned an invalid template UID"
+            # this should no longer be necessary now that the LLM output is forced to be a template UID via
+            # force_enum_parser_multi
+            # maybe remove this?
 
             if call_no < MAX_ROUTER_RETRIES:
                 logger.info(invalid_template_message + " – retrying")

@@ -236,7 +236,7 @@ def create_graph(**kwargs) -> CompiledStateGraph:
 
 if __name__ == "__main__":
 
-    toggle = True
+    toggle = False
 
     config = {}
     agent = create_graph()
