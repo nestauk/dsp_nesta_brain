@@ -6,6 +6,8 @@ import re
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
+import streamlit as st
+
 from dsp_nesta_brain import logger
 from google_api.drive_doc.base import BaseDriveDoc
 from langchain.prompts import PromptTemplate
@@ -31,6 +33,8 @@ class BaseDriveDoc(BaseDriveDoc):
     @classmethod
     def decide_whether_needs_document(cls, state: State) -> State:
         """Decide whether a drive document is needed from an input message and return the file IDs if so"""
+
+        st.toast(f"Thinking about {cls.description().lower()}", icon="🤔")
 
         prompt = cls.prompt()
 

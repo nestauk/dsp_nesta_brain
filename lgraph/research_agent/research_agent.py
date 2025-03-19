@@ -39,8 +39,13 @@ MAX_REVISIONS = 3
 
 pause = input
 
-# inspiration:
+# Credits:
+# the code in this file and lgraph/research_agent/prompt.py is inspired by and in places adapted
+# from the following two examples of research agents:
+# GPT Researcher https://github.com/assafelovic/gpt-researcher/tree/master
+# by Assaf Elovic and collaborators
 # https://medium.com/towards-data-science/building-a-research-agent-that-can-write-to-google-docs-part-1-4b49ea05a292
+# by Robert Martin-Short
 
 
 class AgentState(State):

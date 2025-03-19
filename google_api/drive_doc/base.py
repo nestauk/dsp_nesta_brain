@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from collections import OrderedDict
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -66,7 +68,18 @@ class BaseDriveDoc(BaseModel):
         pass
 
     @classmethod
-    def file_ids(cls, as_enum: bool = False) -> Union[List[str], EnumType]:
+    def list_as_dict(cls) -> Dict[str, BaseDriveDoc]:
+        """Return a dictionary of all the relevant drive docs"""
+        return {doc.file_id: doc for doc in cls.list()}
+
+    @classmethod
+    def description(cls) -> str:
+        """Return a description of the document class"""
+        pascal_case_components = re.split("([A-Z][a-z]+)", cls.__name__)
+        return " ".join([c for c in pascal_case_components if c])
+
+    @classmethod
+    def file_ids(cls, as_enum: bool = False, as_dict: bool = False) -> Union[List[str], EnumType]:
         """Return a list of file IDs, or an EnumType representing file IDs"""
         file_ids = [doc.file_id for doc in cls.list()]
         if as_enum:

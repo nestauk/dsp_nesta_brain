@@ -170,7 +170,7 @@ if __name__ == "__main__":
     # settings
     limit: int = 10
     stream: bool = False
-    editable: bool = True
+    editable: bool = False
 
     # UI settings
     initial_message: str = "Hi, how can I help?"
@@ -264,41 +264,46 @@ if __name__ == "__main__":
                     "sidebar_options": {key: st.session_state[key] for key in WIDGET_SPEC.keys()},
                 }
 
-                agent.invoke(
+                graph_state = agent.invoke(
                     input, config=config, interrupt_before="terminate" if editable else None
                 )  # NB config has no langfuse instructions
-                snapshot = agent.get_state(config)  # this only works because a checkpoint has been set
-                partial_state = snapshot.values
 
-                with st.container():
+                if editable:
+                    snapshot = agent.get_state(config)  # this only works because a checkpoint has been set
+                    partial_state = snapshot.values
 
-                    col1, col2 = st.columns(2, gap="medium")
-                    height = 500
-                    draft = markdown.markdown(partial_state["draft"])
+                    with st.container():
 
-                    with col1:
-                        st.markdown("\n**Preview**")
-                        st.markdown(
-                            f"""
-                                <div style="border:1px solid #ccc; padding:1rem; height:{height}px; overflow:auto; background-color:#fafafa">
-                                    {draft}
-                                </div>
-                                """,  # noqa
-                            unsafe_allow_html=True,
-                        )
+                        col1, col2 = st.columns(2, gap="medium")
+                        height = 500
+                        draft = markdown.markdown(partial_state["draft"])
 
-                    with col2:
-                        st.markdown("\n**✍️ Edit Markdown**")
-                        st.text_area(
-                            "Report content",
-                            value=partial_state["draft"],
-                            height=height,
-                            label_visibility="collapsed",
-                            key="text_area",
-                            on_change=update_agent_complete_graph,
-                        )
+                        with col1:
+                            st.markdown("\n**Preview**")
+                            st.markdown(
+                                f"""
+                                    <div style="border:1px solid #ccc; padding:1rem; height:{height}px; overflow:auto; background-color:#fafafa">
+                                        {draft}
+                                    </div>
+                                    """,  # noqa
+                                unsafe_allow_html=True,
+                            )
 
-        if st.session_state.edited_draft:
+                        with col2:
+                            st.markdown("\n**✍️ Edit Markdown**")
+                            st.text_area(
+                                "Report content",
+                                value=partial_state["draft"],
+                                height=height,
+                                label_visibility="collapsed",
+                                key="text_area",
+                                on_change=update_agent_complete_graph,
+                            )
+
+                else:
+                    st.session_state.final_graph_state = graph_state
+
+        if st.session_state.final_graph_state:
 
             # final_snapshot = agent.get_state(config)  #graph should have been completed in update_agent_complete_graph
             # final_state = final_snapshot.values
@@ -308,7 +313,8 @@ if __name__ == "__main__":
             message = st.session_state.final_graph_state["messages"][-1]
             st.markdown(message.as_html(), unsafe_allow_html=True)
             st.session_state.messages.append(message)
-            st.session_state.edited_draft = None
+            #  st.session_state.edited_draft = None
+            st.session_state.final_graph_state = None
 
         #   if USE_LANGFUSE:
         #      feedback = streamlit_feedback(

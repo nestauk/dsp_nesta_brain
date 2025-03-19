@@ -61,8 +61,6 @@ def create_document_in_folder_from_string(
     file_metadata = {"name": file_name, "mimeType": mimetype}
 
     media = MediaInMemoryUpload(string.strip().encode("utf-8"), mimetype=mimetype)
-    if mimetype == "text/markdown":
-        input("Check this has worked - before mimetype was 'text/plain'")
 
     # Create the file on Google Drive
     file = drive_service(creds=creds).files().create(body=file_metadata, media_body=media, fields="id").execute()
