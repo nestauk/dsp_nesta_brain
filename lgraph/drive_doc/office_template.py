@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib
+import re
 
 from typing import TYPE_CHECKING
 from typing import Literal
+from typing import Optional
 
 from dsp_nesta_brain import logger
 from google_api.drive import create_document_in_folder_from_markdown
@@ -18,6 +20,8 @@ from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
 from lgraph.drive_doc.base import BaseDriveDoc
+from lgraph.graph import call_default_chain
+from lgraph.research_agent.research_agent import AgentState as State
 from llm.llm import default_llm as llm
 from llm.message import InterimAIMessage
 from llm.prompt import qa_system_prompt
@@ -28,7 +32,6 @@ from utils import yesno
 
 
 if TYPE_CHECKING:
-    from langgraph.graph import State
     from langgraph.graph.state import CompiledStateGraph
 
 
@@ -67,29 +70,32 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
             """  # noqa
 
     @classmethod
-    def sub_graph(cls, **nodes) -> CompiledStateGraph:
+    def sub_graph(cls, builder: Optional[StateGraph] = None, **nodes) -> CompiledStateGraph:
         """Return the subgraph for the OfficeTemplate class"""
 
-        builder = StateGraph(State)
+        builder = builder or StateGraph(State)
 
         default_nodes = {
             "decide_whether_needs_document": cls.decide_whether_needs_document,
             "fetch_template": fetch_template,
             "apply_template": apply_template,
             "upload_output": upload_output,
+            "call_default_chain": call_default_chain,
         }
 
         default_nodes.update(nodes)
         nodes = default_nodes
 
-        for node_name, node in nodes.items():
-            builder.add_node(node_name, node)
+        for node_name, node_func in nodes.items():
+            builder.add_node(node_name, node_func)
 
         builder.add_edge(START, "decide_whether_needs_document")
         builder.add_conditional_edges("decide_whether_needs_document", template_router)
-        builder.add_edge("fetch_template", "filter_messages")
-        builder.add_edge("filter_messages", "apply_template")
-        builder.add_conditional_edges("apply_template", upload_router)
+        #    builder.add_edge("fetch_template", "filter_messages")
+        #   builder.add_edge("filter_messages", "apply_template")
+        builder.add_edge("fetch_template", "apply_template")
+        #  builder.add_conditional_edges("apply_template", upload_router)
+        builder.add_edge("apply_template", "upload_output")
         builder.add_edge("upload_output", END)
         builder.add_edge("call_default_chain", END)
 
@@ -103,9 +109,10 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
 def fetch_template(state: State) -> State:
     """Retrieve an office document template from Google Drive to help write a document"""
 
-    file_ids = state["intermediate_outputs"].get("file_ids")
-    if file_ids:
+    file_ids_dict = state["intermediate_outputs"].get("file_ids")
+    if file_ids_dict:
 
+        _, file_ids = list(file_ids_dict.items())[-1]
         file_id = file_ids[0]  # there should only be one, but test this
 
         try:
@@ -118,7 +125,11 @@ def fetch_template(state: State) -> State:
 
 
 def apply_template(state: State) -> State:
-    """Apply a template retrieved from Drive to format the input request"""
+    """
+    Apply a template retrieved from Drive to format the input request
+
+    N.B. this is not used if the research agent subgraph is used instead
+    """
 
     google_doc_template = state["intermediate_outputs"]["template"]
 
@@ -158,16 +169,19 @@ def upload_output(state: State) -> State:
     Ideally the output should be in Markdown format
     """
 
+    file_name = "research_agent_output.md"
     output = state["messages"][-1].content
-    try:
-        start_of_markdown = output.index(
-            "#"
-        )  # this is a bit weak – need a better way of detecting whether the string is Markdown
-        markdown = output[start_of_markdown:]
-        create_document_in_folder_from_markdown(markdown)
-    except ValueError:
-        logger.warning("Markdown not detected in LLM output – output will be uploaded to a text file")
-        create_document_in_folder_from_string(output)
+    markdown_title_match = re.search("[*#]", output)
+    if markdown_title_match:
+        markdown = output[markdown_title_match.span()[0] :]
+        logger.info(f"Research agent output will be uploaded to file {file_name}")
+        create_document_in_folder_from_markdown(markdown, file_name=file_name)
+    else:
+        file_name = file_name.replace(".md", ".txt")
+        logger.warning(
+            f"Markdown not detected in LLM output – research agent output will be uploaded to a text file {file_name}"
+        )
+        create_document_in_folder_from_string(output, file_name=file_name)
 
     return state
 
@@ -177,31 +191,28 @@ def upload_output(state: State) -> State:
 
 def template_router(
     state: State,
-) -> Literal["fetch_template", "call_default_chain", "decide_whether_needs_template"]:
+) -> Literal["fetch_template", "call_default_chain", "decide_whether_needs_document"]:
     """Go the appropriate node, depending on whether an office template is needed"""
 
-    file_ids = state["intermediate_outputs"].get("file_ids")
+    file_ids_dict = state["intermediate_outputs"].get("file_ids")
 
-    if file_ids:
-        file_id = file_ids[0]
+    if file_ids_dict:
+        call_no, file_ids = list(file_ids_dict.items())[-1]
 
-        if file_id in OfficeTemplate.list():  # this will be time-consuming – find a better way
+        if file_ids and file_ids[0] in OfficeTemplate.file_ids():
             return "fetch_template"
 
         else:
-            invalid_template_message = "decide_whether_needs_template node returned an invalid template UID"
-            previous_calls = [
-                message
-                for message in state["messages"]
-                if getattr(message, "caller", None) == "decide_whether_needs_template"
-            ]
-            if len(previous_calls) <= MAX_ROUTER_RETRIES:
+            invalid_template_message = "decide_whether_needs_document node returned an invalid template UID"
+
+            if call_no < MAX_ROUTER_RETRIES:
                 logger.info(invalid_template_message + " – retrying")
-                return "decide_whether_needs_template"
+                return "decide_whether_needs_document"
+
             else:
                 logger.info(
                     invalid_template_message
-                    + " - however, the maximum number of retries for decide_whether_needs_template node have already been met. Proceeding without using template"  # noqa
+                    + " - however, the maximum number of retries for decide_whether_needs_document node have already been met. Proceeding without using template"  # noqa
                 )
 
     return "call_default_chain"

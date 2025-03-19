@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
 from typing import Literal
+from typing import Type
 
 import lgraph.research_agent.prompt as pt
 import streamlit as st
@@ -21,7 +22,6 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
-from lgraph.drive_doc.office_template import OfficeTemplate
 from lgraph.graph import State
 from llm.chain import create_retrieval_chain
 from llm.llm import default_llm as llm
@@ -77,7 +77,7 @@ def call_retrieval_chain(state: AgentState) -> AgentState:
     """Call a retrieval chain to generate a response to a prompt."""
 
     prompt = PromptTemplate(
-        template=pt.get_write_prompt().template + "\nContext:\n{context}", input_variables=["request", "context"]
+        template=pt.get_write_prompt(state).template + "\nContext:\n{context}", input_variables=["request", "context"]
     )
     chat_qa_chain = RunnablePassthrough.assign(request=(lambda x: x["messages"][-1])) | create_stuff_documents_chain(
         llm, prompt
@@ -108,7 +108,7 @@ def write(state: AgentState) -> AgentState:
         state["draft"] = result["answer"]
         state["context"] = result["context"]
     else:
-        result = call_model(state, pt.get_write_prompt())
+        result = call_model(state, pt.get_write_prompt(state))
         state["draft"] = result.content
         state["context"] = []
 
@@ -215,18 +215,21 @@ def create_research_agent(editable: bool = False) -> CompiledStateGraph:
 def create_graph(**kwargs) -> CompiledStateGraph:
     """Create the research agent graph."""
 
+    OfficeTemplate: Type = importlib.import_module("lgraph.drive_doc.office_template").OfficeTemplate
+
     builder = StateGraph(AgentState)
 
-    nodes = {"apply_template": create_research_agent()}  # research agent subgraph will be used as a node
+    subgraph = create_research_agent(**kwargs)
+    nodes = {"apply_template": subgraph}  # research agent subgraph will be used as a node
 
-    agent = OfficeTemplate.sub_graph(builder, **nodes)
+    agent = OfficeTemplate.sub_graph(builder=builder, **nodes)
 
     return agent
 
 
 if __name__ == "__main__":
 
-    toggle = False
+    toggle = True
 
     config = {}
     agent = create_graph()
@@ -245,6 +248,8 @@ if __name__ == "__main__":
         state = AgentState(input)
 
         config = {"configurable": {"thread_id": "1"}}
+
+        agent.invoke(state, config=config)
 
     else:
 

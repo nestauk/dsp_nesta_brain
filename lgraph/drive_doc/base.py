@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import re
 
+from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 from dsp_nesta_brain import logger
@@ -13,11 +14,15 @@ from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
 from llm.llm import default_llm as llm
+from llm.parser import force_enum_parser_multi
 
 
 if TYPE_CHECKING:
+    from langchain_core.runnables import Runnable
     from langgraph.graph.state import CompiledStateGraph
     from lgraph.graph import State
+
+pause = input
 
 
 class BaseDriveDoc(BaseDriveDoc):
@@ -27,26 +32,28 @@ class BaseDriveDoc(BaseDriveDoc):
     def decide_whether_needs_document(cls, state: State) -> State:
         """Decide whether a drive document is needed from an input message and return the file IDs if so"""
 
-        chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | cls.prompt() | llm
+        prompt = cls.prompt()
 
-        message = chain.invoke(state)
+        chain = (
+            RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | prompt | llm | cls.enum_output_parser()
+        )
 
-        if message.content != "NULL":
+        file_ids_as_enums = chain.invoke(state)
 
-            file_ids = message.content
-            file_ids = [file_id.strip() for file_id in file_ids.split(",")]
-            file_ids_are_right_format = all(re.search(r"^[A-Za-z0-9\-_]+$", file_id) for file_id in file_ids)
-
-            if file_ids_are_right_format:
-                logger.info(f"{cls.__name__} IDs identified: {file_ids}")
-                state["intermediate_outputs"]["file_ids"] = file_ids
-
-            else:
-                logger.warning(
-                    f"{cls.__name__} IDs did not seem to be in the correct format. Message content: {message.content}"
-                )
+        if file_ids_as_enums:
+            file_ids = [enum.value for enum in file_ids_as_enums]
+            logger.info(f"{cls.__name__} ID(s) identified: {file_ids}")
+            state.setdefault("intermediate_outputs", {})
+            call_no = len(state["intermediate_outputs"].get("file_ids", OrderedDict({}))) + 1
+            state["intermediate_outputs"].setdefault("file_ids", {})[call_no] = file_ids
 
         return state
+
+    @classmethod
+    def enum_output_parser(cls) -> Runnable:
+        """Return a parser which forces LLM output into a list of enums representing file IDs"""
+        enum = cls.file_ids(as_enum=True)
+        return force_enum_parser_multi(enum)
 
     # @classmethod
     # def prompt_template(cls) -> str:
@@ -100,7 +107,7 @@ class BaseDriveDoc(BaseDriveDoc):
             policy_list = importlib.import_module("lgraph.drive_doc.policy").Policy.list(as_string=True)
 
         if "{office_template_list}" in template:  # time-consuming, so only do if needed
-            office_template_list = importlib.import_module("lgraph.drive_doc.policy").OfficeTemplate.list(
+            office_template_list = importlib.import_module("lgraph.drive_doc.office_template").OfficeTemplate.list(
                 as_string=True
             )
 

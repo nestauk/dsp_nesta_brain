@@ -198,14 +198,12 @@ def currentness_comment(state: State, writer: StreamWriter) -> State:
     return state
 
 
-def create_chat_graph(
-    return_stream_nodes: bool = False, **kwargs
-) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
-    """Compile and return a graph to assist with chat"""
+def call_chain_func(**kwargs) -> State:
+    """Return a function that calls the chain determined by kwargs"""
 
     rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(**kwargs)  # avoiding circular import
 
-    def call_model(
+    def call_chain(
         state: State,
     ) -> State:  # function defined here to avoid circular import
 
@@ -214,14 +212,30 @@ def create_chat_graph(
 
         return state
 
+    return call_chain
+
+
+def call_default_chain(state: State) -> State:
+    """Call the default chain (i.e. the one returned by get_graph_or_rag_chain with no kwargs)"""
+
+    return call_chain_func()(state)
+
+
+def create_chat_graph(
+    return_stream_nodes: bool = False, **kwargs
+) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
+    """Compile and return a graph to assist with chat"""
+
+    call_default_chain = call_chain_func(**kwargs)
+
     builder = StateGraph(State)
 
     builder.add_node("initiate", initiate)
-    builder.add_node("call_model", call_model)
+    builder.add_node("call_default_chain", call_default_chain)
     builder.add_node("currentness_comment", currentness_comment)
     builder.add_edge(START, "initiate")
-    builder.add_edge("initiate", "call_model")
-    builder.add_edge("call_model", "currentness_comment")
+    builder.add_edge("initiate", "call_default_chain")
+    builder.add_edge("call_default_chain", "currentness_comment")
     builder.add_edge("currentness_comment", END)
 
     stream_nodes = ["currentness_comment"]  # list of nodes whose outputs are to be streamed IN ORDER
@@ -255,7 +269,7 @@ def create_combined_graph(
 ) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
     """Compile and return a graph to assist with both retrieval and chat"""
 
-    def call_model(
+    def call_chain(
         state: State,
     ) -> State:  # function defined here to avoid circular import
 
@@ -271,14 +285,14 @@ def create_combined_graph(
     builder.add_node("initiate", initiate)
     builder.add_node("decide_whether_needs_policy", decide_whether_needs_policy)
     builder.add_node("choose_main_prompt", choose_main_prompt)
-    builder.add_node("call_model", call_model)
+    builder.add_node("call_chain", call_chain)
     builder.add_edge(START, "initiate")
     builder.add_edge("initiate", "decide_whether_needs_policy")
     builder.add_edge("decide_whether_needs_policy", "choose_main_prompt")
-    builder.add_edge("choose_main_prompt", "call_model")
-    builder.add_edge("call_model", END)
+    builder.add_edge("choose_main_prompt", "call_chain")
+    builder.add_edge("call_chain", END)
 
-    stream_nodes = ["call_model"]  # list of nodes whose outputs are to be streamed IN ORDER
+    stream_nodes = ["call_chain"]  # list of nodes whose outputs are to be streamed IN ORDER
 
     graph = builder.compile()
 

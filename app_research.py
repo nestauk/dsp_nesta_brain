@@ -20,7 +20,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-from lgraph.research_agent.research_agent import create_agent
+from lgraph.research_agent.research_agent import create_graph
 from llm.message import CustomAIMessage
 
 
@@ -180,7 +180,7 @@ if __name__ == "__main__":
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        agent = create_agent(editable=editable)
+        agent = create_graph(editable=editable)
 
         st.set_page_config(layout="wide")
 
