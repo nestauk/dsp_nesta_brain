@@ -10,7 +10,8 @@ if TYPE_CHECKING:
 
 # Credits:
 # the revision and review prompts in this file have been copied (with only slight changes) from:
-# GPT Researcher https://github.com/assafelovic/gpt-researcher/tree/master by Assaf Elovic and collaborators
+# GPT Researcher
+# Citation: Elovic, A. (2023). gpt-researcher (Version 0.5.4) [Computer software]. https://github.com/assafelovic/gpt-researcher
 # See:
 # https://github.com/assafelovic/gpt-researcher/blob/master/multi_agents/agents/reviser.py
 # https://github.com/assafelovic/gpt-researcher/blob/master/multi_agents/agents/reviewer.py
