@@ -8,15 +8,13 @@ if TYPE_CHECKING:
     pass
 
 
-test_template = """
-Project Proposal Template
-
-A project proposal should have three components:
-
-A problem statement: a description of the problem you are trying to solve
-Method: a description of how you will do it
-Partners: which external organisations you will work with
-"""
+# Credits:
+# the revision and review prompts in this file have been copied (with only slight changes) from:
+# GPT Researcher https://github.com/assafelovic/gpt-researcher/tree/master by Assaf Elovic and collaborators
+# See:
+# https://github.com/assafelovic/gpt-researcher/blob/master/multi_agents/agents/reviser.py
+# https://github.com/assafelovic/gpt-researcher/blob/master/multi_agents/agents/reviewer.py
+# for the original code
 
 
 def get_write_prompt(state: State) -> PromptTemplate:
@@ -39,24 +37,6 @@ def get_write_prompt(state: State) -> PromptTemplate:
     """  # noqa
 
     return PromptTemplate(template=write_template, input_variables=["request"])
-
-
-# copied/adapted from GPT Researcher
-
-# edit_prompt_template = f"""
-#            Your task is to generate an outline of sections headers for the document based on the
-#           template and user request below.
-#           You must return nothing but a JSON with the fields 'title' (str) and
-#          'sections' with the following structure:
-#         '{{title: string research title, date: {datetime.now().strftime("%d %B %Y")},
-#        sections: ['section header 1', 'section header 2', 'section header 3' ...]}}'.
-
-#       TEMPLATE:
-#      {{template}}
-
-#     USER REQUEST:
-#    {{request}}
-#   """
 
 
 revision_format = """
