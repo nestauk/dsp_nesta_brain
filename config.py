@@ -7,7 +7,7 @@ DEFAULT_MODEL: str = "gpt-4o-mini"
 DEFAULT_EMBEDDINGS_MODEL: str = "text-embedding-3-small"
 
 DEBUG_MODE = False
-
+DEPLOY_MODE = False
 
 USE_AZURE: bool = True
 USE_AZURE_LLM: bool = USE_AZURE

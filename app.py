@@ -16,6 +16,7 @@ import streamlit as st
 
 from config import ALLOW_POLICY_DOCS
 from config import DEBUG_MODE
+from config import DEPLOY_MODE
 from config import EARLIEST_YEAR
 from config import PROJECT
 from config import USE_LANGFUSE
@@ -292,12 +293,15 @@ if __name__ == "__main__":
     # -------authentication credit------
     # credit: https://medium.com/@coding-otter
     # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
-
+    if DEPLOY_MODE:
+        redirect_uri = "https://nesta-brain.dap-tools.uk/"
+    else:
+        redirect_uri = "http://localhost:8501/"
     authenticator = Authenticator(
         # allowed_users=allowed_users,   #adapted to allow any email address with a nesta.org.uk domain
         token_key=os.getenv("AUTH_TOKEN_KEY"),
         secret_path="client_secret.json",  # nosec
-        redirect_uri="http://localhost:8501",
+        redirect_uri=redirect_uri,
     )
 
     authenticator.check_auth()
