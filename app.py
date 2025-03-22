@@ -259,33 +259,33 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
 
 
-def check_password() -> bool:
-    """Return `True` if the user entered the correct password."""
-    st.set_page_config(layout="wide")
-    # Initialize session state keys if not already initialized
-    if "password_correct" not in st.session_state:
-        st.session_state["password_correct"] = False
+# def check_password() -> bool:
+#     """Return `True` if the user entered the correct password."""
+#     st.set_page_config(layout="wide")
+#     # Initialize session state keys if not already initialized
+#     if "password_correct" not in st.session_state:
+#         st.session_state["password_correct"] = False
 
-    def password_entered() -> None:
-        """Check whether a password entered by the user is correct."""
-        if st.session_state["password"] == st.secrets["password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Don't store password
-        else:
-            st.session_state["password_correct"] = False
-    
-    # Display password input field
-    st.text_input("Password", type="password", key="password", on_change=password_entered)
+#     def password_entered() -> None:
+#         """Check whether a password entered by the user is correct."""
+#         if st.session_state["password"] == st.secrets["password"]:
+#             st.session_state["password_correct"] = True
+#             del st.session_state["password"]  # Don't store password
+#         else:
+#             st.session_state["password_correct"] = False
 
-    # Handle cases based on whether the password is correct or not
-    if not st.session_state["password_correct"]:
-        # Password not correct, show error if something is entered
-        if "password" in st.session_state and st.session_state["password"]:
-            st.error("😕 Password incorrect")
-        return False
-    else:
-        # Password correct
-        return True
+#     # Display password input field
+#     st.text_input("Password", type="password", key="password", on_change=password_entered)
+
+#     # Handle cases based on whether the password is correct or not
+#     if not st.session_state["password_correct"]:
+#         # Password not correct, show error if something is entered
+#         if "password" in st.session_state and st.session_state["password"]:
+#             st.error("😕 Password incorrect")
+#         return False
+#     else:
+#         # Password correct
+#         return True
 
 
 if __name__ == "__main__":
@@ -313,107 +313,107 @@ if __name__ == "__main__":
     runnable, stream_nodes = get_graph_or_rag_chain(
         use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
     )
-    if check_password():
-        load_dotenv()
-        logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        # -------authentication credit------
-        # credit: https://medium.com/@coding-otter
-        # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
-        # if DEPLOY_MODE:
-        #     redirect_uri = "https://nesta-brain.dap-tools.uk/"
-        # else:
-        #     redirect_uri = "http://localhost:8501/"
-        # authenticator = Authenticator(
-        #     # allowed_users=allowed_users,   #adapted to allow any email address with a nesta.org.uk domain
-        #     token_key=os.getenv("AUTH_TOKEN_KEY"),
-        #     secret_path="client_secret.json",  # nosec
-        #     redirect_uri=redirect_uri,
-        # )
+    load_dotenv()
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        # authenticator.check_auth()
-        # authenticator.login()
+    # -------authentication credit------
+    # credit: https://medium.com/@coding-otter
+    # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
+    if DEPLOY_MODE:
+        redirect_uri = "https://nesta-brain.dap-tools.uk/"
+    else:
+        redirect_uri = "http://localhost:8501/"
+    authenticator = Authenticator(
+        # allowed_users=allowed_users,   #adapted to allow any email address with a nesta.org.uk domain
+        token_key=os.getenv("AUTH_TOKEN_KEY"),
+        secret_path="client_secret.json",  # nosec
+        redirect_uri=redirect_uri,
+    )
 
-        if st.session_state["connected"]:
+    authenticator.check_auth()
+    authenticator.login()
 
+    if st.session_state["connected"]:
+
+        st.markdown(
+            """
+        <style>
+            p {
+                margin-bottom: 0;
+            }
+
+            a{
+                margin-top: 0;
+            }
+
+            .response {
+                margin: 25px 0 0 0;
+                background-color: light-grey;
+            }
+
+        </style>
+        """,
+            unsafe_allow_html=True,
+        )
+
+        if DEBUG_MODE:
             st.markdown(
-                """
-            <style>
-                p {
-                    margin-bottom: 0;
-                }
-
-                a{
-                    margin-top: 0;
-                }
-
-                .response {
-                    margin: 25px 0 0 0;
-                    background-color: light-grey;
-                }
-
-            </style>
-            """,
-                unsafe_allow_html=True,
+                '<p style="color:red;font-size:125%"><b>WARNING: DEBUG MODE IS ON</b></p>', unsafe_allow_html=True
             )
 
-            if DEBUG_MODE:
-                st.markdown(
-                    '<p style="color:red;font-size:125%"><b>WARNING: DEBUG MODE IS ON</b></p>', unsafe_allow_html=True
-                )
+        st.markdown(
+            INTRO,
+            unsafe_allow_html=True,
+        )
 
-            st.markdown(
-                INTRO,
-                unsafe_allow_html=True,
+        # widgets for filter conditions
+        with st.sidebar:
+
+            sidebar()
+
+            for key, spec in WIDGET_SPEC.items():
+                if key not in st.session_state:
+                    st.session_state[key] = spec["default"]
+
+        # Store session variables
+        if "messages" not in st.session_state.keys():
+            st.session_state.messages = [
+                {"role": "assistant", "content": initial_message},
+            ]
+
+        # Display chat messages
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                if message.get("html"):
+                    st.markdown(message["html"], unsafe_allow_html=True)
+                else:
+                    st.write(message["content"])
+
+        # User-provided input
+        if input := st.chat_input():
+            st.session_state.messages.append({"role": "user", "content": input})
+            with st.chat_message("user"):
+                st.write(input)
+
+        # Generate a new response if last message is not from assistant
+        responses = []
+        if st.session_state.messages[-1]["role"] != "assistant":
+
+            with st.chat_message("assistant"):
+                message_placeholder = st.empty()
+
+                st.session_state["filter_condition"] = filter_conditions()
+
+                response = respond(runnable, message_placeholder)
+                message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
+                message = {"role": "assistant", "html": response.as_html(), "content": response.content}
+                st.session_state.messages.append(message)
+
+        if USE_LANGFUSE:
+            feedback = streamlit_feedback(
+                feedback_type="faces",
+                optional_text_label="[Optional] Please provide an explanation",
+                key="feedback",
+                on_submit=push_feedback_to_langfuse,
             )
-
-            # widgets for filter conditions
-            with st.sidebar:
-
-                sidebar()
-
-                for key, spec in WIDGET_SPEC.items():
-                    if key not in st.session_state:
-                        st.session_state[key] = spec["default"]
-
-            # Store session variables
-            if "messages" not in st.session_state.keys():
-                st.session_state.messages = [
-                    {"role": "assistant", "content": initial_message},
-                ]
-
-            # Display chat messages
-            for message in st.session_state.messages:
-                with st.chat_message(message["role"]):
-                    if message.get("html"):
-                        st.markdown(message["html"], unsafe_allow_html=True)
-                    else:
-                        st.write(message["content"])
-
-            # User-provided input
-            if input := st.chat_input():
-                st.session_state.messages.append({"role": "user", "content": input})
-                with st.chat_message("user"):
-                    st.write(input)
-
-            # Generate a new response if last message is not from assistant
-            responses = []
-            if st.session_state.messages[-1]["role"] != "assistant":
-
-                with st.chat_message("assistant"):
-                    message_placeholder = st.empty()
-
-                    st.session_state["filter_condition"] = filter_conditions()
-
-                    response = respond(runnable, message_placeholder)
-                    message_placeholder.markdown(response.as_html(), unsafe_allow_html=True)
-                    message = {"role": "assistant", "html": response.as_html(), "content": response.content}
-                    st.session_state.messages.append(message)
-
-            if USE_LANGFUSE:
-                feedback = streamlit_feedback(
-                    feedback_type="faces",
-                    optional_text_label="[Optional] Please provide an explanation",
-                    key="feedback",
-                    on_submit=push_feedback_to_langfuse,
-                )
