@@ -59,11 +59,12 @@ class Authenticator:
         """Login button"""
         if not st.session_state["connected"]:
             auth_url = self.get_auth_url()
-            st.write("Welcome to NestaBrain")
+            st.write("Welcome to Nesta Brain")
             st.link_button("Login with Google", auth_url)
 
     def check_auth(self) -> None:
         """Check whether a user is authorised"""
+        
         token = self.auth_token_manager.get_decoded_token()
         if token is not None:
             st.query_params.clear()

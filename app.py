@@ -245,7 +245,7 @@ def filter_conditions() -> Union[str, None]:
     return None
 
 
-def push_feedback_to_langfuse(feedback: Dict) -> None:
+def push_feedback_to_langfuse() -> None:
     """Send the feedback score and comments to Langfuse"""
 
     trace_id = st.session_state["current_trace_id"]
@@ -253,39 +253,11 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
     faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
 
     langfuse.score(
-        trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
+        # trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
+        trace_id=trace_id, name="user-feedback", value=st.session_state["feedback"], comment="N/A"
     )
 
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
-
-
-# def check_password() -> bool:
-#     """Return `True` if the user entered the correct password."""
-#     st.set_page_config(layout="wide")
-#     # Initialize session state keys if not already initialized
-#     if "password_correct" not in st.session_state:
-#         st.session_state["password_correct"] = False
-
-#     def password_entered() -> None:
-#         """Check whether a password entered by the user is correct."""
-#         if st.session_state["password"] == st.secrets["password"]:
-#             st.session_state["password_correct"] = True
-#             del st.session_state["password"]  # Don't store password
-#         else:
-#             st.session_state["password_correct"] = False
-
-#     # Display password input field
-#     st.text_input("Password", type="password", key="password", on_change=password_entered)
-
-#     # Handle cases based on whether the password is correct or not
-#     if not st.session_state["password_correct"]:
-#         # Password not correct, show error if something is entered
-#         if "password" in st.session_state and st.session_state["password"]:
-#             st.error("😕 Password incorrect")
-#         return False
-#     else:
-#         # Password correct
-#         return True
 
 
 if __name__ == "__main__":
@@ -320,6 +292,8 @@ if __name__ == "__main__":
     # -------authentication credit------
     # credit: https://medium.com/@coding-otter
     # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
+    
+    # if "connected" not in st.session_state:
     if DEPLOY_MODE:
         redirect_uri = "https://nesta-brain.dap-tools.uk/"
     else:
@@ -411,9 +385,26 @@ if __name__ == "__main__":
                 st.session_state.messages.append(message)
 
         if USE_LANGFUSE:
-            feedback = streamlit_feedback(
-                feedback_type="faces",
-                optional_text_label="[Optional] Please provide an explanation",
+            # feedback = streamlit_feedback(
+            #     feedback_type="faces",
+            #     optional_text_label="[Optional] Please provide an explanation",
+            #     key="feedback",
+            #     on_submit=push_feedback_to_langfuse,
+            # )
+            feedback = st.feedback(
+                options="faces",
                 key="feedback",
-                on_submit=push_feedback_to_langfuse,
+                on_change=push_feedback_to_langfuse,
+            )
+            st.markdown(
+                """
+                <style>
+                    div[aria-label="button group"] {
+                        display: flex;
+                        justify-content: flex-end;
+                        max-width: 100% !important;
+                    }
+                </style>
+                """,
+                unsafe_allow_html=True,
             )
