@@ -18,6 +18,7 @@ from googleapiclient.errors import HttpError
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.runnables import RunnableParallel
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
@@ -72,14 +73,16 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
             """  # noqa
 
     @classmethod
-    def sub_graph(cls, builder: Optional[StateGraph] = None, **nodes) -> CompiledStateGraph:
+    def sub_graph(
+        cls, builder: Optional[StateGraph] = None, add_checkpoints: bool = False, **nodes
+    ) -> CompiledStateGraph:
         """Return the subgraph for the OfficeTemplate class"""
 
         builder = builder or StateGraph(State)
 
         default_nodes = {
             "decide_whether_needs_template": cls.decide_whether_needs_document,
-            "check_template": check_template,
+            #            "check_template": check_template,
             "fetch_template": fetch_template,
             "apply_template": apply_template,
             "upload_output": upload_output,
@@ -94,11 +97,15 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
 
         builder.add_edge(START, "decide_whether_needs_template")
         builder.add_conditional_edges("decide_whether_needs_template", template_router)
-        builder.add_edge("check_template", "fetch_template")
+        #   builder.add_edge("check_template", "fetch_template")
         builder.add_edge("fetch_template", "apply_template")
         builder.add_edge("apply_template", "upload_output")
         builder.add_edge("upload_output", END)
         builder.add_edge("call_default_chain", END)
+
+        if add_checkpoints:
+            memory = MemorySaver()
+            return builder.compile(interrupt_before=["fetch_template"], checkpointer=memory)
 
         graph = builder.compile()
         return graph
@@ -107,21 +114,21 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
 # -----nodes
 
 
-def check_template(state: State) -> State:
-    """Check whether the template selected by decide_whether_needs_template is the right one"""
+# def check_template(state: State) -> State:
+#   """Check whether the template selected by decide_whether_needs_template is the right one"""
 
-    file_ids_dict = state["intermediate_outputs"].get("file_ids")
-    if file_ids_dict:
+#  file_ids_dict = state["intermediate_outputs"].get("file_ids")
+# if file_ids_dict:
 
-        _, file_ids = list(file_ids_dict.items())[-1]
-        file_id = file_ids[0]  # there should only be one
+#    _, file_ids = list(file_ids_dict.items())[-1]
+#   file_id = file_ids[0]  # there should only be one
 
-        st.toast("Look at command line", icon="👀")
-        input(
-            f'This is temporary and will be replaced with a checkpoint in the graph where the user answers this question via the UI\n.I think I need "{OfficeTemplate.list_as_dict()[file_id].title}" from Google Drive. Is this correct? Press any key to proceed.'  # noqa
-        )
+#  st.toast("Look at command line", icon="👀")
+# input(
+#    f'This is temporary and will be replaced with a checkpoint in the graph where the user answers this question via the UI\n.I think I need "{OfficeTemplate.list_as_dict()[file_id].title}" from Google Drive. Is this correct? Press any key to proceed.'  # noqa
 
-    return state
+# )
+# return state
 
 
 def fetch_template(state: State) -> State:
@@ -225,7 +232,7 @@ def template_router(
         call_no, file_ids = list(file_ids_dict.items())[-1]
 
         if file_ids and file_ids[0] in OfficeTemplate.file_ids():
-            return "check_template"
+            return "fetch_template"
 
         else:
             invalid_template_message = "decide_whether_needs_template node returned an invalid template UID"
@@ -244,6 +251,15 @@ def template_router(
                 )
 
     return "call_default_chain"
+
+
+def check_template_router(state: State) -> Literal["fetch_template", "wash_up"]:
+    """Check whether the template selected by decide_whether_needs_template is the right one"""
+
+    if True:
+        return "fetch_template"
+    else:
+        return "wash_up"
 
 
 def upload_router(state: State) -> Literal["upload_output", "wash_up"]:

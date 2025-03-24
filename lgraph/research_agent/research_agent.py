@@ -191,7 +191,7 @@ def should_continue(state: AgentState) -> Literal["terminate", "revise"]:
         return "revise"
 
 
-def create_research_agent(editable: bool = False) -> CompiledStateGraph:
+def create_research_agent(add_checkpoints: bool = False) -> CompiledStateGraph:
     """Create the research agent."""
 
     agent = StateGraph(AgentState)
@@ -212,14 +212,14 @@ def create_research_agent(editable: bool = False) -> CompiledStateGraph:
 
     # stream_nodes = ["call_model"]  # list of nodes whose outputs are to be streamed IN ORDER
 
-    if editable:
+    if False:  # add_checkpoints:
         memory = MemorySaver()
         return agent.compile(interrupt_before=["terminate"], checkpointer=memory)
     else:
         return agent.compile()
 
 
-def create_graph(**kwargs) -> CompiledStateGraph:
+def create_graph(add_checkpoints: bool = False, **kwargs) -> CompiledStateGraph:
     """Create the research agent graph."""
 
     OfficeTemplate: Type = importlib.import_module("lgraph.drive_doc.office_template").OfficeTemplate
@@ -229,7 +229,7 @@ def create_graph(**kwargs) -> CompiledStateGraph:
     subgraph = create_research_agent(**kwargs)
     nodes = {"apply_template": subgraph}  # research agent subgraph will be used as a node
 
-    agent = OfficeTemplate.sub_graph(builder=builder, **nodes)
+    agent = OfficeTemplate.sub_graph(add_checkpoints=add_checkpoints, builder=builder, **nodes)
 
     return agent
 

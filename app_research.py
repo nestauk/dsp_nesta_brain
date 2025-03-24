@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
+from typing import Literal
 
 import markdown
 import streamlit as st
@@ -158,11 +159,76 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
 
 
 def update_agent_complete_graph() -> None:
-    """Update the agent with the edited draft and complete the graph – intended as a callback for the text_area widget"""
+    """Update the agent with the edited draft and complete the graph – intended as a callback for the text_area widget in edit"""
 
     st.session_state["edited_draft"] = st.session_state.text_area
     agent.update_state(config, {"draft": st.session_state.edited_draft, "finalized_state": True, "edited": True})
     st.session_state.final_graph_state = agent.invoke(None, config)  # finish the graph after the checkpoint
+
+
+def edit() -> None:
+    """Edit the draft in the UI"""
+
+    snapshot = agent.get_state(config)  # this only works because a checkpoint has been set
+    partial_state = snapshot.values
+
+    with st.container():
+
+        col1, col2 = st.columns(2, gap="medium")
+        height = 500
+        draft = markdown.markdown(partial_state["draft"])
+
+        with col1:
+            st.markdown("\n**Preview**")
+            st.markdown(
+                f"""
+                    <div style="border:1px solid #ccc; padding:1rem; height:{height}px; overflow:auto; background-color:#fafafa">
+                        {draft}
+                    </div>
+                    """,  # noqa
+                unsafe_allow_html=True,
+            )
+
+        with col2:
+            st.markdown("\n**✍️ Edit Markdown**")
+            st.text_area(
+                "Report content",
+                value=partial_state["draft"],
+                height=height,
+                label_visibility="collapsed",
+                key="text_area",
+                on_change=update_agent_complete_graph,
+            )
+
+
+def check_template() -> None:
+    """Check whether the user should be applying the template"""
+
+    def update_agent_and_resume() -> None:
+        """Update the agent with the user's response to the template check and continue the graph"""
+
+        if st.session_state.text_input.lower() == "n":
+            intermediate_outputs = partial_state["intermediate_outputs"]
+            intermediate_outputs["file_ids"] = None
+            agent.update_state(config, {"intermediate_outputs": intermediate_outputs})
+
+        if st.session_state.text_input.lower() in ["n", "y"]:
+            agent.invoke(None, config)
+        else:
+            st.toast("Type y or n", icon="✅")
+
+    snapshot = agent.get_state(config)  # this only works because a checkpoint has been set
+    partial_state = snapshot.values
+
+    check_template_message_format = (
+        "I think you should be applying the following template {template_title}. Is that correct (y or n)?"
+    )
+    file_ids_dict = partial_state["intermediate_outputs"].get("file_ids")
+    template_title = list(file_ids_dict.values())[-1].title
+    check_template_message = check_template_message_format.format(template_title=template_title)
+
+    with st.text_input(check_template_message, key="text_input", on_change=update_agent_and_resume):
+        pass
 
 
 if __name__ == "__main__":
@@ -170,7 +236,10 @@ if __name__ == "__main__":
     # settings
     limit: int = 10
     stream: bool = False
-    editable: bool = False
+    add_checkpoints: bool = False
+    checkpoint: Literal[
+        "check_template", "edit"
+    ] = "check_template"  # temporary variable until I figure out how to have more than one checkpoint
 
     # UI settings
     initial_message: str = "Hi, how can I help?"
@@ -180,7 +249,7 @@ if __name__ == "__main__":
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        agent = create_graph(editable=editable)
+        agent = create_graph(add_checkpoints=add_checkpoints)
 
         st.set_page_config(layout="wide")
 
@@ -265,50 +334,19 @@ if __name__ == "__main__":
                 }
 
                 graph_state = agent.invoke(
-                    input, config=config, interrupt_before="terminate" if editable else None
+                    input, config=config, interrupt_before="terminate" if add_checkpoints else None
                 )  # NB config has no langfuse instructions
 
-                if editable:
-                    snapshot = agent.get_state(config)  # this only works because a checkpoint has been set
-                    partial_state = snapshot.values
+                if add_checkpoints and checkpoint == "edit":
+                    edit()
 
-                    with st.container():
-
-                        col1, col2 = st.columns(2, gap="medium")
-                        height = 500
-                        draft = markdown.markdown(partial_state["draft"])
-
-                        with col1:
-                            st.markdown("\n**Preview**")
-                            st.markdown(
-                                f"""
-                                    <div style="border:1px solid #ccc; padding:1rem; height:{height}px; overflow:auto; background-color:#fafafa">
-                                        {draft}
-                                    </div>
-                                    """,  # noqa
-                                unsafe_allow_html=True,
-                            )
-
-                        with col2:
-                            st.markdown("\n**✍️ Edit Markdown**")
-                            st.text_area(
-                                "Report content",
-                                value=partial_state["draft"],
-                                height=height,
-                                label_visibility="collapsed",
-                                key="text_area",
-                                on_change=update_agent_complete_graph,
-                            )
+                elif add_checkpoints and checkpoint == "check_template":
+                    check_template()
 
                 else:
                     st.session_state.final_graph_state = graph_state
 
         if st.session_state.final_graph_state:
-
-            # final_snapshot = agent.get_state(config)  #graph should have been completed in update_agent_complete_graph
-            # final_state = final_snapshot.values
-            # print(final_snapshot)
-            #  message = final_state['messages'][-1]
 
             message = st.session_state.final_graph_state["messages"][-1]
             st.markdown(message.as_html(), unsafe_allow_html=True)
