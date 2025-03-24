@@ -196,10 +196,8 @@ def create_research_agent(add_checkpoints: bool = False) -> CompiledStateGraph:
 
     agent = StateGraph(AgentState)
 
-    # agent.add_node("initial_plan", nodes.plan_node)
     agent.add_node("write", write)
     agent.add_node("review", review)
-    # if False:
     agent.add_node("terminate", terminate)
     agent.add_node("revise", revise)
 
@@ -210,13 +208,12 @@ def create_research_agent(add_checkpoints: bool = False) -> CompiledStateGraph:
     agent.add_edge("terminate", END)
     agent.add_conditional_edges("review", should_continue)
 
-    # stream_nodes = ["call_model"]  # list of nodes whose outputs are to be streamed IN ORDER
-
-    if False:  # add_checkpoints:
+    if add_checkpoints:
+        interrupt_before = ["terminate"]
         memory = MemorySaver()
-        return agent.compile(interrupt_before=["terminate"], checkpointer=memory)
+        return agent.compile(interrupt_before=interrupt_before, checkpointer=memory), interrupt_before
     else:
-        return agent.compile()
+        return agent.compile(), None
 
 
 def create_graph(add_checkpoints: bool = False, **kwargs) -> CompiledStateGraph:
@@ -226,12 +223,16 @@ def create_graph(add_checkpoints: bool = False, **kwargs) -> CompiledStateGraph:
 
     builder = StateGraph(AgentState)
 
-    subgraph = create_research_agent(**kwargs)
+    subgraph, interrupt_before_ra = create_research_agent(**kwargs)
     nodes = {"apply_template": subgraph}  # research agent subgraph will be used as a node
 
-    agent = OfficeTemplate.sub_graph(add_checkpoints=add_checkpoints, builder=builder, **nodes)
+    if add_checkpoints:
+        logger.info("Adding checkpoints to the graph")
 
-    return agent
+    agent, interrupt_before_ot = OfficeTemplate.sub_graph(add_checkpoints=add_checkpoints, builder=builder, **nodes)
+
+    interrupt_before = (interrupt_before_ra or []) + (interrupt_before_ot or [])
+    return agent, interrupt_before
 
 
 if __name__ == "__main__":
@@ -239,7 +240,7 @@ if __name__ == "__main__":
     toggle = False
 
     config = {}
-    agent = create_graph()
+    agent = create_graph(add_checkpoints=True)
 
     if toggle:
 

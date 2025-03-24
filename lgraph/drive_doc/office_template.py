@@ -82,11 +82,12 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
 
         default_nodes = {
             "decide_whether_needs_template": cls.decide_whether_needs_document,
-            #            "check_template": check_template,
+            "check_template": check_template,
             "fetch_template": fetch_template,
             "apply_template": apply_template,
             "upload_output": upload_output,
             "call_default_chain": call_default_chain,
+            "wash_up": wash_up,
         }
 
         default_nodes.update(nodes)
@@ -97,38 +98,37 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
 
         builder.add_edge(START, "decide_whether_needs_template")
         builder.add_conditional_edges("decide_whether_needs_template", template_router)
-        #   builder.add_edge("check_template", "fetch_template")
+        builder.add_conditional_edges("check_template", check_template_router)
         builder.add_edge("fetch_template", "apply_template")
         builder.add_edge("apply_template", "upload_output")
-        builder.add_edge("upload_output", END)
-        builder.add_edge("call_default_chain", END)
+        builder.add_edge("upload_output", "wash_up")
+        builder.add_edge("call_default_chain", "wash_up")
+        builder.add_edge("wash_up", END)
 
         if add_checkpoints:
+            logger.info("Adding checkpoints to the graph")
+            interrupt_before = ["fetch_template"]
             memory = MemorySaver()
-            return builder.compile(interrupt_before=["fetch_template"], checkpointer=memory)
+            return builder.compile(interrupt_before=interrupt_before, checkpointer=memory), interrupt_before
 
+        logger.info("Didn't add checkpoints to the graph")
         graph = builder.compile()
-        return graph
+        return graph, None
 
 
 # -----nodes
 
 
-# def check_template(state: State) -> State:
-#   """Check whether the template selected by decide_whether_needs_template is the right one"""
+def check_template(state: State) -> State:
+    """
+    Placeholder: Check whether the template selected by decide_whether_needs_template is the right one
 
-#  file_ids_dict = state["intermediate_outputs"].get("file_ids")
-# if file_ids_dict:
+    This doesn't do anything at the moment because the actual checking happens in the app.
 
-#    _, file_ids = list(file_ids_dict.items())[-1]
-#   file_id = file_ids[0]  # there should only be one
+    This is needed for the graph structure to work, but it's not used in practice.
+    """  # noqa
 
-#  st.toast("Look at command line", icon="👀")
-# input(
-#    f'This is temporary and will be replaced with a checkpoint in the graph where the user answers this question via the UI\n.I think I need "{OfficeTemplate.list_as_dict()[file_id].title}" from Google Drive. Is this correct? Press any key to proceed.'  # noqa
-
-# )
-# return state
+    return state
 
 
 def fetch_template(state: State) -> State:
@@ -137,7 +137,10 @@ def fetch_template(state: State) -> State:
     file_ids_dict = state["intermediate_outputs"].get("file_ids")
     if file_ids_dict:
 
-        _, file_ids = list(file_ids_dict.items())[-1]
+        _, file_ids = list(file_ids_dict.items())[
+            -1
+        ]  # file ids returned from the last iteration of decide_whether_needs_document (there will usually only be one)
+        # see BaseDriveDoc.decide_whether_needs_document for a description of this dict's structure
         file_id = file_ids[0]  # there should only be one, but test this
 
         st.toast("Fetching template from Google Drive", icon="💡")
@@ -218,12 +221,17 @@ def upload_output(state: State) -> State:
     return state
 
 
+def wash_up(state: State) -> State:
+    """Clean up the state after the chain has finished"""
+    return state
+
+
 # -----conditional edges
 
 
 def template_router(
     state: State,
-) -> Literal["check_template", "call_default_chain", "decide_whether_needs_template"]:
+) -> Literal["call_default_chain", "decide_whether_needs_template", "check_template"]:
     """Go the appropriate node, depending on whether an office template is needed"""
 
     file_ids_dict = state["intermediate_outputs"].get("file_ids")
@@ -232,7 +240,7 @@ def template_router(
         call_no, file_ids = list(file_ids_dict.items())[-1]
 
         if file_ids and file_ids[0] in OfficeTemplate.file_ids():
-            return "fetch_template"
+            return "check_template"
 
         else:
             invalid_template_message = "decide_whether_needs_template node returned an invalid template UID"
@@ -256,7 +264,7 @@ def template_router(
 def check_template_router(state: State) -> Literal["fetch_template", "wash_up"]:
     """Check whether the template selected by decide_whether_needs_template is the right one"""
 
-    if True:
+    if state["intermediate_outputs"].get("file_ids"):  # this may have been set to None via user interaction
         return "fetch_template"
     else:
         return "wash_up"

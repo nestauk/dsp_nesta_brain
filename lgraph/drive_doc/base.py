@@ -34,7 +34,7 @@ class BaseDriveDoc(BaseDriveDoc):
     def decide_whether_needs_document(cls, state: State) -> State:
         """Decide whether a drive document is needed from an input message and return the file IDs if so"""
 
-        st.toast(f"Thinking about {cls.description().lower()}", icon="🤔")
+        st.toast("Thinking ... ", icon="🤔")
 
         prompt = cls.prompt()
 
@@ -45,11 +45,17 @@ class BaseDriveDoc(BaseDriveDoc):
         file_ids_as_enums = chain.invoke(state)
 
         if file_ids_as_enums:
+            # file_ids are stored in state["intermediate_outputs"] for each call individually,
+            # in case they differ between calls
+            # structure: state["intermediate_outputs"]["file_ids"]
+            #            = {1:file ids from first call, 2:file ids from second call, ...}
+
             file_ids = [enum.value for enum in file_ids_as_enums]
             logger.info(f"{cls.__name__} ID(s) identified: {file_ids}")
             state.setdefault("intermediate_outputs", {})
             call_no = len(state["intermediate_outputs"].get("file_ids", OrderedDict({}))) + 1
-            state["intermediate_outputs"].setdefault("file_ids", {})[call_no] = file_ids
+            state["intermediate_outputs"].setdefault("file_ids", {})
+            state["intermediate_outputs"]["file_ids"][call_no] = file_ids
 
         return state
 
