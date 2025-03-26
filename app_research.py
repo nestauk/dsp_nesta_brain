@@ -25,10 +25,15 @@ from lgraph.research_agent.research_agent import create_graph
 from llm.message import CustomAIMessage
 
 
-stream_nodes = []  # temporary, to please Flake8
-
 if TYPE_CHECKING:
     from langchain_core.messages.ai import AIMessageChunk
+    from langgraph.graph.state import CompiledStateGraph
+    from lgraph.research_agent.research_agent import AgentState as State
+    from streamlit.delta_generator import DeltaGenerator
+
+pause = input
+
+stream_nodes = []  # temporary, to please Flake8
 
 CURRENT_YEAR = datetime.now().year
 
@@ -158,18 +163,19 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
 
 
-def update_agent_complete_graph() -> None:
+def update_draft_complete_graph() -> None:
     """Update the agent with the edited draft and complete the graph – intended as a callback for the text_area widget in edit"""
 
-    agent.update_state(config, {"draft": st.session_state.text_area, "finalized_state": True, "edited": True})
-    st.session_state.final_graph_state = agent.invoke(None, config)  # finish the graph after the checkpoint
+    agent.update_state(config, {"draft": st.session_state.text_area, "edited": True})
+    #  st.session_state.final_graph_state =
+    agent.invoke(None, config)  # finish the graph after the checkpoint
     st.session_state.checkpoints_cleared[1] = True
 
 
-def edit() -> None:
+def edit(partial_state: State) -> None:
     """Edit the draft in the UI"""
 
-    snapshot = agent.get_state(config)  # this only works because a checkpoint has been set
+    snapshot = agent.get_state(config)  # this only works because a second checkpoint has been set
     partial_state = snapshot.values
 
     with st.container():
@@ -197,45 +203,90 @@ def edit() -> None:
                 height=height,
                 label_visibility="collapsed",
                 key="text_area",
-                on_change=update_agent_complete_graph,
+                on_change=update_draft_complete_graph,
             )
 
 
-def check_template() -> None:
+def upload_and_complete_graph(agent: CompiledStateGraph, *args) -> None:
+    """Upload the final draft to Google Drive (if the user confirms) and complete the graph"""
+
+    agent.update_state(config, {"upload_confirmed": st.session_state["upload"].lower() == "yes"})
+    # for container in args:
+    #    container.empty()
+    agent.invoke(None, config)
+    st.session_state.checkpoints_cleared[1] = True
+    st.session_state.messages.pop(-1)  # remove the human message to allow a new request
+
+
+def preview(pill_container: DeltaGenerator, preview_container: DeltaGenerator) -> None:
+    """Preview the draft and confirm upload"""
+
+    snapshot = agent.get_state(config)  # this only works because a second checkpoint has been set
+    partial_state = snapshot.values
+
+    height = 500
+    draft = markdown.markdown(partial_state["draft"])
+
+    with preview_container:
+
+        preview_container.markdown("\n**Preview**")
+        preview_container.markdown(
+            f"""
+                <div style="border:1px solid #ccc; padding:1rem; height:{height}px; overflow:auto; background-color:#fafafa">
+                    {draft}
+                </div>
+                """,  # noqa
+            unsafe_allow_html=True,
+        )
+
+        pill_container.pills(
+            "Upload to Google Drive?",
+            ("Yes", "No"),
+            key="upload",
+            on_change=upload_and_complete_graph,
+            args=(agent, pill_container, preview_container),
+        )
+
+
+def update_agent_and_resume(partial_state: State, pill_container: DeltaGenerator, *args) -> None:
+    """Update the agent with the user's response to the template check and continue the graph to the next checkpoint"""
+
+    if st.session_state["yesno"].lower() == "no":
+        partial_state["intermediate_outputs"]["file_ids"] = None
+        agent.update_state(config, partial_state)
+
+    pill_container.empty()
+    agent.invoke(None, config)
+    st.session_state.checkpoints_cleared[0] = True
+    preview(pill_container, *args)  # Action for second checkpoint
+
+
+def check_template(pill_container: DeltaGenerator, *args) -> None:
     """Check whether the user should be applying the template"""
 
-    def update_agent_and_resume() -> None:
-        """Update the agent with the user's response to the template check and continue the graph"""
-
-        if st.session_state.text_input.lower() == "n":
-            partial_state["intermediate_outputs"]["file_ids"] = None
-            agent.update_state(config, partial_state)
-
-        if st.session_state.text_input.lower() in ["n", "y"]:
-            yesno_input.empty()
-            st.session_state.checkpoints_cleared[0] = True
-            agent.invoke(None, config)
-        else:
-            st.toast("Type y or n", icon="✅")
+    def get_template_title(partial_state: State) -> str:
+        file_ids_dict = partial_state["intermediate_outputs"].get("file_ids")
+        _, file_ids = list(file_ids_dict.items())[
+            -1
+        ]  # see BaseDriveDoc.decide_whether_needs_document for a description of this dict's structure
+        template_file_id = file_ids[0]  # there should be only one file_id in the list
+        return OfficeTemplate.list_as_dict()[template_file_id].title
 
     snapshot = agent.get_state(config)  # this only works because a checkpoint has been set
     partial_state = snapshot.values
 
     check_template_message_format = (
-        'Based on your request, I think I should be applying the following template: "{template_title}".'
-        "Is that correct (y or n)?"
+        'Based on your request, I think I should be applying the following template: "{template_title}". '
+        "Is that correct?"
     )
-    file_ids_dict = partial_state["intermediate_outputs"].get("file_ids")
-    _, file_ids = list(file_ids_dict.items())[
-        -1
-    ]  # see BaseDriveDoc.decide_whether_needs_document for a description of this dict's structure
-    template_file_id = file_ids[0]  # there should be only one file_id in the list
-    template_title = OfficeTemplate.list_as_dict()[template_file_id].title
-    check_template_message = check_template_message_format.format(template_title=template_title)
+    check_template_message = check_template_message_format.format(template_title=get_template_title(partial_state))
 
-    yesno_input = st.empty()
-    yesno_input.text_input(
-        "User checkpoint", placeholder=check_template_message, key="text_input", on_change=update_agent_and_resume
+    pill_container.pills(
+        check_template_message,
+        ("Yes", "No"),
+        key="yesno",
+        on_change=update_agent_and_resume,
+        args=(partial_state, pill_container) + args,
     )
 
 
@@ -276,6 +327,10 @@ if __name__ == "__main__":
 
             a{
                 margin-top: 0;
+            }
+
+            button {
+                vertical-align: middle;
             }
 
             .response {
@@ -319,8 +374,8 @@ if __name__ == "__main__":
         if "filter_condition" not in st.session_state.keys():
             st.session_state.filter_condition = None  # not needed at the moment
 
-        if "final_graph_state" not in st.session_state.keys():
-            st.session_state.final_graph_state = None
+        #   if "final_graph_state" not in st.session_state.keys():
+        #      st.session_state.final_graph_state = None
 
         # Display chat messages
         for message in st.session_state.messages:
@@ -336,39 +391,36 @@ if __name__ == "__main__":
             with st.chat_message("user"):
                 st.write(input)
 
-        if isinstance(st.session_state.messages[-1], HumanMessage) and not all(st.session_state.checkpoints_cleared):
+        if isinstance(st.session_state.messages[-1], HumanMessage) and (
+            not add_checkpoints or not all(st.session_state.checkpoints_cleared)
+        ):
 
             with st.chat_message("assistant"):
 
-                input = {
-                    "messages": chat_history(),
-                    "filter_condition": st.session_state["filter_condition"],
-                    "limit": limit,
-                    "use_hybrid_search": True,
-                    "sidebar_options": {key: st.session_state[key] for key in WIDGET_SPEC.keys()},
-                }
+                if not add_checkpoints or sum(st.session_state.checkpoints_cleared) == 0:
 
-                graph_state = agent.invoke(
-                    input, config=config, interrupt_before=interrupt_before
-                )  # NB config has no langfuse instructions
+                    input = {
+                        "messages": chat_history(),
+                        "filter_condition": st.session_state["filter_condition"],
+                        "limit": limit,
+                        "use_hybrid_search": True,
+                        "sidebar_options": {key: st.session_state[key] for key in WIDGET_SPEC.keys()},
+                    }
 
-                if add_checkpoints:
+                    graph_state = agent.invoke(
+                        input, config=config, interrupt_before=interrupt_before
+                    )  # NB config has no langfuse instructions at the moment
 
-                    if sum(st.session_state.checkpoints_cleared) == 0:
-                        check_template()  # Action for first checkpoint
+                    if add_checkpoints and sum(st.session_state.checkpoints_cleared) == 0:
+                        with st.container():
+                            preview_container = st.container()
+                            pill_container = st.container()
+                            check_template(pill_container, preview_container)  # Action for first checkpoint
 
-                    elif sum(st.session_state.checkpoints_cleared) == 1:
-                        edit()  # Action for second checkpoint
-
-                else:
-                    st.session_state.final_graph_state = graph_state
-
-        if st.session_state.final_graph_state:
-
-            message = st.session_state.final_graph_state["messages"][-1]
-            st.markdown(message.as_html(), unsafe_allow_html=True)
-            st.session_state.messages.append(message)
-            st.session_state.final_graph_state = None
+            #       if not add_checkpoints:
+            #          message = graph_state["messages"][-1]
+            #         st.markdown(message.as_html(), unsafe_allow_html=True)
+            #        st.session_state.messages.append(message)
 
         #   if USE_LANGFUSE:
         #      feedback = streamlit_feedback(

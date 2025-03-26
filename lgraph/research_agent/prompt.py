@@ -34,6 +34,7 @@ def get_write_prompt(state: State) -> PromptTemplate:
 
         TEMPLATE:
         {google_doc_template.text}
+        Finally, the draft should have a title which reflects its content.
 
     """  # noqa
 

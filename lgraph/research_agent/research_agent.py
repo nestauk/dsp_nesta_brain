@@ -18,14 +18,12 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
 from lgraph.graph import State
 from llm.chain import create_retrieval_chain
 from llm.llm import default_llm as llm
-from llm.message import CustomAIMessage
 
 # from llm.prompt import qa_prompt
 from retrieval.retrieve import CustomRetriever
@@ -68,6 +66,7 @@ class AgentState(State):
     context: List[Dict]
     sidebar_options: Dict
     edited: bool
+    upload_confirmed: bool
 
 
 def call_model(state: AgentState, prompt: PromptTemplate) -> AgentState:
@@ -118,6 +117,7 @@ def write(state: AgentState) -> AgentState:
         result = call_model(state, pt.get_write_prompt(state))
         state["draft"] = result.content
         state["context"] = []
+    state["upload_confirmed"] = False
 
     return state
 
@@ -143,6 +143,7 @@ def revise(state: AgentState) -> AgentState:
 
     state["revision_number"] = state.get("revision_number", 0) + 1
     logger.info(f"Undertaking revision number {state['revision_number']}")
+
     st.toast(f"Revising draft no. {state.get('revision_number',0)}", icon="💡")
 
     result = call_model(state, pt.revision_prompt)
@@ -153,18 +154,18 @@ def revise(state: AgentState) -> AgentState:
 
 
 def terminate(state: AgentState) -> AgentState:
-    """Reject the draft of the document."""
+    """Finalize the state."""
 
-    if state.get("edited"):
-        output_format = "Document after editing:\n\n{draft}"
-    elif state.get("finalized_state"):
-        output_format = "Document after {revision_number} revision(s):\n\n{draft}"
-    else:
-        output_format = "Document after {revision_number} revision(s) (NB: revision process was not fully completed):\n\n{draft}"  # noqa
+    # if state.get("edited"):
+    #    output_format = "Document after editing:\n\n{draft}"
+    # elif state.get("finalized_state"):
+    #    output_format = "Document after {revision_number} revision(s):\n\n{draft}"
+    # else:
+    #   output_format = "Document after {revision_number} revision(s) (NB: revision process was not fully completed):\n\n{draft}"  # noqa
 
-    custom_ai_message_input_dict = state
-    custom_ai_message_input_dict["answer"] = output_format.format(**state)
-    state["messages"].append(CustomAIMessage(custom_ai_message_input_dict))
+    #  custom_ai_message_input_dict = state
+    # custom_ai_message_input_dict["answer"] = output_format.format(**state)
+    # state["messages"].append(CustomAIMessage(custom_ai_message_input_dict))
 
     return state
 
@@ -208,12 +209,12 @@ def create_research_agent(add_checkpoints: bool = False) -> CompiledStateGraph:
     agent.add_edge("terminate", END)
     agent.add_conditional_edges("review", should_continue)
 
-    if add_checkpoints:
-        interrupt_before = ["terminate"]
-        memory = MemorySaver()
-        return agent.compile(interrupt_before=interrupt_before, checkpointer=memory), interrupt_before
-    else:
-        return agent.compile(), None
+    # if add_checkpoints:
+    #    interrupt_before = ["terminate"]
+    #   memory = MemorySaver()
+    #  return agent.compile(interrupt_before=interrupt_before, checkpointer=memory), interrupt_before
+    # else:
+    return agent.compile(), None
 
 
 def create_graph(add_checkpoints: bool = False, **kwargs) -> CompiledStateGraph:
@@ -237,12 +238,19 @@ def create_graph(add_checkpoints: bool = False, **kwargs) -> CompiledStateGraph:
 
 if __name__ == "__main__":
 
+    pause = input
+
     toggle = False
 
-    config = {}
-    agent = create_graph(add_checkpoints=True)
+    config = {"configurable": {"thread_id": "1"}}
+    agent, _ = create_graph(add_checkpoints=True)
 
     if toggle:
+
+        def update_agent_and_resume(partial_state: AgentState) -> None:
+            """Update the agent with the user's response to the template check and continue the graph"""
+            pause("Continue?")
+            agent.invoke(None, config)
 
         input = "Write a project proposal for a new project assessing the recent uptake of heat pumps in the UK."
 
@@ -258,6 +266,11 @@ if __name__ == "__main__":
         config = {"configurable": {"thread_id": "1"}}
 
         agent.invoke(state, config=config)
+
+        for _ in [0, 1]:
+            snapshot = agent.get_state(config)
+            partial_state = snapshot.values
+            update_agent_and_resume(partial_state)
 
     else:
 

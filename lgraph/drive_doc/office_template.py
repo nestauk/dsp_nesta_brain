@@ -28,7 +28,6 @@ from lgraph.research_agent.research_agent import AgentState as State
 from llm.llm import default_llm as llm
 from llm.message import InterimAIMessage
 from llm.prompt import qa_system_prompt
-from utils import yesno
 
 
 # THIS IS AN ADAPTED VERSION OF PREVIOUS docgen branch CODE AND HASN'T BEEN TESTED YET
@@ -85,6 +84,7 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
             "check_template": check_template,
             "fetch_template": fetch_template,
             "apply_template": apply_template,
+            "check_upload": check_upload,
             "upload_output": upload_output,
             "call_default_chain": call_default_chain,
             "wash_up": wash_up,
@@ -100,14 +100,15 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
         builder.add_conditional_edges("decide_whether_needs_template", template_router)
         builder.add_conditional_edges("check_template", check_template_router)
         builder.add_edge("fetch_template", "apply_template")
-        builder.add_edge("apply_template", "upload_output")
+        builder.add_edge("apply_template", "check_upload")
+        builder.add_conditional_edges("check_upload", check_upload_router)
         builder.add_edge("upload_output", "wash_up")
         builder.add_edge("call_default_chain", "wash_up")
         builder.add_edge("wash_up", END)
 
         if add_checkpoints:
-            logger.info("Adding checkpoints to the graph")
-            interrupt_before = ["fetch_template"]
+            logger.info("Adding checkpoints to OfficeTemplate graph")
+            interrupt_before = ["check_template", "check_upload"]
             memory = MemorySaver()
             return builder.compile(interrupt_before=interrupt_before, checkpointer=memory), interrupt_before
 
@@ -122,6 +123,18 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
 def check_template(state: State) -> State:
     """
     Placeholder: Check whether the template selected by decide_whether_needs_template is the right one
+
+    This doesn't do anything at the moment because the actual checking happens in the app.
+
+    This is needed for the graph structure to work, but it's not used in practice.
+    """  # noqa
+
+    return state
+
+
+def check_upload(state: State) -> State:
+    """
+    Placeholder: Check whether the upload should proceed
 
     This doesn't do anything at the moment because the actual checking happens in the app.
 
@@ -262,7 +275,7 @@ def template_router(
 
 
 def check_template_router(state: State) -> Literal["fetch_template", "wash_up"]:
-    """Check whether the template selected by decide_whether_needs_template is the right one"""
+    """Go the appropriate node, depending on whether the template is the right one"""
 
     if state["intermediate_outputs"].get("file_ids"):  # this may have been set to None via user interaction
         return "fetch_template"
@@ -270,11 +283,10 @@ def check_template_router(state: State) -> Literal["fetch_template", "wash_up"]:
         return "wash_up"
 
 
-def upload_router(state: State) -> Literal["upload_output", "wash_up"]:
+def check_upload_router(state: State) -> Literal["upload_output", "wash_up"]:
     """Go the appropriate node, depending on whether the output should be uploaded to Google Drive"""
 
-    if yesno("Upload the output?"):  # temporary decision process to check it works
-        # – obviously users ultimately won't be interacting with this via the command line
+    if state["upload_confirmed"]:
         return "upload_output"
 
     return "wash_up"
