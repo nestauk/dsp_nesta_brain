@@ -19,8 +19,6 @@ if USE_AZURE_LLM:
         azure_deployment=AZURE_MODEL,
         api_version=AZURE_API_VERSION,
         temperature=0,
-        #  max_tokens=200,   #may need to experiment with this if you get errors back from the API
-        # timeout=None,
         max_retries=2,
     )
 
