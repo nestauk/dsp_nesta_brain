@@ -94,6 +94,9 @@ class CustomRetriever(BaseRetriever):
 
         return docs
 
+    async def _aget_relevant_documents(self, input: RetrieverInput, **kwargs) -> List[LangchainDocument]:
+        return self._get_relevant_documents(input, **kwargs)
+
     @staticmethod
     def chunks_to_docs(
         chunks: List[Chunk], merge: bool = DEFAULT_MERGE, enumerate_: bool = False

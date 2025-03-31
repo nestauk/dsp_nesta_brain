@@ -22,6 +22,10 @@ from config import PROJECT
 from config import USE_LANGFUSE
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
+
+# from streamlit_feedback import streamlit_feedback
+from eval.langfuse_ import get_langfuse
+from eval.langfuse_ import langfuse_handler
 from front_end.auth.authenticate import Authenticator
 from front_end.project_spec import INTRO
 from front_end.project_spec import WIDGET_SPEC
@@ -30,13 +34,10 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
-from langfuse import Langfuse
-from langfuse.callback import CallbackHandler
 from lgraph.graph import graph_options_type
 from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
-from streamlit_feedback import streamlit_feedback
 
 
 if TYPE_CHECKING:
@@ -44,16 +45,6 @@ if TYPE_CHECKING:
     from retrieval.retrieve import RetrieverInput as State
 
 CURRENT_YEAR = datetime.now().year
-
-
-langfuse = Langfuse()
-
-langfuse_handler = CallbackHandler(
-    secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
-    public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
-    host=os.getenv("LANGFUSE_HOST"),
-    user_id=os.getenv("LANGFUSE_USER_ID"),
-)
 
 
 class GraphStreamEvent(dict):
@@ -129,9 +120,10 @@ def respond(
 
     if USE_LANGFUSE:
         trace_id = str(uuid.uuid4())
-        config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
-    else:
-        config = {}
+        st.session_state["current_trace_id"] = trace_id
+        if not stream:
+            config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
+            get_langfuse().trace(id=trace_id, metadata=trace_metadata())
 
     input = {
         "messages": chat_history(),
@@ -149,7 +141,7 @@ def respond(
                 message_text = ""
                 id = None
 
-                async for event in chain_or_graph.astream_events(input, config, version="v1", stream_mode="values"):
+                async for event in chain_or_graph.astream_events(input, version="v1", stream_mode="values"):
 
                     event = GraphStreamEvent(event)
 
@@ -166,7 +158,17 @@ def respond(
 
             final_state = asyncio.run(stream_())
 
+            if USE_LANGFUSE:
+                # #################NB you don't really need metadata if the input is a State object because the data is the same?   # noqa
+                output = {
+                    k: v
+                    for k, v in final_state["raw_response"].items()
+                    if k not in ["limit", "filter_condition", "use_hybrid_search", "intermediate_outputs"]
+                }
+                get_langfuse().trace(id=trace_id, input=input, output=output, metadata=trace_metadata())
+
         else:
+
             final_state = chain_or_graph.invoke(input, config=config)
 
         return_message = final_state["messages"][-1]
@@ -175,8 +177,13 @@ def respond(
 
         if stream:
 
+            ########################################
+            # Check whether Langfuse is working here!!
+            # the syntax is equivalent to streaming with a graph, but this might not be necessary
+            #######################################
+
             message_text = ""
-            for item in chain_or_graph.stream(input, config=config):
+            for item in chain_or_graph.stream(input):  # , config=config):
                 # Process each item
                 if "answer" in item:
                     if use_tool_for_citations:
@@ -210,10 +217,6 @@ def respond(
         # Remove the message placeholder text after all the text has been received, as
         # it will be rendered in a nicer format with references
         message_placeholder.markdown("")
-
-    if USE_LANGFUSE:
-        langfuse.trace(id=trace_id, metadata=trace_metadata())
-        st.session_state["current_trace_id"] = trace_id
 
     return return_message
 
@@ -250,11 +253,14 @@ def push_feedback_to_langfuse() -> None:
 
     trace_id = st.session_state["current_trace_id"]
 
-    faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
+    #    faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
 
-    langfuse.score(
+    get_langfuse().score(
         # trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
-        trace_id=trace_id, name="user-feedback", value=st.session_state["feedback"], comment="N/A"
+        trace_id=trace_id,
+        name="user-feedback",
+        value=st.session_state["feedback"],
+        comment="N/A",
     )
 
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
@@ -273,7 +279,7 @@ if __name__ == "__main__":
     )  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
 
-    stream: bool = True
+    stream: bool = False
     use_tool_for_citations: bool = False
 
     # UI settings
@@ -283,7 +289,7 @@ if __name__ == "__main__":
         raise Exception("use_tool_for_citations may no longer work – need to check")
 
     runnable, stream_nodes = get_graph_or_rag_chain(
-        use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
+        use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, stream=stream, return_stream_nodes=True
     )
 
     load_dotenv()
@@ -292,7 +298,7 @@ if __name__ == "__main__":
     # -------authentication credit------
     # credit: https://medium.com/@coding-otter
     # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
-    
+
     # if "connected" not in st.session_state:
     if DEPLOY_MODE:
         redirect_uri = "https://nesta-brain.dap-tools.uk/"

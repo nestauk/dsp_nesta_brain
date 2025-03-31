@@ -71,6 +71,7 @@ def get_graph_or_rag_chain(
 
 def filter_messages(input: RetrieverInput) -> RetrieverInput:
     """Filter out InterimAIMessages as ther shouldn't be sent to the LLM"""
+
     input["messages"] = [message for message in input["messages"] if not isinstance(message, InterimAIMessage)]
     return input
 

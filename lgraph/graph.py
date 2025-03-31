@@ -35,8 +35,8 @@ from retrieval.retrieve import RetrieverInput
 
 
 if TYPE_CHECKING:
+    from langchain_core.messages import AIMessage
     from langgraph.graph.state import CompiledStateGraph
-
 
 DEFAULT_FROM_YEAR_FILTER_CONDITION = f"source.date_pub >= to_timestamp('{DEFAULT_START_YEAR}-01-01')"
 
@@ -47,6 +47,7 @@ class State(RetrieverInput):
     """State class for the graph"""
 
     intermediate_outputs: Dict
+    raw_response: Dict
 
 
 def append_filter_condition(state: State, new_filter_condition: str) -> State:
@@ -75,16 +76,18 @@ def append_filter_condition(state: State, new_filter_condition: str) -> State:
 
 
 # -------NODES
+
+# NB: You may want to create async versions of some of these if using in a graph which is invoked asynchronously
+
+
 def decide_if_person_page(state: State) -> State:
     """Decide if the retrieval should be limited to person pages only; add appropriate filter_condition to the state if so"""
-    if (
-        "source.contentType" not in state["filter_condition"]
-    ):  # if the user has explicitly set a filter condition via the UI, use that one and ignore the node
+    if "source.contentType" not in state["filter_condition"]:
         chain = personnel_prompt | llm
         response = chain.invoke(state["input"])
         if response.content == "YES":
             state = append_filter_condition(state, "source.contentType = 'person page'")
-    #  print("within 'decide_if_person_page': ", state)
+
     return state
 
 
@@ -112,12 +115,11 @@ def decide_if_need_time_constraint(state: State) -> State:
     return state
 
 
-def decide_whether_needs_policy(state: State) -> State:
-    """Decide whether a policy document is needed"""
-
-    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
-
-    message = chain.invoke(state)
+def interpret_policy_decision(message: AIMessage, state: State) -> State:
+    """
+    Interpret which policy documents are needed based on the user's response, and append the
+    retrieval filter condition accordingly
+    """  # noqa
 
     if message.content != "NULL":
 
@@ -136,6 +138,30 @@ def decide_whether_needs_policy(state: State) -> State:
             logger.warning(
                 f"Policy document IDs did not seem to be in the correct format. Message content: {message.content}"
             )
+
+    return state
+
+
+async def async_decide_whether_needs_policy(state: State) -> State:
+    """Decide whether a policy document is needed"""
+
+    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
+
+    message = await chain.ainvoke(state)
+
+    state = interpret_policy_decision(message, state)
+
+    return state
+
+
+def decide_whether_needs_policy(state: State) -> State:
+    """Decide whether a policy document is needed"""
+
+    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
+
+    message = chain.invoke(state)
+
+    state = interpret_policy_decision(message, state)
 
     return state
 
@@ -255,7 +281,7 @@ def choose_main_prompt(state: State) -> State:
 
 
 def create_combined_graph(
-    return_stream_nodes: bool = False, **kwargs
+    stream: bool = False, return_stream_nodes: bool = False, **kwargs
 ) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
     """Compile and return a graph to assist with both retrieval and chat"""
 
@@ -271,12 +297,32 @@ def create_combined_graph(
 
         return state
 
+    async def async_call_model(
+        state: State,
+    ) -> State:  # function defined here to avoid circular import
+
+        prompt = state["intermediate_outputs"].get("main_prompt")
+
+        rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(prompt=prompt, **kwargs)
+
+        response = await rag_chain.ainvoke(state)
+
+        state["raw_response"] = response
+        message = CustomAIMessage(response)
+        state["messages"].append(message)
+
+        return state
+
+    use_async = stream
+
     builder = StateGraph(State)
 
     builder.add_node("initiate", initiate)
-    builder.add_node("decide_whether_needs_policy", decide_whether_needs_policy)
+    builder.add_node(
+        "decide_whether_needs_policy", async_decide_whether_needs_policy if use_async else decide_whether_needs_policy
+    )
     builder.add_node("choose_main_prompt", choose_main_prompt)
-    builder.add_node("call_model", call_model)
+    builder.add_node("call_model", async_call_model if use_async else call_model)
     builder.add_edge(START, "initiate")
     builder.add_edge("initiate", "decide_whether_needs_policy")
     builder.add_edge("decide_whether_needs_policy", "choose_main_prompt")
