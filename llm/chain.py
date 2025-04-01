@@ -42,6 +42,7 @@ def get_graph_or_rag_chain(
     use_tool_for_citations: bool = False,
     use_graph: Optional[graph_options_type] = None,
     return_stream_nodes: bool = False,
+    stream: bool = True,
     **kwargs,
 ) -> Runnable:
     """Return a suitable graph or RAG chain depending on the arguments"""
@@ -51,11 +52,17 @@ def get_graph_or_rag_chain(
 
     if use_graph == "chat":
         return create_chat_graph(
-            use_tool_for_citations=use_tool_for_citations, return_stream_nodes=return_stream_nodes, **kwargs
+            use_tool_for_citations=use_tool_for_citations,
+            return_stream_nodes=return_stream_nodes,
+            stream=stream,
+            **kwargs,
         )
     elif use_graph == "combined":
         return create_combined_graph(
-            use_tool_for_citations=use_tool_for_citations, return_stream_nodes=return_stream_nodes, **kwargs
+            use_tool_for_citations=use_tool_for_citations,
+            return_stream_nodes=return_stream_nodes,
+            stream=stream,
+            **kwargs,
         )
 
     elif use_tool_for_citations:

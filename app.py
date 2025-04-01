@@ -102,11 +102,12 @@ def trace_metadata() -> Dict:
     """Compile trace metadata on sidebar parameters and the resulting filter_condition string, as well as settings"""
     sidebar_metadata = {key: st.session_state[key] for key in WIDGET_SPEC.keys()}
     metadata = {"sidebar": sidebar_metadata}
-    metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
+    # metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
+    # not needed in metadata if it is part of input
     metadata["settings"] = {
         "use_tool_for_citations": use_tool_for_citations,
         "use_graph": use_graph,
-        "limit": limit,
+        #   "limit": limit,      #not needed in metadata if it is part of input
     }
     return metadata
 
@@ -121,7 +122,11 @@ def respond(
     if USE_LANGFUSE:
         trace_id = str(uuid.uuid4())
         st.session_state["current_trace_id"] = trace_id
-        if not stream:
+        streaming_with_graph = stream and use_graph in ["chat", "combined"]
+        if not streaming_with_graph:
+            # if streaming with graph then add the trace manually at the end of the streaming process (see comment below)
+            # note that this means a detailed breakdown of the trace by chain/graph component is not available in Langfuse
+            # otherwise add the trace here and pass config through to the graph or chain
             config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
             get_langfuse().trace(id=trace_id, metadata=trace_metadata())
 
@@ -159,7 +164,8 @@ def respond(
             final_state = asyncio.run(stream_())
 
             if USE_LANGFUSE:
-                # #################NB you don't really need metadata if the input is a State object because the data is the same?   # noqa
+                # the Langfuse trace is added manually here with the output because passing config
+                # to .astream_events did not seem to work and resulted in blank outputs in traces
                 output = {
                     k: v
                     for k, v in final_state["raw_response"].items()
@@ -177,13 +183,8 @@ def respond(
 
         if stream:
 
-            ########################################
-            # Check whether Langfuse is working here!!
-            # the syntax is equivalent to streaming with a graph, but this might not be necessary
-            #######################################
-
             message_text = ""
-            for item in chain_or_graph.stream(input):  # , config=config):
+            for item in chain_or_graph.stream(input, config=config):
                 # Process each item
                 if "answer" in item:
                     if use_tool_for_citations:
@@ -279,7 +280,7 @@ if __name__ == "__main__":
     )  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
 
-    stream: bool = False
+    stream: bool = True
     use_tool_for_citations: bool = False
 
     # UI settings
