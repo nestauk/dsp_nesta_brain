@@ -8,6 +8,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
+from typing import Optional
+from typing import Tuple
 
 import markdown
 import streamlit as st
@@ -20,8 +22,11 @@ from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
+
+# from langgraph.types import Command
 from lgraph.drive_doc.office_template import OfficeTemplate
 from lgraph.research_agent.research_agent import create_graph
+from lgraph.research_agent.research_agent import revise as research_agent_revise
 from llm.message import CustomAIMessage
 
 
@@ -36,6 +41,7 @@ pause = input
 stream_nodes = []  # temporary, to please Flake8
 
 CURRENT_YEAR = datetime.now().year
+PREVIEW_CONTAINER_HEIGHT = 500
 
 
 langfuse = Langfuse()
@@ -163,59 +169,81 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
 
 
-def send_revision_instructions(graph: CompiledStateGraph, containers: List[DeltaGenerator]) -> None:
+def send_revision_instructions(
+    graph: CompiledStateGraph, partial_state: State, containers: Tuple[DeltaGenerator]
+) -> None:
     """Update the graph with the revision instructions and resume the graph"""
     pause("Pause 1")
-    revision_instructions = (
-        "HUMAN CRITIQUE: " + st.session_state.revision_instructions
-    )  # do before emptying containers?
-    pause("Pause 2")
+    #  revision_instructions = (
+    #     "HUMAN CRITIQUE: " + st.session_state.revision_instructions
+    # )  # do before emptying containers?
+    # pause("Pause 2")
     #  for container in containers:
     #     container.empty()
+    # pause("Pause 3")
+    # graph.update_state(config, {"critique": revision_instructions})
+    # pause("Pause 4")
+    # graph.invoke(Command(update={"critique": revision_instructions},goto='revise'), config)
+    # pause("Pause 5")
+    partial_state["critique"] = st.session_state.revision_instructions
+    pause("Pause 2")
+    partial_state = research_agent_revise(partial_state)
     pause("Pause 3")
-    graph.update_state(config, {"critique": revision_instructions})
+    _, preview_container = containers
     pause("Pause 4")
-    graph.invoke(None, config)
+    preview_container.empty()
     pause("Pause 5")
-    preview_with_revision_option(containers[0], containers[1])  # Action for second checkpoint
+    widget_container, preview_container = containers
+    widget_container.empty()
+    preview_with_revision_option(containers, partial_state=partial_state)
+    pause("Pause 6")
 
 
-def preview_with_revision_option(pill_container: DeltaGenerator, preview_container: DeltaGenerator) -> None:
+def fill_preview_container(preview_container: DeltaGenerator, draft: str) -> None:
+    """Fill the preview container with the draft"""
+    #   preview_container.empty()
+    pause("Pause A")
+    preview_container.markdown("\n**Preview**")
+    pause("Pause B")
+    preview_container.markdown(
+        f"""
+            <div style="border:1px solid #ccc; padding:1rem; height:{PREVIEW_CONTAINER_HEIGHT}px; overflow:auto; background-color:#fafafa">
+                {draft}
+            </div>
+            """,  # noqa
+        unsafe_allow_html=True,
+    )
+    pause("Pause C")
+
+
+def preview_with_revision_option(containers: Tuple[DeltaGenerator], partial_state: Optional[State] = None) -> None:
     """Preview the draft and offer the option to add revision instructions"""
 
-    snapshot = graph.get_state(config)  # this only works because a second checkpoint has been set
-    partial_state = snapshot.values
+    widget_container, preview_container = containers
+
+    if not partial_state:
+        snapshot = graph.get_state(config)  # this only works because a second checkpoint has been set
+        partial_state = snapshot.values
 
     with preview_container:
-
-        height = 500
-        draft = markdown.markdown(partial_state["draft"])
-
-        preview_container.markdown("\n**Preview**")
-        preview_container.markdown(
-            f"""
-                <div style="border:1px solid #ccc; padding:1rem; height:{height}px; overflow:auto; background-color:#fafafa">
-                    {draft}
-                </div>
-                """,  # noqa
-            unsafe_allow_html=True,
-        )
-
-        #  preview_container.markdown("\n**✍️ **")
-        preview_container.text_area(
-            "Please provide any revision instructions, if needed",
-            key="revision_instructions",
-            on_change=send_revision_instructions,
-            args=(graph, [pill_container, preview_container]),
-        )
-
-        pill_container.pills(
-            "Alternatively, upload to Google Drive?",
-            ("Yes", "No"),
-            key="upload",
-            on_change=upload_and_complete_graph,
-            args=(graph,),
-        )
+        pause("Pause 7")
+        fill_preview_container(preview_container, partial_state["draft"])
+    pause("Pause 8")
+    widget_container.text_area(
+        "Please provide any revision instructions, if needed",
+        key="revision_instructions",
+        on_change=send_revision_instructions,
+        args=(graph, partial_state, containers),
+    )
+    pause("Pause 9")
+    widget_container.pills(
+        "Alternatively, upload to Google Drive?",
+        ("Yes", "No"),
+        key="upload",
+        on_change=upload_and_complete_graph,
+        args=(graph,),
+    )
+    pause("Pause 10")
 
 
 def upload_and_complete_graph(graph: CompiledStateGraph) -> None:
@@ -227,8 +255,10 @@ def upload_and_complete_graph(graph: CompiledStateGraph) -> None:
     st.session_state.messages.pop(-1)  # remove the human message to allow a new request
 
 
-def preview(pill_container: DeltaGenerator, preview_container: DeltaGenerator) -> None:
+def preview(containers: Tuple[DeltaGenerator]) -> None:
     """Preview the draft and confirm upload"""
+
+    widget_container, preview_container = containers
 
     snapshot = graph.get_state(config)  # this only works because a second checkpoint has been set
     partial_state = snapshot.values
@@ -248,7 +278,7 @@ def preview(pill_container: DeltaGenerator, preview_container: DeltaGenerator) -
             unsafe_allow_html=True,
         )
 
-        pill_container.pills(
+        widget_container.pills(
             "Options?",
             ("Yes", "No"),
             key="upload",
@@ -257,20 +287,22 @@ def preview(pill_container: DeltaGenerator, preview_container: DeltaGenerator) -
         )
 
 
-def update_graph_and_resume(partial_state: State, pill_container: DeltaGenerator, *args) -> None:
+def update_graph_and_resume(partial_state: State, containers: Tuple[DeltaGenerator]) -> None:
     """Update the graph with the user's response to the template check and continue the graph to the next checkpoint"""
+
+    widget_container, _ = containers
 
     if st.session_state["yesno"].lower() == "no":
         partial_state["intermediate_outputs"]["file_ids"] = None
         graph.update_state(config, partial_state)
 
-    pill_container.empty()
+    widget_container.empty()
     graph.invoke(None, config)
     st.session_state.checkpoints_cleared[0] = True
-    preview_with_revision_option(pill_container, *args)  # Action for second checkpoint
+    preview_with_revision_option(containers)  # Action for second checkpoint
 
 
-def check_template(pill_container: DeltaGenerator, *args) -> None:
+def check_template(containers: Tuple[DeltaGenerator]) -> None:
     """Check whether the user should be applying the template"""
 
     def get_template_title(partial_state: State) -> str:
@@ -281,6 +313,7 @@ def check_template(pill_container: DeltaGenerator, *args) -> None:
         template_file_id = file_ids[0]  # there should be only one file_id in the list
         return OfficeTemplate.list_as_dict()[template_file_id].title
 
+    widget_container, _ = containers
     snapshot = graph.get_state(config)  # this only works because a checkpoint has been set
     partial_state = snapshot.values
 
@@ -290,12 +323,12 @@ def check_template(pill_container: DeltaGenerator, *args) -> None:
     )
     check_template_message = check_template_message_format.format(template_title=get_template_title(partial_state))
 
-    pill_container.pills(
+    widget_container.pills(
         check_template_message,
         ("Yes", "No"),
         key="yesno",
         on_change=update_graph_and_resume,
-        args=(partial_state, pill_container) + args,
+        args=(partial_state, containers),
     )
 
 
@@ -422,8 +455,8 @@ if __name__ == "__main__":
 
                     if add_checkpoints and sum(st.session_state.checkpoints_cleared) < 2:
                         preview_container = st.container()
-                        pill_container = st.container()
-                        check_template(pill_container, preview_container)  # Action for first checkpoint
+                        widget_container = st.container()
+                        check_template((widget_container, preview_container))  # Action for first checkpoint
 
         #   if USE_LANGFUSE:
         #      feedback = streamlit_feedback(

@@ -25,7 +25,8 @@ from langgraph.graph import StateGraph
 from lgraph.drive_doc.base import BaseDriveDoc
 from lgraph.graph import call_default_chain
 from lgraph.research_agent.research_agent import AgentState as State
-from lgraph.research_agent.research_agent import revise as research_agent_revise
+
+# from lgraph.research_agent.research_agent import revise as research_agent_revise
 from llm.llm import default_llm as llm
 from llm.message import InterimAIMessage
 from llm.prompt import qa_system_prompt
@@ -86,7 +87,7 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
             "fetch_template": fetch_template,
             "apply_template": test_apply_template,  # apply_template,
             "check_revise_or_upload": check_revise_or_upload,
-            "revise": research_agent_revise,
+            #  "revise": research_agent_revise,
             "upload_output": upload_output,
             "call_default_chain": call_default_chain,
             "conclude": conclude,
@@ -103,7 +104,7 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
         builder.add_conditional_edges("check_template", check_template_router)
         builder.add_edge("fetch_template", "apply_template")
         builder.add_edge("apply_template", "check_revise_or_upload")
-        builder.add_edge("revise", "conclude")
+        #  builder.add_edge("revise", "conclude")
         builder.add_conditional_edges("check_revise_or_upload", revise_or_upload_router)
         builder.add_edge("upload_output", "conclude")
         builder.add_edge("call_default_chain", "conclude")
@@ -295,14 +296,15 @@ def check_template_router(state: State) -> Literal["fetch_template", "conclude"]
         return "conclude"
 
 
-def revise_or_upload_router(state: State) -> Literal["revise", "upload_output", "conclude"]:
-    """Go the appropriate node, depending on whether the output should be revised or uploaded to Google Drive"""
+def revise_or_upload_router(state: State) -> Literal["upload_output", "conclude"]:  # ,"revise"]:
+    # """Go the appropriate node, depending on whether the output should be revised or uploaded to Google Drive"""
+    """Go the appropriate node, depending on whether the output should be uploaded to Google Drive"""
 
     if state.get("upload_confirmed"):
         return "upload_output"
 
-    elif re.search("^HUMAN CRITIQUE:.+", state.get("critique", "")):
-        return "revise"
+    # elif re.search("^HUMAN CRITIQUE:.+", state.get("critique", "")):
+    #    return "revise"
 
     else:
         return "conclude"
