@@ -95,6 +95,10 @@ class CustomRetriever(BaseRetriever):
         return docs
 
     async def _aget_relevant_documents(self, input: RetrieverInput, **kwargs) -> List[LangchainDocument]:
+        """Asynchronous version of _get_relevant_documents
+        This is only necessary if the retriever is part of a LangGraph chain and the chain is invoked asynchronously
+        It does not actually use the async functionality of LanceDB (this was tried but didn't seem to work)
+        """  # noqa
         return self._get_relevant_documents(input, **kwargs)
 
     @staticmethod
