@@ -25,6 +25,7 @@ from langgraph.graph import StateGraph
 from lgraph.drive_doc.base import BaseDriveDoc
 from lgraph.graph import call_default_chain
 from lgraph.research_agent.research_agent import AgentState as State
+from lgraph.research_agent.research_agent import revise as research_agent_revise
 from llm.llm import default_llm as llm
 from llm.message import InterimAIMessage
 from llm.prompt import qa_system_prompt
@@ -83,14 +84,15 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
             "decide_whether_needs_template": cls.decide_whether_needs_document,
             "check_template": check_template,
             "fetch_template": fetch_template,
-            "apply_template": apply_template,
-            "check_upload": check_upload,
+            "apply_template": test_apply_template,  # apply_template,
+            "check_revise_or_upload": check_revise_or_upload,
+            "revise": research_agent_revise,
             "upload_output": upload_output,
             "call_default_chain": call_default_chain,
-            "wash_up": wash_up,
+            "conclude": conclude,
         }
 
-        default_nodes.update(nodes)
+        #     default_nodes.update(nodes)
         nodes = default_nodes
 
         for node_name, node_func in nodes.items():
@@ -100,15 +102,16 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
         builder.add_conditional_edges("decide_whether_needs_template", template_router)
         builder.add_conditional_edges("check_template", check_template_router)
         builder.add_edge("fetch_template", "apply_template")
-        builder.add_edge("apply_template", "check_upload")
-        builder.add_conditional_edges("check_upload", check_upload_router)
-        builder.add_edge("upload_output", "wash_up")
-        builder.add_edge("call_default_chain", "wash_up")
-        builder.add_edge("wash_up", END)
+        builder.add_edge("apply_template", "check_revise_or_upload")
+        builder.add_edge("revise", "conclude")
+        builder.add_conditional_edges("check_revise_or_upload", revise_or_upload_router)
+        builder.add_edge("upload_output", "conclude")
+        builder.add_edge("call_default_chain", "conclude")
+        builder.add_edge("conclude", END)
 
         if add_checkpoints:
             logger.info("Adding checkpoints to OfficeTemplate graph")
-            interrupt_before = ["check_template", "check_upload"]
+            interrupt_before = ["check_template", "check_revise_or_upload"]
             memory = MemorySaver()
             return builder.compile(interrupt_before=interrupt_before, checkpointer=memory), interrupt_before
 
@@ -120,27 +123,33 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
 # -----nodes
 
 
+def test_apply_template(state: State) -> State:
+    """Set draft with a test message"""
+    state["draft"] = "This is a test draft"
+    return state
+
+
 def check_template(state: State) -> State:
     """
     Placeholder: Check whether the template selected by decide_whether_needs_template is the right one
 
     This doesn't do anything at the moment because the actual checking happens in the app.
 
-    This is needed for the graph structure to work, but it's not used in practice.
+    This is needed for the graph structure to be clearer, but it's not used in practice.
     """  # noqa
 
     return state
 
 
-def check_upload(state: State) -> State:
+def check_revise_or_upload(state: State) -> State:
     """
     Placeholder: Check whether the upload should proceed
 
-    This doesn't do anything at the moment because the actual checking happens in the app.
+    This doesn't do much at the moment because the actual checking happens in the app.
 
-    This is needed for the graph structure to work, but it's not used in practice.
+    This is needed for the graph structure to be clearer, but it's not used in practice.
     """  # noqa
-
+    #    print("In check_revise_or_upload")
     return state
 
 
@@ -234,8 +243,11 @@ def upload_output(state: State) -> State:
     return state
 
 
-def wash_up(state: State) -> State:
-    """Clean up the state after the chain has finished"""
+def conclude(state: State) -> State:
+    """
+    Do nothing and return the state.
+    This is only needed because it is unclear how to use END in conditional edges
+    """  # noqa
     return state
 
 
@@ -274,19 +286,23 @@ def template_router(
     return "call_default_chain"
 
 
-def check_template_router(state: State) -> Literal["fetch_template", "wash_up"]:
+def check_template_router(state: State) -> Literal["fetch_template", "conclude"]:
     """Go the appropriate node, depending on whether the template is the right one"""
 
     if state["intermediate_outputs"].get("file_ids"):  # this may have been set to None via user interaction
         return "fetch_template"
     else:
-        return "wash_up"
+        return "conclude"
 
 
-def check_upload_router(state: State) -> Literal["upload_output", "wash_up"]:
-    """Go the appropriate node, depending on whether the output should be uploaded to Google Drive"""
+def revise_or_upload_router(state: State) -> Literal["revise", "upload_output", "conclude"]:
+    """Go the appropriate node, depending on whether the output should be revised or uploaded to Google Drive"""
 
-    if state["upload_confirmed"]:
+    if state.get("upload_confirmed"):
         return "upload_output"
 
-    return "wash_up"
+    elif re.search("^HUMAN CRITIQUE:.+", state.get("critique", "")):
+        return "revise"
+
+    else:
+        return "conclude"

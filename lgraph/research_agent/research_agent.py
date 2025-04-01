@@ -65,7 +65,6 @@ class AgentState(State):
     finalized_state: bool = False
     context: List[Dict]
     sidebar_options: Dict
-    edited: bool
     upload_confirmed: bool
 
 
@@ -146,10 +145,12 @@ def revise(state: AgentState) -> AgentState:
 
     st.toast(f"Revising draft no. {state.get('revision_number',0)}", icon="💡")
 
+    # print("Calling model in revise")
     result = call_model(state, pt.revision_prompt)
     result = ast.literal_eval(result.content)
     state["draft"] = result.get("draft")
     state["revision_notes"] = result.get("revision_notes")
+    # print("End of revise")
     return state
 
 

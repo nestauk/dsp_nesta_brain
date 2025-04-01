@@ -163,57 +163,66 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
 
 
-def update_draft_complete_graph() -> None:
-    """Update the agent with the edited draft and complete the graph – intended as a callback for the text_area widget in edit"""
+def send_revision_instructions(graph: CompiledStateGraph, containers: List[DeltaGenerator]) -> None:
+    """Update the graph with the revision instructions and resume the graph"""
+    pause("Pause 1")
+    revision_instructions = (
+        "HUMAN CRITIQUE: " + st.session_state.revision_instructions
+    )  # do before emptying containers?
+    pause("Pause 2")
+    #  for container in containers:
+    #     container.empty()
+    pause("Pause 3")
+    graph.update_state(config, {"critique": revision_instructions})
+    pause("Pause 4")
+    graph.invoke(None, config)
+    pause("Pause 5")
+    preview_with_revision_option(containers[0], containers[1])  # Action for second checkpoint
 
-    agent.update_state(config, {"draft": st.session_state.text_area, "edited": True})
-    #  st.session_state.final_graph_state =
-    agent.invoke(None, config)  # finish the graph after the checkpoint
-    st.session_state.checkpoints_cleared[1] = True
 
+def preview_with_revision_option(pill_container: DeltaGenerator, preview_container: DeltaGenerator) -> None:
+    """Preview the draft and offer the option to add revision instructions"""
 
-def edit(partial_state: State) -> None:
-    """Edit the draft in the UI"""
-
-    snapshot = agent.get_state(config)  # this only works because a second checkpoint has been set
+    snapshot = graph.get_state(config)  # this only works because a second checkpoint has been set
     partial_state = snapshot.values
 
-    with st.container():
+    with preview_container:
 
-        col1, col2 = st.columns(2, gap="medium")
         height = 500
         draft = markdown.markdown(partial_state["draft"])
 
-        with col1:
-            st.markdown("\n**Preview**")
-            st.markdown(
-                f"""
-                    <div style="border:1px solid #ccc; padding:1rem; height:{height}px; overflow:auto; background-color:#fafafa">
-                        {draft}
-                    </div>
-                    """,  # noqa
-                unsafe_allow_html=True,
-            )
+        preview_container.markdown("\n**Preview**")
+        preview_container.markdown(
+            f"""
+                <div style="border:1px solid #ccc; padding:1rem; height:{height}px; overflow:auto; background-color:#fafafa">
+                    {draft}
+                </div>
+                """,  # noqa
+            unsafe_allow_html=True,
+        )
 
-        with col2:
-            st.markdown("\n**✍️ Edit Markdown**")
-            st.text_area(
-                "Report content",
-                value=partial_state["draft"],
-                height=height,
-                label_visibility="collapsed",
-                key="text_area",
-                on_change=update_draft_complete_graph,
-            )
+        #  preview_container.markdown("\n**✍️ **")
+        preview_container.text_area(
+            "Please provide any revision instructions, if needed",
+            key="revision_instructions",
+            on_change=send_revision_instructions,
+            args=(graph, [pill_container, preview_container]),
+        )
+
+        pill_container.pills(
+            "Alternatively, upload to Google Drive?",
+            ("Yes", "No"),
+            key="upload",
+            on_change=upload_and_complete_graph,
+            args=(graph,),
+        )
 
 
-def upload_and_complete_graph(agent: CompiledStateGraph, *args) -> None:
+def upload_and_complete_graph(graph: CompiledStateGraph) -> None:
     """Upload the final draft to Google Drive (if the user confirms) and complete the graph"""
 
-    agent.update_state(config, {"upload_confirmed": st.session_state["upload"].lower() == "yes"})
-    # for container in args:
-    #    container.empty()
-    agent.invoke(None, config)
+    graph.update_state(config, {"upload_confirmed": st.session_state["upload"].lower() == "yes"})
+    graph.invoke(None, config)
     st.session_state.checkpoints_cleared[1] = True
     st.session_state.messages.pop(-1)  # remove the human message to allow a new request
 
@@ -221,7 +230,7 @@ def upload_and_complete_graph(agent: CompiledStateGraph, *args) -> None:
 def preview(pill_container: DeltaGenerator, preview_container: DeltaGenerator) -> None:
     """Preview the draft and confirm upload"""
 
-    snapshot = agent.get_state(config)  # this only works because a second checkpoint has been set
+    snapshot = graph.get_state(config)  # this only works because a second checkpoint has been set
     partial_state = snapshot.values
 
     height = 500
@@ -240,25 +249,25 @@ def preview(pill_container: DeltaGenerator, preview_container: DeltaGenerator) -
         )
 
         pill_container.pills(
-            "Upload to Google Drive?",
+            "Options?",
             ("Yes", "No"),
             key="upload",
             on_change=upload_and_complete_graph,
-            args=(agent, pill_container, preview_container),
+            args=(graph,),
         )
 
 
-def update_agent_and_resume(partial_state: State, pill_container: DeltaGenerator, *args) -> None:
-    """Update the agent with the user's response to the template check and continue the graph to the next checkpoint"""
+def update_graph_and_resume(partial_state: State, pill_container: DeltaGenerator, *args) -> None:
+    """Update the graph with the user's response to the template check and continue the graph to the next checkpoint"""
 
     if st.session_state["yesno"].lower() == "no":
         partial_state["intermediate_outputs"]["file_ids"] = None
-        agent.update_state(config, partial_state)
+        graph.update_state(config, partial_state)
 
     pill_container.empty()
-    agent.invoke(None, config)
+    graph.invoke(None, config)
     st.session_state.checkpoints_cleared[0] = True
-    preview(pill_container, *args)  # Action for second checkpoint
+    preview_with_revision_option(pill_container, *args)  # Action for second checkpoint
 
 
 def check_template(pill_container: DeltaGenerator, *args) -> None:
@@ -272,7 +281,7 @@ def check_template(pill_container: DeltaGenerator, *args) -> None:
         template_file_id = file_ids[0]  # there should be only one file_id in the list
         return OfficeTemplate.list_as_dict()[template_file_id].title
 
-    snapshot = agent.get_state(config)  # this only works because a checkpoint has been set
+    snapshot = graph.get_state(config)  # this only works because a checkpoint has been set
     partial_state = snapshot.values
 
     check_template_message_format = (
@@ -285,7 +294,7 @@ def check_template(pill_container: DeltaGenerator, *args) -> None:
         check_template_message,
         ("Yes", "No"),
         key="yesno",
-        on_change=update_agent_and_resume,
+        on_change=update_graph_and_resume,
         args=(partial_state, pill_container) + args,
     )
 
@@ -314,7 +323,7 @@ if __name__ == "__main__":
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        agent, interrupt_before = create_graph(add_checkpoints=add_checkpoints)
+        graph, interrupt_before = create_graph(add_checkpoints=add_checkpoints)
 
         st.set_page_config(layout="wide")
 
@@ -407,20 +416,14 @@ if __name__ == "__main__":
                         "sidebar_options": {key: st.session_state[key] for key in WIDGET_SPEC.keys()},
                     }
 
-                    graph_state = agent.invoke(
+                    graph_state = graph.invoke(
                         input, config=config, interrupt_before=interrupt_before
                     )  # NB config has no langfuse instructions at the moment
 
-                    if add_checkpoints and sum(st.session_state.checkpoints_cleared) == 0:
-                        with st.container():
-                            preview_container = st.container()
-                            pill_container = st.container()
-                            check_template(pill_container, preview_container)  # Action for first checkpoint
-
-            #       if not add_checkpoints:
-            #          message = graph_state["messages"][-1]
-            #         st.markdown(message.as_html(), unsafe_allow_html=True)
-            #        st.session_state.messages.append(message)
+                    if add_checkpoints and sum(st.session_state.checkpoints_cleared) < 2:
+                        preview_container = st.container()
+                        pill_container = st.container()
+                        check_template(pill_container, preview_container)  # Action for first checkpoint
 
         #   if USE_LANGFUSE:
         #      feedback = streamlit_feedback(
