@@ -10,7 +10,7 @@ from typing import Dict
 from typing import List
 from typing import Optional
 
-# import markdown
+import markdown
 import streamlit as st
 
 from config import DEBUG_MODE
@@ -21,8 +21,6 @@ from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
-
-# from langgraph.types import Command
 from lgraph.drive_doc.office_template import OfficeTemplate
 from lgraph.research_agent.research_agent import create_graph
 from lgraph.research_agent.research_agent import revise as research_agent_revise
@@ -189,6 +187,7 @@ def fill_preview_container(container: DeltaGenerator, draft: str) -> None:
     """Fill the preview container with the draft"""
 
     pause("Pause A")
+    draft = markdown.markdown(draft)
     with container:
         st.markdown(
             f"""
