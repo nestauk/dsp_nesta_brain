@@ -24,8 +24,6 @@ from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 
 # from streamlit_feedback import streamlit_feedback
-from eval.langfuse_ import get_langfuse
-from eval.langfuse_ import langfuse_handler
 from front_end.auth.authenticate import Authenticator
 from front_end.project_spec import INTRO
 from front_end.project_spec import WIDGET_SPEC
@@ -34,6 +32,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
+from langfuse import Langfuse
+from langfuse.callback import CallbackHandler
 from lgraph.graph import graph_options_type
 from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
@@ -45,6 +45,22 @@ if TYPE_CHECKING:
     from retrieval.retrieve import RetrieverInput as State
 
 CURRENT_YEAR = datetime.now().year
+
+
+langfuse = Langfuse(
+    secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+    public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+    host=os.getenv("LANGFUSE_HOST"),
+)
+
+# langfuse = Langfuse()
+
+langfuse_handler = CallbackHandler(
+    secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+    public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+    host=os.getenv("LANGFUSE_HOST"),
+    user_id=os.getenv("LANGFUSE_USER_ID"),
+)
 
 
 class GraphStreamEvent(dict):
@@ -98,7 +114,7 @@ def chat_history() -> List[BaseMessage]:
     return []
 
 
-def trace_metadata() -> Dict:
+def trace_metadata(**kwargs) -> Dict:
     """Compile trace metadata on sidebar parameters and the resulting filter_condition string, as well as settings"""
     sidebar_metadata = {key: st.session_state[key] for key in WIDGET_SPEC.keys()}
     metadata = {"sidebar": sidebar_metadata}
@@ -109,6 +125,10 @@ def trace_metadata() -> Dict:
         "use_graph": use_graph,
         #   "limit": limit,      #not needed in metadata if it is part of input
     }
+    metadata[
+        "policy_file_ids"
+    ] = None  # this needs to be updated via kwargs after the graph has run, if the graph is used
+    metadata.update(kwargs)
     return metadata
 
 
@@ -128,7 +148,7 @@ def respond(
             # note that this means a detailed breakdown of the trace by chain/graph component is not available in Langfuse
             # otherwise add the trace here and pass config through to the graph or chain
             config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
-            get_langfuse().trace(id=trace_id, metadata=trace_metadata())
+            langfuse.trace(id=trace_id, metadata=trace_metadata())
 
     input = {
         "messages": chat_history(),
@@ -166,16 +186,34 @@ def respond(
             if USE_LANGFUSE:
                 # the Langfuse trace is added manually here with the output because passing config
                 # to .astream_events did not seem to work and resulted in blank outputs in traces
+                policy_file_ids = final_state.get("intermediate_outputs", {}).get("policy_file_ids")
                 output = {
                     k: v
                     for k, v in final_state["raw_response"].items()
-                    if k not in ["limit", "filter_condition", "use_hybrid_search", "intermediate_outputs"]
+                    if k
+                    not in [
+                        "limit",
+                        "filter_condition",
+                        "use_hybrid_search",
+                        "intermediate_outputs",
+                    ]  # either in input or not needed
                 }
-                get_langfuse().trace(id=trace_id, input=input, output=output, metadata=trace_metadata())
+                langfuse.trace(
+                    id=trace_id,
+                    input=input,
+                    output=output,
+                    metadata=trace_metadata(policy_file_ids=policy_file_ids),
+                    user_id=os.getenv("LANGFUSE_USER_ID"),
+                )
 
         else:
 
             final_state = chain_or_graph.invoke(input, config=config)
+            if USE_LANGFUSE:
+                policy_file_ids = final_state.get("intermediate_outputs", {}).get("policy_file_ids")
+                langfuse.trace(
+                    id=trace_id, metadata={"policy_file_ids": policy_file_ids}
+                )  # this will update just the relevant key-value pair in metadata
 
         return_message = final_state["messages"][-1]
 
@@ -256,7 +294,7 @@ def push_feedback_to_langfuse() -> None:
 
     #    faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
 
-    get_langfuse().score(
+    langfuse.score(
         # trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
         trace_id=trace_id,
         name="user-feedback",
@@ -280,7 +318,7 @@ if __name__ == "__main__":
     )  # Langfuse is not currently set up for other projects –
     # don't want NestaBrain's Langfuse to store traces from other projects
 
-    stream: bool = True
+    stream: bool = False
     use_tool_for_citations: bool = False
 
     # UI settings
@@ -304,7 +342,7 @@ if __name__ == "__main__":
     if DEPLOY_MODE:
         redirect_uri = "https://nesta-brain.dap-tools.uk/"
     else:
-        redirect_uri = "http://localhost:8501/"
+        redirect_uri = "http://localhost:8501"
     authenticator = Authenticator(
         # allowed_users=allowed_users,   #adapted to allow any email address with a nesta.org.uk domain
         token_key=os.getenv("AUTH_TOKEN_KEY"),

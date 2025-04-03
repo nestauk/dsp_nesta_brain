@@ -129,7 +129,7 @@ def interpret_policy_decision(message: AIMessage, state: State) -> State:
 
         if file_ids_are_right_format:
             logger.info(f"Policy document IDs identified: {file_ids}")
-            state["intermediate_outputs"]["file_ids"] = file_ids
+            state["intermediate_outputs"]["policy_file_ids"] = file_ids
             filter_condition = "(" + " or ".join([f'source.location LIKE "%{file_id}"' for file_id in file_ids]) + ")"
             state["use_hybrid_search"] = False
             # filter_condition = f'(source.drive_type == "policy" or source.location LIKE "%{file_id}")'
@@ -270,7 +270,7 @@ def create_chat_graph(
 def choose_main_prompt(state: State) -> State:
     """Choose the main prompt based on whether retrieval has been restricted to policy documents"""
 
-    if state["intermediate_outputs"].get("file_ids"):
+    if state["intermediate_outputs"].get("policy_file_ids"):
         main_prompt = qa_verbatim_prompt
     else:
         main_prompt = qa_prompt
