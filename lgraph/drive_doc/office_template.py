@@ -85,7 +85,7 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
             "decide_whether_needs_template": cls.decide_whether_needs_document,
             "check_template": check_template,
             "fetch_template": fetch_template,
-            "apply_template": test_apply_template,  # apply_template,
+            "apply_template": apply_template,  # test_apply_template
             "check_revise_or_upload": check_revise_or_upload,
             #  "revise": research_agent_revise,
             "upload_output": upload_output,
@@ -93,7 +93,7 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
             "conclude": conclude,
         }
 
-        #     default_nodes.update(nodes)
+        default_nodes.update(nodes)
         nodes = default_nodes
 
         for node_name, node_func in nodes.items():
@@ -124,10 +124,10 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
 # -----nodes
 
 
-def test_apply_template(state: State) -> State:
-    """Set draft with a test message"""
-    state["draft"] = "This is a test draft"
-    return state
+# def test_apply_template(state: State) -> State:
+#   """Set draft with a test message"""
+#  state["draft"] = "This is a test draft"
+# return state
 
 
 def check_template(state: State) -> State:

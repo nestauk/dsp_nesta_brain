@@ -9,7 +9,7 @@ CURRENT_YEAR = datetime.now().year
 
 if PROJECT == "NESTA_BRAIN":
 
-    INTRO = """
+    WELCOME_INTRO = """
             <h2>🧠 Nesta Brain</h2><br/>
             This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
             It searches thousands of webpages and reports to find the most relevant content
@@ -25,6 +25,14 @@ if PROJECT == "NESTA_BRAIN":
             us general feedback using this form</a>.
             You can also contact directly Karlis Kanders or Helen Jackson (Data Science Practice / Discovery Hub)
             on <a href="https://nesta.slack.com/archives/C05BCUZNATG">#proj-nesta-brain</a>.
+            <br/><br/>
+            """
+
+    PAGE_INTRO = """
+            <h2>🧠 Nesta Brain Chatbot</h2><br/>
+            This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
+            It searches thousands of webpages and reports to find the most relevant content
+            in response to your questions.
             <br/><br/>
             The chatbot currently accesses information from <strong>Nesta's public website (up to October 2024)</strong>
             and does <strong>not</strong> include internal documents or systems like Nesta:Net, Slack, or GitHub.
@@ -62,7 +70,7 @@ if PROJECT == "NESTA_BRAIN":
 
 elif PROJECT == "POLICY_ATLAS":
 
-    INTRO = """
+    WELCOME_INTRO = """
             <h2>🌎 Policy Atlas</h2><br/>
             This is an early prototype AI chatbot designed to help you find and summarise information about
             international aid activities by the Foreign, Commonwealth and Development Office (FCDO).
