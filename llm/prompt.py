@@ -41,7 +41,7 @@ if PROJECT == "NESTA_BRAIN":
         "whistleblowing",
     ]
 
-    HR_pointer = "Please reach out to the People Team for further guidance on serious matters."
+    HR_pointer = "__Please reach out to the People Team for further guidance on serious matters.__"
 
     qa_system_prompt = f"""
         You are "Nesta Brain", an experimental, helpful assistant and an expert on the internal administration, personnel and projects of the innovation agency Nesta.

@@ -39,7 +39,7 @@ if PROJECT == "NESTA_BRAIN":
             <span style="color: red">Like any AI chatbot, responses are not guaranteed to be 100% accurate and complete.
             Please always double-check the information provided and use your own judgement.
             If you need in-depth assistance on matters which could affect your personal welfare or career, please
-            seek help from the relevant staff member.</span>
+            seek help from the People Team.</span>
             """
 
     WIDGET_SPEC = OrderedDict(
