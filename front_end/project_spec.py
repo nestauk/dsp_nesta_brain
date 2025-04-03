@@ -20,8 +20,7 @@ if PROJECT == "NESTA_BRAIN":
             and generate new outputs.
             <br/><br/>
             This is an early version and we welcome your feedback
-            very much - please use the
-            emojis below to highlight specific responses, and <a href='https://forms.gle/TwXqUMHNTaPbYC4e7'>leave
+            very much - please <a href='https://forms.gle/TwXqUMHNTaPbYC4e7'>leave
             us general feedback using this form</a>.
             You can also contact directly Karlis Kanders or Helen Jackson (Data Science Practice / Discovery Hub)
             on <a href="https://nesta.slack.com/archives/C05BCUZNATG">#proj-nesta-brain</a>.
@@ -39,6 +38,8 @@ if PROJECT == "NESTA_BRAIN":
             <br/><br/>
             Use the sidebar to customize the chatbot's search parameters, such as date range or mission team.
             Note that user queries and responses are saved for chatbot's performance evaluation and improvement.
+            Please use emojis to give feedback on specific responses.
+            <br/><br/>
             """
 
     WIDGET_SPEC = OrderedDict(

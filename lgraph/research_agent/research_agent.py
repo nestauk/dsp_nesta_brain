@@ -102,7 +102,9 @@ def write(state: AgentState) -> AgentState:
     """
 
     use_retrieval_sidebar_option = (
-        importlib.import_module("app_research").WIDGET_SPEC["knowledge_source"].get("use_retrieval_option")
+        importlib.import_module("pages.2_Document_Generation")
+        .WIDGET_SPEC["knowledge_source"]
+        .get("use_retrieval_option")
     )
     use_retrieval = state.get("sidebar_options", {}).get("knowledge_source") == use_retrieval_sidebar_option
 
