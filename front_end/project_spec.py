@@ -11,6 +11,10 @@ if PROJECT == "NESTA_BRAIN":
 
     INTRO = """
             <h2>🧠 Nesta Brain</h2><br/>
+
+            <span style="color:red">DELETE THIS: red text shows recent edits to the intro.
+            Remove the red styling when happy with the edits.</span><br><br>
+
             This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
             It searches thousands of webpages and reports to find the most relevant content
             in response to your questions.
