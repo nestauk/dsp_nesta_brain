@@ -31,6 +31,11 @@ if PROJECT == "NESTA_BRAIN":
             <br/><br/>
             Use the sidebar to customize the chatbot's search parameters, such as date range or mission team.
             Note that user queries and responses are saved for chatbot's performance evaluation and improvement.
+            <br/><br/>
+            <span style="color: red">Like any AI chatbot, responses are not guaranteed to be 100% accurate and complete.
+            Please always double-check the information provided and use your own judgement.
+            If you need in-depth assistance on matters which could affect your personal welfare or career, please
+            seek help from the relevant staff member.</span>
             """
 
     WIDGET_SPEC = OrderedDict(
