@@ -53,7 +53,6 @@ NESTA_SITE_URL = "https://nesta.org.uk"
 
 
 DB = lancedb.connect(DB_PATH)
-DOCUMENT_TABLE = DB.open_table("document")
 CHUNK_TABLE = None  # defined below
 
 
@@ -184,7 +183,6 @@ def ingest(documents: List[LangchainDocument], replace: bool = False, **kwargs) 
             logger.info(f"{N_in_db} documents were already in the database and will be replaced")
             for doc in already_in_db:
                 chunk_table.delete(f'source.location = "{doc.metadata["location"]}"')
-                DOCUMENT_TABLE.delete(f'location = "{doc.metadata["location"]}"')
 
         else:
             logger.info(
@@ -196,17 +194,8 @@ def ingest(documents: List[LangchainDocument], replace: bool = False, **kwargs) 
 
         chunks, lance_documents = asyncio.run(documents_to_Chunks(documents, **kwargs))
 
-        # ====CAUTION====
-        # DOCUMENT_TABLE.add(lance_documents) introduces data redundancy in the database
-        # and should be removed for later versions.
-        # The source field in the chunk table does not link to a Document record.
-        # If the title of a record in the document table is updated,
-        # the source.title for the relevant chunk records remains the same
-        # This is a recipe for mess!
-        # I am keeping this in temporarily for purposes of experimentation
         if chunks:
-            logger.info(f"Ingested {len(lance_documents)} Document(s) and {len(chunks)} Chunk(s) into the database")
-            DOCUMENT_TABLE.add(lance_documents)
+            logger.info(f"Ingested {len(chunks)} Chunk(s) from {len(lance_documents)} Document(s) into the database")
             chunk_table.add(chunks)
         else:
             logger.info(f"No chunks from document(s) {lance_documents} into ingest to the database")
