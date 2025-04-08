@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import uuid
 
@@ -19,7 +18,6 @@ from config import ALLOW_POLICY_DOCS
 from config import DEBUG_MODE
 from config import EARLIEST_YEAR
 from config import USE_LANGFUSE
-from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from front_end.project_spec import PAGE_INTRO
 from front_end.project_spec import WIDGET_SPEC
@@ -34,6 +32,7 @@ from lgraph.graph import graph_options_type
 from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
+from Welcome import setup
 
 
 # from streamlit_feedback import streamlit_feedback
@@ -347,24 +346,19 @@ if __name__ == "__main__":
 
     stream: bool = True
     use_tool_for_citations: bool = False
+    if use_tool_for_citations:
+        raise Exception("use_tool_for_citations may no longer work – need to check")
 
     # UI settings
     initial_message: str = "Hi, how can I help?"
 
-    if use_tool_for_citations:
-        raise Exception("use_tool_for_citations may no longer work – need to check")
+    setup()
 
     runnable, stream_nodes = get_graph_or_rag_chain(
         use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
     )
 
-    load_dotenv()
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-
     if st.session_state["connected"]:
-
-        load_dotenv()
-        logging.getLogger("httpx").setLevel(logging.WARNING)
 
         runnable, stream_nodes = get_graph_or_rag_chain(
             use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 
 from collections import OrderedDict
@@ -13,7 +12,6 @@ import markdown
 import streamlit as st
 
 from config import DEBUG_MODE
-from dotenv import load_dotenv
 from front_end.sidebar import sidebar
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
@@ -23,6 +21,7 @@ from lgraph.drive_doc.office_template import OfficeTemplate
 from lgraph.research_agent.research_agent import create_graph
 from lgraph.research_agent.research_agent import revise as research_agent_revise
 from llm.message import CustomAIMessage
+from Welcome import setup
 
 
 if TYPE_CHECKING:
@@ -185,8 +184,7 @@ if __name__ == "__main__":
     add_checkpoints: bool = True
     initial_message: str = "Hi, how can I help?"
 
-    load_dotenv()
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    setup()
 
     graph, interrupt_before = create_graph(add_checkpoints=add_checkpoints)
 
