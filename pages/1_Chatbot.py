@@ -271,19 +271,20 @@ def filter_conditions() -> Union[str, None]:
 
     for key, spec in WIDGET_SPEC.items():
 
-        default = spec["default"]
-        filter_condition_format = spec["filter_condition_format"]
-        current_value = st.session_state[key]
+        if spec.get("filter_condition_format"):
+            default = spec["default"]
+            filter_condition_format = spec["filter_condition_format"]
+            current_value = st.session_state[key]
 
-        if key == "from_year":
-            append_filter_condition = current_value != EARLIEST_YEAR
-        else:
-            append_filter_condition = current_value != default
-            # caution: if the rest of the widgets are at their default value then no filter is required
-            # if the defaults change, the logic here may also need to change
+            if key == "from_year":
+                append_filter_condition = current_value != EARLIEST_YEAR
+            else:
+                append_filter_condition = current_value != default
+                # caution: if the rest of the widgets are at their default value then no filter is required
+                # if the defaults change, the logic here may also need to change
 
-        if append_filter_condition:
-            filter_conditions.append(filter_condition_format.format(current_value=current_value))
+            if append_filter_condition:
+                filter_conditions.append(filter_condition_format.format(current_value=current_value))
 
     if filter_conditions:
         return " and ".join(filter_conditions)
