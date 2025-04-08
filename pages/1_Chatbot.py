@@ -173,11 +173,7 @@ def respond(
 ) -> CustomAIMessage:
     """Get LLM response from chain"""
 
-    if USE_LANGFUSE:
-        trace_id = str(uuid.uuid4())
-        config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
-    else:
-        config = {}
+    config = get_langfuse_config()
 
     input = {
         "messages": chat_history(),
@@ -195,7 +191,7 @@ def respond(
                 message_text = ""
                 id = None
 
-                async for event in chain_or_graph.astream_events(input, config, version="v1", stream_mode="values"):
+                async for event in chain_or_graph.astream_events(input, version="v1", stream_mode="values"):
 
                     event = GraphStreamEvent(event)
 
@@ -212,8 +208,36 @@ def respond(
 
             final_state = asyncio.run(stream_())
 
+             if langfuse_mode() == "consent":
+                # the Langfuse trace is added manually here with the output because passing config
+                # to .astream_events did not seem to work and resulted in blank outputs in traces
+                policy_file_ids = final_state.get("intermediate_outputs", {}).get("policy_file_ids")
+                output = {
+                    k: v
+                    for k, v in final_state["raw_response"].items()
+                    if k
+                    not in [
+                        "limit",
+                        "filter_condition",
+                        "use_hybrid_search",
+                        "intermediate_outputs",
+                    ]  # either in input or not needed
+                }
+                langfuse.trace(
+                    id=st.session_state["current_trace_id"],
+                    input=input,
+                    output=output,
+                    metadata=trace_metadata(policy_file_ids=policy_file_ids),
+                    user_id=os.getenv("LANGFUSE_USER_ID"),
+                )
+
         else:
             final_state = chain_or_graph.invoke(input, config=config)
+            if langfuse_mode() == "consent":
+                policy_file_ids = final_state.get("intermediate_outputs", {}).get("policy_file_ids")
+                langfuse.trace(
+                    id=st.session_state["current_trace_id"], metadata={"policy_file_ids": policy_file_ids}
+                )  # this will update just the relevant key-value pair in metadata
 
         return_message = final_state["messages"][-1]
 
@@ -256,10 +280,6 @@ def respond(
         # Remove the message placeholder text after all the text has been received, as
         # it will be rendered in a nicer format with references
         message_placeholder.markdown("")
-
-    if USE_LANGFUSE:
-        langfuse.trace(id=trace_id, metadata=trace_metadata())
-        st.session_state.chatbot["current_trace_id"] = trace_id
 
     return return_message
 
