@@ -49,13 +49,13 @@ class BaseDriveDoc(BaseModel):
 
     @staticmethod
     def format_list(
-        base_docs: List[BaseDriveDoc], as_string: bool = False, to_csv: bool = False
+        base_docs: List[BaseDriveDoc], as_string: bool = False, to_csv: bool = False, file_name: str = "tmp.csv"
     ) -> Union[str, pd.DataFrame]:
-        """Get all the policies in the vector DB and convert to the Policy class"""
+        """List all the relevant drive docs in a particular format"""
 
         if to_csv:
             df = pd.DataFrame.from_records([doc.to_dict() for doc in base_docs])
-            df.to_csv("retrieval/db/ingest/policies.csv", index=False)
+            df.to_csv(file_name, index=False)
             return df
 
         elif as_string:
