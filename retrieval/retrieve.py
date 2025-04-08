@@ -290,7 +290,6 @@ if __name__ == "__main__":
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     db = lancedb.connect(DB_PATH)
-    doc_table = db.open_table("document")
     chunk_table = db.open_table(CHUNK_TABLE_NAME)
     project_table = db.open_table("mission_project")
 
