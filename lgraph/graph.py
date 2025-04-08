@@ -10,6 +10,7 @@ from typing import Dict
 from typing import Literal
 from typing import Type
 
+from config import ALLOW_POLICY_DOCS
 from config import DEFAULT_START_YEAR
 from dsp_nesta_brain import logger
 from langchain_core.runnables import RunnableParallel
@@ -19,7 +20,8 @@ from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.types import StreamWriter
 from lgraph.prompt import currentness_comment_prompt
-from lgraph.prompt import needs_policy_prompt
+if ALLOW_POLICY_DOCS:
+    from lgraph.prompt import needs_policy_prompt
 from lgraph.prompt import personnel_prompt
 from lgraph.prompt import year_constraint_prompt
 from llm.llm import default_llm as llm
@@ -43,6 +45,7 @@ class State(RetrieverInput):
     """State class for the graph"""
 
     intermediate_outputs: Dict
+    raw_response: Dict
 
 
 def append_filter_condition(state: State, new_filter_condition: str) -> State:
@@ -71,16 +74,15 @@ def append_filter_condition(state: State, new_filter_condition: str) -> State:
 
 
 # -------NODES
+# NB: create async versions of any functions used in a graph which is invoked asynchronously
+
 def decide_if_person_page(state: State) -> State:
     """Decide if the retrieval should be limited to person pages only; add appropriate filter_condition to the state if so"""
-    if (
-        "source.contentType" not in state["filter_condition"]
-    ):  # if the user has explicitly set a filter condition via the UI, use that one and ignore the node
+    if "source.contentType" not in state["filter_condition"]:  # if the user has explicitly set a filter condition via the UI, use that one and ignore the node
         chain = personnel_prompt | llm
         response = chain.invoke(state["input"])
         if response.content == "YES":
             state = append_filter_condition(state, "source.contentType = 'person page'")
-    #  print("within 'decide_if_person_page': ", state)
     return state
 
 
@@ -108,12 +110,12 @@ def decide_if_need_time_constraint(state: State) -> State:
     return state
 
 
-def decide_whether_needs_policy(state: State) -> State:
-    """Decide whether a policy document is needed"""
+def interpret_policy_decision(message: AIMessage, state: State) -> State:
 
-    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
-
-    message = chain.invoke(state)
+    """
+    Interpret which policy documents are needed based on the user's response, and append the
+    retrieval filter condition accordingly
+    """  # noqa
 
     if message.content != "NULL":
 
@@ -123,7 +125,7 @@ def decide_whether_needs_policy(state: State) -> State:
 
         if file_ids_are_right_format:
             logger.info(f"Policy document IDs identified: {file_ids}")
-            state["intermediate_outputs"]["file_ids"] = file_ids
+            state["intermediate_outputs"]["policy_file_ids"] = file_ids
             filter_condition = "(" + " or ".join([f'source.location LIKE "%{file_id}"' for file_id in file_ids]) + ")"
             state["use_hybrid_search"] = False
             # filter_condition = f'(source.drive_type == "policy" or source.location LIKE "%{file_id}")'
@@ -133,6 +135,22 @@ def decide_whether_needs_policy(state: State) -> State:
                 f"Policy document IDs did not seem to be in the correct format. Message content: {message.content}"
             )
 
+    return state
+
+async def async_decide_whether_needs_policy(state: State) -> State:
+    """Decide whether a policy document is needed"""
+
+    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
+    message = await chain.ainvoke(state)
+    state = interpret_policy_decision(message, state)
+    return state
+
+def decide_whether_needs_policy(state: State) -> State:
+
+    """Decide whether a policy document is needed"""
+    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
+    message = chain.invoke(state)
+    state = interpret_policy_decision(message, state)
     return state
 
 
@@ -254,7 +272,7 @@ def create_chat_graph(
 def choose_main_prompt(state: State) -> State:
     """Choose the main prompt based on whether retrieval has been restricted to policy documents"""
 
-    if state["intermediate_outputs"].get("file_ids"):
+    if state["intermediate_outputs"].get("policy_file_ids"):
         main_prompt = qa_verbatim_prompt
     else:
         main_prompt = qa_prompt
