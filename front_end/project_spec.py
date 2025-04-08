@@ -11,6 +11,10 @@ if PROJECT == "NESTA_BRAIN":
 
     WELCOME_INTRO = """
             <h2>🧠 Nesta Brain</h2><br/>
+
+            <span style="color:red">DELETE THIS: red text shows recent edits to the intro.
+            Remove the red styling when happy with the edits.</span><br><br>
+            
             This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
             It searches thousands of webpages and reports to find the most relevant content
             in response to your questions.
@@ -20,7 +24,8 @@ if PROJECT == "NESTA_BRAIN":
             and generate new outputs.
             <br/><br/>
             This is an early version and we welcome your feedback
-            very much - please <a href='https://forms.gle/TwXqUMHNTaPbYC4e7'>leave
+            very much - please use the
+            emojis below to highlight specific responses, and <a href='https://forms.gle/TwXqUMHNTaPbYC4e7'>leave
             us general feedback using this form</a>.
             You can also contact directly Karlis Kanders or Helen Jackson (Data Science Practice / Discovery Hub)
             on <a href="https://nesta.slack.com/archives/C05BCUZNATG">#proj-nesta-brain</a>.
@@ -34,12 +39,19 @@ if PROJECT == "NESTA_BRAIN":
             in response to your questions.
             <br/><br/>
             The chatbot currently accesses information from <strong>Nesta's public website (up to October 2024)</strong>
-            and does <strong>not</strong> include internal documents or systems like Nesta:Net, Slack, or GitHub.
+            and does <strong>not</strong> include internal documents or systems like Nesta:Net, Slack, or GitHub 
+            <span style="color:red">with the exception of a sample of people policies used for development</span>.
             <br/><br/>
             Use the sidebar to customize the chatbot's search parameters, such as date range or mission team.
-            Note that user queries and responses are saved for chatbot's performance evaluation and improvement.
-            Please use emojis to give feedback on specific responses.
+            Note that <span style="color:red">by default</span> user queries and responses are saved for chatbot's performance evaluation and improvement.
+            <span style="color:red">Please note that this data is not linked to your identity or log-in credentials.
+            However, you may opt out by clicking "Opt out, please" under the "Monitoring and evaluation" heading
+            in the sidebar.</span>
             <br/><br/>
+             <span style="color: red">Like any AI chatbot, responses are not guaranteed to be 100% accurate and complete.
+            Please always double-check the information provided and use your own judgement.
+            If you need in-depth assistance on matters which could affect your personal welfare or career, please
+            seek help from the People Team.</span>
             """
 
     WIDGET_SPEC = OrderedDict(
@@ -66,6 +78,11 @@ if PROJECT == "NESTA_BRAIN":
                 "label": "Mission-specific content",
                 "element_type": "radio",
             },
+            "monitoring": {
+                "default": "I'm OK with that",
+                "options": ("I'm OK with that", "Opt out, please"),
+                "consent_option_index": 0,
+            }
         }
     )
 
