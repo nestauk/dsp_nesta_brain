@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from datetime import datetime
 from typing import List
+from typing import Union
 
 import lancedb
 import pandas as pd
@@ -45,6 +46,11 @@ class Policy(BaseModel):
         """Self-explanatory"""
         format_ = "\n\tfield_id: {file_id}\n\ttitle: {title}\n\tdate_pub: {date_pub}"
         return format_.format(**{k: getattr(self, k) for k in self.__class__.dict(self) if k in format_})
+
+    @staticmethod
+    def format_list(*args, file_name: str = "retrieval/db/ingest/policies.csv", **kwargs) -> Union[str, pd.DataFrame]:
+        """List all the relevant policies in a particular format"""
+        super().format_list(*args, file_name=file_name, **kwargs)
 
     @staticmethod
     def list(as_string: bool = False, to_csv: bool = False) -> List[Policy]:
