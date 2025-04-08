@@ -59,4 +59,14 @@ def sidebar(*args) -> List:
                 )
             )
 
+        if key == "monitoring":
+            sidebar_elements.append(
+                st.radio(
+                    "Monitoring and evaluation",
+                    spec["options"],
+                    key=key,
+                    index=spec["options"].index(spec["default"]),
+                )
+            )
+
     return sidebar_elements

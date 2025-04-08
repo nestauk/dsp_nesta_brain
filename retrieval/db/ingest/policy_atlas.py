@@ -1,38 +1,31 @@
-import asyncio
+import argparse
 import logging
-import sys
 
-from typing import List
-
-import lancedb
 import pandas as pd
+import retrieval.db.ingest.const as const
 import retrieval.db.ingest.ingest as ing
 
-from config import DB_PATH
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
-from retrieval.db.schema.policy_atlas import Activity as Chunk
+from retrieval.db.schema.policy_atlas import Activity
 
 
 DATA_PATH = PROJECT_DIR / "data/policy_atlas/fcdo_iati_data_2025_01_17.csv"
 
-DB = lancedb.connect(DB_PATH)
-CHUNK_TABLE = DB.open_table("activity")
 
-
-def chunk_already_in_db(chunk: LangchainDocument) -> bool:
+def chunk_already_in_db(chunk: LangchainDocument, **kwargs) -> bool:
     """Determine whether identical chunks have already been added to the database.
 
     Chunking strategy should have been the same.
     """
 
     where_condition = f'iati_identifier == "{chunk.metadata["iati_identifier"]}"'
-    results = ing.chunk_already_in_db(chunk, where_condition=where_condition)
+    results = ing.chunk_already_in_db(chunk, where_condition=where_condition, **kwargs)
     return bool(results)
 
 
-async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Chunk:
+async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Activity:
     """
     Convert a Langchain document into an object
     of the Chunk class which can be ingested into the DB
@@ -45,65 +38,39 @@ async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Ch
         return e
 
 
-async def documents_to_Chunks(documents: List[LangchainDocument]) -> List[Chunk]:
-    """Convert LangchainDocuments into objects of the Chunk class (without splitting them) which can be ingested into the DB"""
-
-    # There should be no need to split documents into chunks as activity texts aren't long enough
-    return ing.documents_to_Chunks_no_split(
-        documents, skip_message_format="Skipping chunk {iati_identifier} as it already seems to be in the DB"
-    )
-
-
-def ingest(documents: List[LangchainDocument], replace: bool = False) -> None:
-    """
-    Find out which documents are not already in the database, convert them into
-    Document and Chunk data in accordance with the db schema
-    and insert this into the database
-    """  # noqa
-
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-
-    chunks = asyncio.run(documents_to_Chunks(documents))
-
-    if chunks:
-        logger.info(f"Ingested {len(chunks)} Chunks into the database")
-        CHUNK_TABLE.add(chunks)
-    else:
-        logger.info("No chunks to ingest into the database")
-
-    logging.getLogger("httpx").setLevel(logging.INFO)
-
-
-def csv_rows_to_ingested_data(start_index: int, batch_size: int) -> None:
-    """Perform a search, scrape the webpages from the search results, and ingest the data"""
-
-    data = pd.read_csv(DATA_PATH)
-    rows = data[start_index : (start_index + batch_size)].to_dict(orient="records")
-
-    docs = [LangchainDocument(page_content=row.pop("text"), metadata=row) for row in rows]
-
-    ingest(docs)
-
-
 if __name__ == "__main__":
 
     logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 
-    # SETTINGS
-    start_index = (
-        int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    # command line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--start_index", type=int, default=0
     )  # the row of the policy data CSV to start ingesting; everything prior to this will be ignored
-    batch_size = (
-        225  # the number of CSV rows to ingest at a time. Batch sizes of 230+ seem to get errors back from OpenAI.
-    )
+    parser.add_argument(
+        "--batch_size", type=int, default=10
+    )  # the number of CSV rows to ingest at a time. Batch sizes of 230+ seem to get errors back from OpenAI.
+
+    # settings constants which may be needed in other files
+    const.Chunk = Activity
+    const.CHUNK_TABLE_NAME = "activity"
 
     # global variable
     request_counter = ing.RequestCounter()
 
+    args = parser.parse_args()
+
     data = pd.read_csv(DATA_PATH)
     N_rows = data.shape[0]
 
-    for start_index_ in range(start_index, N_rows, batch_size):
+    for start_index_ in range(args.start_index, N_rows, args.batch_size):
 
-        logger.info(f"Ingesting records {start_index_} to {start_index_ + batch_size - 1} ...")
-        csv_rows_to_ingested_data(start_index_, batch_size)
+        logger.info(f"Ingesting records {start_index_} to {start_index_ + args.batch_size - 1} ...")
+        ing.csv_rows_to_ingested_data(
+            DATA_PATH,
+            start_index_,
+            args.batch_size,
+            identifier="iati_identifier",
+            Chunk_func=chunk_to_Chunk,
+            chunk_presence_test=chunk_already_in_db,
+        )

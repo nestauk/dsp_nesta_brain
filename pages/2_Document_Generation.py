@@ -126,8 +126,13 @@ def fill_preview_container(
 
         st.text_area(
             "Please provide any revision instructions, if needed",
-            key="revision_instructions",
-            on_change=send_revision_instructions,
+            key="revision_instructions"
+        )
+
+        st.button(
+            "Submit",
+            key="revision_submit",
+            on_click=send_revision_instructions,
             args=(partial_state, *(pill_container, preview_container)),
         )
 

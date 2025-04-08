@@ -1,4 +1,4 @@
-# Byte-compiled / optimized / DLL files
+__# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -172,9 +172,8 @@ outputs/*
 !/outputs/*.md
 # DS store in any folder
 **/.DS_Store
-retrieval/db/ccid_demo_db
-retrieval/db/ccid_demo_db/*
-retrieval/db/full_site_demo_db
-retrieval/db/full_site_demo_db_with_pdfs
-retrieval/db/policy_atlas
+retrieval/db/knowledge_bases
 .streamlit/
+#other
+documentation/policy_documents_ingested.csv
+client_secret.json

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import os
 import re
 
@@ -9,6 +10,7 @@ from typing import Optional
 from typing import Union
 
 import lancedb
+import numpy as np
 
 from config import DB_PATH
 from config import PROJECT
@@ -31,10 +33,15 @@ if PROJECT == "NESTA_BRAIN":
     Chunk = NestaBrainChunk
     CHUNK_TABLE_NAME = "chunk"
     DEFAULT_MERGE = True
+    SCHEMA_MODULE = importlib.import_module("retrieval.db.schema.nesta_brain")
+
 elif PROJECT == "POLICY_ATLAS":
     Chunk = Activity
     CHUNK_TABLE_NAME = "activity"
     DEFAULT_MERGE = False  # activity records were not split into separate chunks,so no need to merge
+    SCHEMA_MODULE = importlib.import_module("retrieval.db.schema.policy_atlas")
+
+table_name_to_schema_class_map = SCHEMA_MODULE.table_name_to_schema_class_map
 
 
 class RetrieverInput(MessagesState):
@@ -87,6 +94,13 @@ class CustomRetriever(BaseRetriever):
 
         return docs
 
+    async def _aget_relevant_documents(self, input: RetrieverInput, **kwargs) -> List[LangchainDocument]:
+        """Asynchronous version of _get_relevant_documents
+        This is only necessary if the retriever is part of a LangGraph chain and the chain is invoked asynchronously
+        It does not actually use the async functionality of LanceDB (this was tried but didn't seem to work)
+        """  # noqa
+        return self._get_relevant_documents(input, **kwargs)
+
     @staticmethod
     def chunks_to_docs(
         chunks: List[Chunk], merge: bool = DEFAULT_MERGE, enumerate_: bool = False
@@ -110,11 +124,17 @@ class CustomRetriever(BaseRetriever):
         Then concatenate the texts of each chunk belonging to each individual document.
         Then create a new Langchain Document containing this concatenated text
         """  # noqa
+
         chunks_grouped_by_source = OrderedDict({})
+        no_source_chunks = []  # chunks from a schema which does not have a source property
+
         for chunk in chunks:
-            if chunk.source not in chunks_grouped_by_source:
-                chunks_grouped_by_source[chunk.source] = []
-            chunks_grouped_by_source[chunk.source].append(chunk)
+            if hasattr(chunk, "source"):
+                if chunk.source not in chunks_grouped_by_source:
+                    chunks_grouped_by_source[chunk.source] = []
+                chunks_grouped_by_source[chunk.source].append(chunk)
+            else:
+                no_source_chunks.append(chunk)
 
         docs = []
         for source, chunks in chunks_grouped_by_source.items():
@@ -124,18 +144,40 @@ class CustomRetriever(BaseRetriever):
             # some chunks which were ingested initially will have order_index = None;
             # no chunk should lack an order_index if other chunks from the same document have one
             text = "\n\n".join([chunk.text for chunk in chunks])
+            metadata = source.as_metadata()
+            metadata.update({"schema": Chunk.__name__})
             doc = Chunk.to_LangchainDocument_(
-                text, metadata=source.as_metadata(), enumeration_index=len(docs) + 1 if enumerate_ else None
+                text, metadata=metadata, enumeration_index=len(docs) + 1 if enumerate_ else None
+            )
+            docs.append(doc)
+
+        for chunk in no_source_chunks:
+            metadata = chunk.metadata
+            metadata.update({"schema": chunk.__class__.__name__})
+            doc = chunk.to_LangchainDocument_(
+                text, metadata=metadata, enumeration_index=len(docs) + 1 if enumerate_ else None
             )
             docs.append(doc)
 
         return docs
 
     @staticmethod
-    def retrieve_chunks(db: LanceDBConnection, input: RetrieverInput, **kwargs) -> List[Chunk]:
+    def retrieve_chunks(
+        db: LanceDBConnection,
+        input: RetrieverInput,
+        include_projects: bool = False,
+        quantile_limit: float = 0.333,
+        **kwargs,
+    ) -> List[Chunk]:
         """Retrieve chunks synchrously"""
 
         chunk_table = db.open_table(CHUNK_TABLE_NAME)
+
+        if include_projects:
+            project_table = db.open_table("mission_project")
+            tables = [chunk_table, project_table]
+        else:
+            tables = [chunk_table]
 
         query = input["messages"][-1].content
         limit = input["limit"]
@@ -149,27 +191,33 @@ class CustomRetriever(BaseRetriever):
             vector_ = None
 
         chunks = CustomRetriever.search_loop(
-            chunk_table, query, vector_, limit, filter_condition=filter_condition, **kwargs
+            tables, query, vector_, limit, filter_condition=filter_condition, **kwargs
         )
-        chunks = chunks[0:limit]
 
         if input["use_hybrid_search"]:
             info_message_format = "Retrieved {N_chunks} chunks. Relevance scores: {relevance_scores}"
+            relevance_scores = [chunk.relevance_score for chunk in chunks]
         else:
             info_message_format = (
                 "Retrieved {N_chunks} chunks. Relevance scores not available when not using hybrid or vector search."
             )
-        logger.info(
-            info_message_format.format(
-                N_chunks=len(chunks), relevance_scores=[chunk.relevance_score for chunk in chunks]
-            )
-        )
+            relevance_scores = None
+        logger.info(info_message_format.format(N_chunks=len(chunks), relevance_scores=relevance_scores))
+
+        if include_projects and input["use_hybrid_search"]:
+            ranked_chunks = sorted(chunks, key=lambda chunk: chunk.relevance_score, reverse=True)
+            quantile = np.quantile([chunk.relevance_score for chunk in chunks], quantile_limit)
+            top_chunks = [chunk for chunk in ranked_chunks if chunk.relevance_score >= quantile]
+            chunks = top_chunks[0:limit]
+
+        else:
+            chunks = chunks[0:limit]
 
         return chunks
 
     @staticmethod
     def search_loop(
-        table: LanceTable,
+        table_or_tables: Union[LanceTable, List[LanceTable]],
         query: str,
         vector_: Union[List[float], None],
         limit: int,
@@ -177,44 +225,60 @@ class CustomRetriever(BaseRetriever):
     ) -> List[Chunk]:
         """Search LanceDB table, omit duplicate chunks, repeat the action until there are limit unique chunks (synchronous)"""
 
+        if type(table_or_tables) is list:
+            tables = table_or_tables
+        else:
+            tables = [table_or_tables]
+
         query = re.sub(r"\W+", " ", query)
-        iteration_required = True
-        while iteration_required:  # iteration only necessary if there are duplicates, for example,
-            # some 'boilerplate' text from reports may be duplicated
+
+        all_chunks = []
+        for table in tables:
+
+            chunk_class = table_name_to_schema_class_map[table.name]
+            is_main_chunk_class = chunk_class is Chunk
+
             if vector_:
-                chunks = (
-                    table.search(query_type="hybrid")
-                    .vector(vector_)
-                    .text(query)
-                    .where(
-                        filter_condition,
-                        prefilter=True,
+                iteration_required = True
+                while iteration_required:  # iteration only necessary if there are duplicates, for example,
+                    # some 'boilerplate' text from reports may be duplicated
+
+                    chunks = (
+                        table.search(query_type="hybrid")
+                        .vector(vector_)
+                        .text(query)
+                        .where(
+                            filter_condition if is_main_chunk_class else None,
+                            prefilter=True,
+                        )
+                        .limit(limit)
                     )
-                    .limit(limit)
-                )
 
-                relevance_scores = chunks.to_arrow()["_relevance_score"]
+                    relevance_scores = chunks.to_arrow()["_relevance_score"]
 
-                chunks = chunks.to_pydantic(Chunk)
-                for i, chunk in enumerate(chunks):
-                    chunk.relevance_score = relevance_scores[
-                        i
-                    ].as_py()  # as_py converts a pyarrow.lib.FloatScalar to a float
+                    chunks = chunks.to_pydantic(chunk_class)
+
+                    for i, chunk in enumerate(chunks):
+                        chunk.relevance_score = relevance_scores[
+                            i
+                        ].as_py()  # as_py converts a pyarrow.lib.FloatScalar to a float
+                        chunk.use_as_context = is_main_chunk_class
+
+                    found_limit_chunks = len(chunks) == limit
+                    unique_chunks = unique(
+                        chunks
+                    )  # there shouldn't be many duplicate chunks in the DB, but this removes the possibility of returning them
+                    chunks_arent_unique = len(unique_chunks) < len(chunks)
+                    iteration_required = found_limit_chunks and chunks_arent_unique
+                    if iteration_required:
+                        limit = limit * 2  # may need to increase the limit if chunks weren't unique and try again
 
             else:
-                chunks = (table.search().where(filter_condition)).limit(-1).to_pydantic(Chunk)
+                unique_chunks = (table.search().where(filter_condition)).limit(-1).to_pydantic(Chunk)
 
-            found_limit_chunks = len(chunks) == limit
-            unique_chunks = unique(
-                chunks
-            )  # there shouldn't be many duplicate chunks in the DB, but this removes the possibility of returning them
-            chunks_arent_unique = len(unique_chunks) < len(chunks)
-            iteration_required = found_limit_chunks and chunks_arent_unique
-            if iteration_required:
-                limit = limit * 2  # may need to increase the limit if chunks weren't unique and try again
-            else:
-                chunks = unique_chunks
-        return chunks
+            all_chunks += unique_chunks
+
+        return all_chunks
 
 
 if __name__ == "__main__":
@@ -228,10 +292,18 @@ if __name__ == "__main__":
     db = lancedb.connect(DB_PATH)
     doc_table = db.open_table("document")
     chunk_table = db.open_table(CHUNK_TABLE_NAME)
+    project_table = db.open_table("mission_project")
 
     # code below is just for testing and experimenting
 
-    if True:
+    if False:
+        # testing search_loop with a different table
+        query = "What work has Nesta done on educational technology"
+        input = {"messages": [HumanMessage(content=query)], "limit": 1}
+        res = CustomRetriever()._get_relevant_documents(input, append_projects=True)
+    #    print(res)
+
+    if False:
         # experimenting with search filter conditions
         query = "What work has Nesta done on educational technology"
         # query = 'Who has experience working in government'

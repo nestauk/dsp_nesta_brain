@@ -9,19 +9,24 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Union
 
 import streamlit as st
 
+from config import ALLOW_POLICY_DOCS
 from config import DEBUG_MODE
+from config import DEPLOY_MODE
 from config import EARLIEST_YEAR
 from config import USE_LANGFUSE
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
+from front_end.auth.authenticate import Authenticator
 from front_end.project_spec import PAGE_INTRO
 from front_end.project_spec import WIDGET_SPEC
 from front_end.sidebar import sidebar
+from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
@@ -31,7 +36,7 @@ from lgraph.graph import graph_options_type
 from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
-from streamlit_feedback import streamlit_feedback
+# from streamlit_feedback import streamlit_feedback
 
 
 if TYPE_CHECKING:
@@ -208,7 +213,8 @@ def respond(
 
             final_state = asyncio.run(stream_())
 
-             if langfuse_mode() == "consent":
+            if langfuse_mode() == "consent":
+
                 # the Langfuse trace is added manually here with the output because passing config
                 # to .astream_events did not seem to work and resulted in blank outputs in traces
                 policy_file_ids = final_state.get("intermediate_outputs", {}).get("policy_file_ids")
@@ -317,11 +323,14 @@ def push_feedback_to_langfuse() -> None:
 
     trace_id = st.session_state["current_trace_id"]
 
-    faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
+    #    faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
 
     langfuse.score(
         # trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
-        trace_id=trace_id, name="user-feedback", value=st.session_state["feedback"], comment="N/A"
+        trace_id=trace_id,
+        name="user-feedback",
+        value=st.session_state["feedback"],
+        comment="N/A",
     )
 
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
@@ -355,7 +364,7 @@ if __name__ == "__main__":
     # -------authentication credit------
     # credit: https://medium.com/@coding-otter
     # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
-    
+
     # if "connected" not in st.session_state:
     if DEPLOY_MODE:
         redirect_uri = "https://nesta-brain.dap-tools.uk/"
@@ -379,6 +388,7 @@ if __name__ == "__main__":
         runnable, stream_nodes = get_graph_or_rag_chain(
             use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
         )
+
 
      #   st.set_page_config(layout="wide")
         st.markdown(
@@ -455,26 +465,27 @@ if __name__ == "__main__":
                 st.session_state.chatbot["messages"].append(message)
 
         if langfuse_mode() == "consent":
-        # feedback = streamlit_feedback(
-        #     feedback_type="faces",
-        #     optional_text_label="[Optional] Please provide an explanation",
-        #     key="feedback",
-        #     on_submit=push_feedback_to_langfuse,
-        # )
-        feedback = st.feedback(
-            options="faces",
-            key="feedback",
-            on_change=push_feedback_to_langfuse,
-        )
-        st.markdown(
-            """
-            <style>
-                div[aria-label="button group"] {
-                    display: flex;
-                    justify-content: flex-end;
-                    max-width: 100% !important;
-                }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+            # feedback = streamlit_feedback(
+            #     feedback_type="faces",
+            #     optional_text_label="[Optional] Please provide an explanation",
+            #     key="feedback",
+            #     on_submit=push_feedback_to_langfuse,
+            # )
+            feedback = st.feedback(
+                options="faces",
+                key="feedback",
+                on_change=push_feedback_to_langfuse,
+            )
+            st.markdown(
+                """
+                <style>
+                    div[aria-label="button group"] {
+                        display: flex;
+                        justify-content: flex-end;
+                        max-width: 100% !important;
+                    }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+

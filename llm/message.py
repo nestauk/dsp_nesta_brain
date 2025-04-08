@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import logging
 import re
 
@@ -7,6 +8,7 @@ from datetime import datetime
 from typing import Dict
 from typing import List
 from typing import Optional
+from typing import Type
 
 import markdown
 
@@ -16,14 +18,17 @@ from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
+from retrieval.db.schema.nesta_brain import MissionProject
 from retrieval.db.schema.policy_atlas import Activity
 
 
 if PROJECT == "NESTA_BRAIN":
     Chunk = NestaBrainChunk
+    SCHEMA_MODULE = importlib.import_module("retrieval.db.schema.nesta_brain")
 
 elif PROJECT == "POLICY_ATLAS":
     Chunk = Activity
+    SCHEMA_MODULE = importlib.import_module("retrieval.db.schema.policy_atlas")
 
 
 class Reference(LangchainDocument):
@@ -45,11 +50,21 @@ class Reference(LangchainDocument):
     index: int
     reset_index: Optional[int] = None
     cited: bool = False
+    chunk_class: Type = Chunk
 
     def __init__(self, chunk: LangchainDocument, index: int) -> None:
+
+        if chunk.metadata.get("schema"):
+            chunk_class = getattr(SCHEMA_MODULE, chunk.metadata.get("schema"))
+        else:
+            chunk_class = Chunk
+
         super().__init__(
-            page_content=chunk.page_content, metadata=Chunk.reference_metadata(**chunk.metadata), index=index
+            page_content=chunk.page_content, metadata=chunk_class.reference_metadata(**chunk.metadata), index=index
         )
+
+        self.chunk_class = chunk_class
+        # oddly, this syntax raised a pydantic error: self.chunk_class = getattr(SCHEMA_MODULE,chunk.metadata.get('schema'))
 
     @property
     def is_internal_policy_document(self) -> bool:
@@ -65,7 +80,7 @@ class Reference(LangchainDocument):
         if self.is_internal_policy_document:
             date_format = "(%B %Y)"
 
-        reference_html_format = Chunk.reference_html_format(add_date=bool(date_format) or DEBUG_MODE)
+        reference_html_format = self.chunk_class.reference_html_format(add_date=bool(date_format) or DEBUG_MODE)
 
         index = self.reset_index if reset_index is not None else self.index
         if DEBUG_MODE:
@@ -141,23 +156,45 @@ class CustomAIMessage(AIMessage):
             self.flag_citations()
         return [reference for reference in self.references if reference.cited]
 
-    @property
-    def p_element(self) -> str:
-        """Return content as an HTML paragraph"""
-        return f"<p>{self.content_with_superscript_citations}</p>"
+    #  @property
+    # def p_element(self) -> str:
+    #    """Return content as an HTML paragraph"""
+    #   return f"<p>{self.content_with_superscript_citations}</p>"
 
     @property
     def references_(self) -> str:
         """Return formatted reference list"""
-        cited = [reference.as_html(reset_index=True) for reference in self.cited_references]
-        not_cited = [reference.as_html(reset_index=True) for reference in self.uncited_references]
+        cited = [
+            reference.as_html(reset_index=True) for reference in self.cited_references
+        ]  # self.cited_references could also include projects – let them be listed here if cited
+        not_cited = [
+            reference.as_html(reset_index=True)
+            for reference in self.uncited_references
+            if reference.chunk_class is Chunk
+        ]  # self.uncited_references could also include projects
         actual_references = "<br><em>Cited references:</em><br>" + "<br>".join(cited) if cited else ""
         the_rest = (
             f"<br><br><em>{'May be useful' if cited else 'May be useful'}:</em><br>" + "<br>".join(not_cited)
             if not_cited
             else ""
         )
-        return actual_references + the_rest
+        projects = [
+            reference.as_html(reset_index=True)
+            for reference in self.uncited_references
+            if reference.chunk_class is MissionProject
+        ]
+        projects = "<br><em>Potentially relevant projects:</em><br>" + "<br>".join(projects) if projects else ""
+        return actual_references + the_rest + projects
+
+    @property
+    def content_as_html(self) -> str:
+        """Convert the content into HTML"""
+        html = markdown.markdown(self.content)
+        # in lists of bullet points with blockquotes, this tends to render each bullet point as its own ordered list,
+        # losing the numbering
+        html = re.sub(r"</ol>\n<blockquote>", "<blockquote>", html, re.M)
+        html = re.sub(r"</blockquote>\n<ol>", "</blockquote>", html, re.M)
+        return html
 
     @property
     def content_with_superscript_citations(self) -> str:
@@ -171,7 +208,7 @@ class CustomAIMessage(AIMessage):
         if not self.reference_indices_have_been_reset:
             self.reset_reference_indices()
 
-        content = markdown.markdown(self.content)
+        content = self.content_as_html
         N_references = len(self.references)
         for citation in self.citations_in_content:
             citation_index = int(citation[1:-1])  # remove the square brackets
@@ -210,7 +247,11 @@ class CustomAIMessage(AIMessage):
 
     def as_html(self) -> str:
         """Convert the response into HTML"""
-        return f'<div class="response">{self.p_element}{self.references_ if self.references else ""}</div>'
+        format = '<div class="response">{main_content}{references}</div>'
+        return format.format(
+            main_content=self.content_with_superscript_citations,
+            references=self.references_ if self.references else "",
+        )
 
     def flag_citations(self) -> None:
         """Flag references which have been cited"""

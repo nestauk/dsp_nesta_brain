@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from config import ALLOW_POLICY_DOCS
 from google_api.policy import Policy
 from langchain.prompts import PromptTemplate
 
@@ -112,26 +113,29 @@ currentness_comment_prompt = PromptTemplate(
     template=currentness_comment_prompt_template_4, input_variables=["input", "answer"]
 )
 
-needs_policy_template = f"""
-    You are a helpful assistant and an expert on the internal administration and organisational policies of the innovation agency Nesta.
 
-    Your role is to help staff with their queries about organisational policies. Topics include annual leave, expenses, safeguarding, and more.
+if ALLOW_POLICY_DOCS:
 
-    Look at the following list of policy documents available to help you answer queries:
+    needs_policy_template = f"""
+        You are a helpful assistant and an expert on the internal administration and organisational policies of the innovation agency Nesta.
 
-    List:
-    {Policy.list(as_string=True)}
+        Your role is to help staff with their queries about organisational policies. Topics include annual leave, expenses, safeguarding, and more.
 
-    Look at the query below and decide whether one or more the policies in the list is needed to answer it.
+        Look at the following list of policy documents available to help you answer queries:
 
-    If so, select the appropriate policies. As your response, give only the UIDs of the policy you have selected separated by commas.
+        List:
+        {Policy.list(as_string=True)}
 
-    Otherwise, respond "NULL".
+        Look at the query below and decide whether one or more the policies in the list is needed to answer it.
 
-    Query:
-    {{input}}
-    """  # noqa
+        If so, select the appropriate policies. As your response, give only the UIDs of the policy you have selected separated by commas.
 
-# print(needs_template_template,'\n\n')
+        Otherwise, respond "NULL".
 
-needs_policy_prompt = PromptTemplate(template=needs_policy_template, input_variables=["input"])
+        Query:
+        {{input}}
+        """  # noqa
+
+    # print(needs_template_template,'\n\n')
+
+    needs_policy_prompt = PromptTemplate(template=needs_policy_template, input_variables=["input"])

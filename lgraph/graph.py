@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import importlib
 import re
 
@@ -20,6 +19,7 @@ from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.types import StreamWriter
 from lgraph.prompt import currentness_comment_prompt
+
 if ALLOW_POLICY_DOCS:
     from lgraph.prompt import needs_policy_prompt
 from lgraph.prompt import personnel_prompt
@@ -33,8 +33,8 @@ from retrieval.retrieve import RetrieverInput
 
 
 if TYPE_CHECKING:
+    from langchain_core.messages import AIMessage
     from langgraph.graph.state import CompiledStateGraph
-
 
 DEFAULT_FROM_YEAR_FILTER_CONDITION = f"source.date_pub >= to_timestamp('{DEFAULT_START_YEAR}-01-01')"
 
@@ -74,15 +74,18 @@ def append_filter_condition(state: State, new_filter_condition: str) -> State:
 
 
 # -------NODES
+
 # NB: create async versions of any functions used in a graph which is invoked asynchronously
 
 def decide_if_person_page(state: State) -> State:
     """Decide if the retrieval should be limited to person pages only; add appropriate filter_condition to the state if so"""
     if "source.contentType" not in state["filter_condition"]:  # if the user has explicitly set a filter condition via the UI, use that one and ignore the node
+
         chain = personnel_prompt | llm
         response = chain.invoke(state["input"])
         if response.content == "YES":
             state = append_filter_condition(state, "source.contentType = 'person page'")
+
     return state
 
 
@@ -111,7 +114,6 @@ def decide_if_need_time_constraint(state: State) -> State:
 
 
 def interpret_policy_decision(message: AIMessage, state: State) -> State:
-
     """
     Interpret which policy documents are needed based on the user's response, and append the
     retrieval filter condition accordingly
@@ -151,6 +153,30 @@ def decide_whether_needs_policy(state: State) -> State:
     chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
     message = chain.invoke(state)
     state = interpret_policy_decision(message, state)
+    return state
+
+
+async def async_decide_whether_needs_policy(state: State) -> State:
+    """Decide whether a policy document is needed"""
+
+    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
+
+    message = await chain.ainvoke(state)
+
+    state = interpret_policy_decision(message, state)
+
+    return state
+
+
+def decide_whether_needs_policy(state: State) -> State:
+    """Decide whether a policy document is needed"""
+
+    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
+
+    message = chain.invoke(state)
+
+    state = interpret_policy_decision(message, state)
+
     return state
 
 
@@ -320,6 +346,7 @@ def create_combined_graph(
     builder.add_node("decide_whether_needs_policy", async_decide_whether_needs_policy if use_async else decide_whether_needs_policy)
     builder.add_node("choose_main_prompt", choose_main_prompt)
     builder.add_node("call_chain", async_call_chain if use_async else call_chain)
+
     builder.add_edge(START, "initiate")
     builder.add_edge("initiate", "decide_whether_needs_policy")
     builder.add_edge("decide_whether_needs_policy", "choose_main_prompt")
