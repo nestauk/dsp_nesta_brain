@@ -146,16 +146,23 @@ def get_langfuse_config() -> None:
     return config
 
 
-def trace_metadata() -> Dict:
+def trace_metadata(**kwargs) -> Dict:
     """Compile trace metadata on sidebar parameters and the resulting filter_condition string, as well as settings"""
-    sidebar_metadata = {key: st.session_state[key] for key in WIDGET_SPEC.keys()}
+    sidebar_metadata = {
+        key: st.session_state[key] for key in WIDGET_SPEC.keys() if key != "monitoring"
+    }  # the metadata isn't needed if monitoring is not consented to
     metadata = {"sidebar": sidebar_metadata}
-    metadata["retriever_filter_condition"] = st.session_state.chatbot["filter_condition"]
+    # metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
+    # not needed in metadata if it is part of input
     metadata["settings"] = {
         "use_tool_for_citations": use_tool_for_citations,
         "use_graph": use_graph,
-        "limit": limit,
+        #   "limit": limit,      #not needed in metadata if it is part of input
     }
+    metadata[
+        "policy_file_ids"
+    ] = None  # this needs to be updated via kwargs after the graph has run, if the graph is used
+    metadata.update(kwargs)
     return metadata
 
 
