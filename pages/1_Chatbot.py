@@ -360,7 +360,7 @@ if __name__ == "__main__":
             use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
         )
 
-        st.set_page_config(layout="wide")
+     #   st.set_page_config(layout="wide")
         st.markdown(
             """
         <style>
@@ -434,7 +434,7 @@ if __name__ == "__main__":
                 message_placeholder.markdown(message.as_html(), unsafe_allow_html=True)
                 st.session_state.chatbot["messages"].append(message)
 
-        if USE_LANGFUSE:
+        if langfuse_mode() == "consent":
         # feedback = streamlit_feedback(
         #     feedback_type="faces",
         #     optional_text_label="[Optional] Please provide an explanation",
