@@ -20,10 +20,8 @@ from langgraph.graph import StateGraph
 from langgraph.types import StreamWriter
 from lgraph.prompt import currentness_comment_prompt
 
-
 if ALLOW_POLICY_DOCS:
     from lgraph.prompt import needs_policy_prompt
-
 from lgraph.prompt import personnel_prompt
 from lgraph.prompt import year_constraint_prompt
 from llm.llm import default_llm as llm
@@ -77,12 +75,12 @@ def append_filter_condition(state: State, new_filter_condition: str) -> State:
 
 # -------NODES
 
-# NB: You may want to create async versions of some of these if using in a graph which is invoked asynchronously
-
+# NB: create async versions of any functions used in a graph which is invoked asynchronously
 
 def decide_if_person_page(state: State) -> State:
     """Decide if the retrieval should be limited to person pages only; add appropriate filter_condition to the state if so"""
-    if "source.contentType" not in state["filter_condition"]:
+    if "source.contentType" not in state["filter_condition"]:  # if the user has explicitly set a filter condition via the UI, use that one and ignore the node
+
         chain = personnel_prompt | llm
         response = chain.invoke(state["input"])
         if response.content == "YES":
@@ -139,6 +137,22 @@ def interpret_policy_decision(message: AIMessage, state: State) -> State:
                 f"Policy document IDs did not seem to be in the correct format. Message content: {message.content}"
             )
 
+    return state
+
+async def async_decide_whether_needs_policy(state: State) -> State:
+    """Decide whether a policy document is needed"""
+
+    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
+    message = await chain.ainvoke(state)
+    state = interpret_policy_decision(message, state)
+    return state
+
+def decide_whether_needs_policy(state: State) -> State:
+
+    """Decide whether a policy document is needed"""
+    chain = RunnablePassthrough.assign(input=(lambda x: x["messages"][-1])) | needs_policy_prompt | llm
+    message = chain.invoke(state)
+    state = interpret_policy_decision(message, state)
     return state
 
 
@@ -228,14 +242,12 @@ def currentness_comment(state: State, writer: StreamWriter) -> State:
     return state
 
 
-def create_chat_graph(
-    return_stream_nodes: bool = False, **kwargs
-) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
-    """Compile and return a graph to assist with chat"""
+def call_chain_func(**kwargs) -> State:
+    """Return a function that calls the chain determined by kwargs"""
 
     rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(**kwargs)  # avoiding circular import
 
-    def call_model(
+    def call_chain(
         state: State,
     ) -> State:  # function defined here to avoid circular import
 
@@ -244,14 +256,30 @@ def create_chat_graph(
 
         return state
 
+    return call_chain
+
+
+def call_default_chain(state: State) -> State:
+    """Call the default chain (i.e. the one returned by get_graph_or_rag_chain with no kwargs)"""
+
+    return call_chain_func()(state)
+
+
+def create_chat_graph(
+    return_stream_nodes: bool = False, **kwargs
+) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
+    """Compile and return a graph to assist with chat"""
+
+    call_default_chain = call_chain_func(**kwargs)
+
     builder = StateGraph(State)
 
     builder.add_node("initiate", initiate)
-    builder.add_node("call_model", call_model)
+    builder.add_node("call_default_chain", call_default_chain)
     builder.add_node("currentness_comment", currentness_comment)
     builder.add_edge(START, "initiate")
-    builder.add_edge("initiate", "call_model")
-    builder.add_edge("call_model", "currentness_comment")
+    builder.add_edge("initiate", "call_default_chain")
+    builder.add_edge("call_default_chain", "currentness_comment")
     builder.add_edge("currentness_comment", END)
 
     stream_nodes = ["currentness_comment"]  # list of nodes whose outputs are to be streamed IN ORDER
@@ -281,55 +309,51 @@ def choose_main_prompt(state: State) -> State:
 
 
 def create_combined_graph(
-    stream: bool = False, return_stream_nodes: bool = False, **kwargs
+    stream: bool = False,
+    return_stream_nodes: bool = False, **kwargs
 ) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
     """Compile and return a graph to assist with both retrieval and chat"""
 
-    def call_model(
+    def call_chain(
         state: State,
     ) -> State:  # function defined here to avoid circular import
 
         prompt = state["intermediate_outputs"].get("main_prompt")
         rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(prompt=prompt, **kwargs)
         response = rag_chain.invoke(state)
-        message = CustomAIMessage(response)
-        state["messages"].append(message)
+        state["raw_response"] = response
+        state["messages"].append(CustomAIMessage(response))
 
         return state
 
-    async def async_call_model(
+    async def async_call_chain(
         state: State,
     ) -> State:  # function defined here to avoid circular import
 
         prompt = state["intermediate_outputs"].get("main_prompt")
-
         rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(prompt=prompt, **kwargs)
-
         response = await rag_chain.ainvoke(state)
-
         state["raw_response"] = response
-        message = CustomAIMessage(response)
-        state["messages"].append(message)
+        state["messages"].append(CustomAIMessage(response))
 
         return state
 
     use_async = stream
-
+    
     builder = StateGraph(State)
 
     builder.add_node("initiate", initiate)
-    builder.add_node(
-        "decide_whether_needs_policy", async_decide_whether_needs_policy if use_async else decide_whether_needs_policy
-    )
+    builder.add_node("decide_whether_needs_policy", async_decide_whether_needs_policy if use_async else decide_whether_needs_policy)
     builder.add_node("choose_main_prompt", choose_main_prompt)
-    builder.add_node("call_model", async_call_model if use_async else call_model)
+    builder.add_node("call_chain", async_call_chain if use_async else call_chain)
+
     builder.add_edge(START, "initiate")
     builder.add_edge("initiate", "decide_whether_needs_policy")
     builder.add_edge("decide_whether_needs_policy", "choose_main_prompt")
-    builder.add_edge("choose_main_prompt", "call_model")
-    builder.add_edge("call_model", END)
+    builder.add_edge("choose_main_prompt", "call_chain")
+    builder.add_edge("call_chain", END)
 
-    stream_nodes = ["call_model"]  # list of nodes whose outputs are to be streamed IN ORDER
+    stream_nodes = ["call_chain"]  # list of nodes whose outputs are to be streamed IN ORDER
 
     graph = builder.compile()
 

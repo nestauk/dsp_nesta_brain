@@ -14,6 +14,7 @@ import markdown
 
 from config import DEBUG_MODE
 from config import PROJECT
+from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
 from langchain_core.messages import AIMessage
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
@@ -109,6 +110,7 @@ class Reference(LangchainDocument):
 class CustomAIMessage(AIMessage):
     """An extension of LangChain's AIMessage just to make printing and writing responses to streamlit easier"""
 
+    role: str = "assistant"
     references: List[Reference]
 
     class Config:  # noqa
@@ -271,3 +273,29 @@ class InterimAIMessage(AIMessage):
     """  # noqa
 
     pass
+
+
+class EditableAIMessage(CustomAIMessage):
+    """A Custom AI Message carrying a human-edited version of its content"""
+
+    edited: Optional[str] = None
+
+    @property
+    def p_element_edited(self) -> str:
+        """Return content as an HTML paragraph"""
+        if self.edited:
+            return f"<p>{self.edited}</p>"
+        else:
+            logger.warning("No edited content available – returning original content")
+            return self.p_element
+
+    def as_html(self, edited: bool = False) -> str:
+        """Convert the response into HTML"""
+        if edited:
+            return f'<div class="response"><i>(edited)</i> {self.p_element_edited}</div>'
+        else:
+            return super().as_html()
+
+    def edit(self, edited_text: str) -> None:
+        """Edit the content of the message"""
+        self.edited = edited_text

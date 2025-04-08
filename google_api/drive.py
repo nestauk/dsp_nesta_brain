@@ -21,9 +21,10 @@ if TYPE_CHECKING:
 
 # Define the scopes for both Google Drive and Google Docs
 DEFAULT_SCOPES = ["https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/documents"]
-PDF_SCOPES = [
+READ_ONLY_SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly"
-]  # scope for downloading PDFs; it will not work if DEFAULT_SCOPES is used
+]  # need this to read any document which nesta-brain-chatbot is not the owner of
+# for example, downloading PDFs will not work if DEFAULT_SCOPES is used
 
 # default Google Drive folder ID
 DEFAULT_FOLDER_ID = "1WyMFiP4Q8NDILNXWCdmFJ7Tvlg37wL89"
@@ -60,8 +61,6 @@ def create_document_in_folder_from_string(
     file_metadata = {"name": file_name, "mimeType": mimetype}
 
     media = MediaInMemoryUpload(string.strip().encode("utf-8"), mimetype=mimetype)
-    if mimetype == "text/markdown":
-        input("Check this has worked - before mimetype was 'text/plain'")
 
     # Create the file on Google Drive
     file = drive_service(creds=creds).files().create(body=file_metadata, media_body=media, fields="id").execute()
@@ -105,7 +104,7 @@ def download_pdf(
     file_id: str,
     service: Optional[Resource] = None,
     path: str = "google_api/downloaded.pdf",
-    scopes: List[str] = PDF_SCOPES,
+    scopes: List[str] = READ_ONLY_SCOPES,
     silent: bool = False,
     **kwargs,
 ) -> None:
@@ -164,22 +163,32 @@ def get_file(
     if not silent:
         logger.info(f'Getting file with ID "{document_id}" from Drive')
 
-    service = service or drive_service(creds=creds, scopes=PDF_SCOPES if is_pdf else DEFAULT_SCOPES)
+    service = service or drive_service(creds=creds, scopes=READ_ONLY_SCOPES if is_pdf else DEFAULT_SCOPES)
     file = service.files().get(fileId=document_id, **kwargs).execute()
 
     return file
 
 
-def list_files(mimetype: Optional[str] = None) -> List[Dict]:
+def list_files(
+    mimetype: Optional[str] = None, sub_folder_id: Optional[str] = None, read_only: bool = False
+) -> List[Dict]:
     """List files in Google Drive."""
 
-    q = None
+    subqueries = []
     scopes = DEFAULT_SCOPES
+
     if mimetype:
-        if mimetype == "application/pdf":
-            scopes = PDF_SCOPES
-        query_format = "mimeType='{mimetype}'"
-        q = query_format.format(mimetype=mimetype)
+        subqueries.append(f"mimeType='{mimetype}'")
+
+    if sub_folder_id:
+        subqueries.append(f"'{sub_folder_id}' in parents")
+
+    q = None
+    if subqueries:
+        q = " and ".join(subqueries)
+
+    if mimetype == "application/pdf" or read_only:
+        scopes = READ_ONLY_SCOPES
 
     result = drive_service(scopes=scopes).files().list(q=q).execute()
     return result["files"]

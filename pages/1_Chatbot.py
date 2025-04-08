@@ -36,8 +36,6 @@ from lgraph.graph import graph_options_type
 from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
-
-
 # from streamlit_feedback import streamlit_feedback
 
 
@@ -216,6 +214,7 @@ def respond(
             final_state = asyncio.run(stream_())
 
             if langfuse_mode() == "consent":
+
                 # the Langfuse trace is added manually here with the output because passing config
                 # to .astream_events did not seem to work and resulted in blank outputs in traces
                 policy_file_ids = final_state.get("intermediate_outputs", {}).get("policy_file_ids")
@@ -390,7 +389,8 @@ if __name__ == "__main__":
             use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
         )
 
-        #   st.set_page_config(layout="wide")
+
+     #   st.set_page_config(layout="wide")
         st.markdown(
             """
         <style>
@@ -488,3 +488,4 @@ if __name__ == "__main__":
                 """,
                 unsafe_allow_html=True,
             )
+

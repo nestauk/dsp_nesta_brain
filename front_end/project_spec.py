@@ -9,7 +9,7 @@ CURRENT_YEAR = datetime.now().year
 
 if PROJECT == "NESTA_BRAIN":
 
-    INTRO = """
+    WELCOME_INTRO = """
             <h2>🧠 Nesta Brain</h2><br/>
 
             <span style="color:red">DELETE THIS: red text shows recent edits to the intro.
@@ -30,6 +30,14 @@ if PROJECT == "NESTA_BRAIN":
             You can also contact directly Karlis Kanders or Helen Jackson (Data Science Practice / Discovery Hub)
             on <a href="https://nesta.slack.com/archives/C05BCUZNATG">#proj-nesta-brain</a>.
             <br/><br/>
+            """
+
+    PAGE_INTRO = """
+            <h2>🧠 Nesta Brain Chatbot</h2><br/>
+            This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
+            It searches thousands of webpages and reports to find the most relevant content
+            in response to your questions.
+            <br/><br/>
             The chatbot currently accesses information from <strong>Nesta's public website (up to October 2024)</strong>
             and does <strong>not</strong> include internal documents or systems like Nesta:Net, Slack, or GitHub,
             <span style="color:red">with the exception of a sample of people policies used for development</span>.
@@ -37,6 +45,7 @@ if PROJECT == "NESTA_BRAIN":
             Use the sidebar to customize the chatbot's search parameters, such as date range or mission team.
             Note that <span style="color:red">by default</span> user queries and responses are saved for chatbot's performance
             evaluation and improvement.
+
             <span style="color:red">Please note that this data is not linked to your identity or log-in credentials.
             However, you may opt out by clicking "Opt out, please" under the "Monitoring and evaluation" heading
             in the sidebar.</span>
@@ -61,23 +70,27 @@ if PROJECT == "NESTA_BRAIN":
                 "default": "Yes",
                 "filter_condition_format": "source.contentType != 'person page'",
                 "options": ("Yes", "No"),
+                "label": "Include people pages",
+                "element_type": "radio",
             },
             "mission": {
                 "default": None,
                 "filter_condition_format": "array_contains(source.missions,'{current_value}')",
                 "options": ("A fairer start", "A healthy life", "A sustainable future", None),
+                "label": "Mission-specific content",
+                "element_type": "radio",
             },
             "monitoring": {
                 "default": "I'm OK with that",
                 "options": ("I'm OK with that", "Opt out, please"),
-                "consent_option_index": 0,
-            },
+                "consent_option_index": 0
+            }
         }
     )
 
 elif PROJECT == "POLICY_ATLAS":
 
-    INTRO = """
+    WELCOME_INTRO = """
             <h2>🌎 Policy Atlas</h2><br/>
             This is an early prototype AI chatbot designed to help you find and summarise information about
             international aid activities by the Foreign, Commonwealth and Development Office (FCDO).
