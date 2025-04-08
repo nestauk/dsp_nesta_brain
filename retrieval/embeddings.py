@@ -12,6 +12,11 @@ from dotenv import load_dotenv
 from langchain_openai import AzureOpenAIEmbeddings
 from openai import AsyncOpenAI
 from openai import OpenAI
+from openai import RateLimitError
+from tenacity import retry
+from tenacity import retry_if_exception_type
+from tenacity import stop_after_attempt
+from tenacity import wait_random_exponential
 
 
 load_dotenv()
@@ -27,12 +32,17 @@ else:
     async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
+@retry(
+    wait=wait_random_exponential(min=1, max=10),  # Exponential backoff with jitter
+    stop=stop_after_attempt(5),  # Stop after 5 attempts
+    retry=retry_if_exception_type((RateLimitError,)),  # Retry only on RateLimitError
+)
 def vector(string: str, async_: bool = False) -> Union[List[float], Callable]:
     """Calculate the embedding vector of string"""
 
     # intentionally not using the neater syntax documented by lanceDB which automatically calculates embeddings vectors
     # using model.VectorField() specified in the schema.
-    # This is because I had issues getting a nested schema to work with this method.
+    # This is because there were issues getting a nested schema to work with this method.
 
     if USE_AZURE_EMBEDDINGS:
 
