@@ -41,7 +41,11 @@ if TYPE_CHECKING:
 CURRENT_YEAR = datetime.now().year
 
 
-langfuse = Langfuse()
+langfuse = Langfuse(
+    secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+    public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+    host=os.getenv("LANGFUSE_HOST"),
+)
 
 langfuse_handler = CallbackHandler(
     secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
@@ -100,6 +104,46 @@ def chat_history() -> List[BaseMessage]:
         return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
 
     return []
+
+
+def langfuse_mode() -> Literal["consent", "no_consent", False]:
+    """Test whether to use Langfuse for monitoring and evaluation"""
+    if USE_LANGFUSE:
+        consent_option = WIDGET_SPEC["monitoring"]["options"][WIDGET_SPEC["monitoring"]["consent_option_index"]]
+        consent = st.session_state["monitoring"] == consent_option
+        return "consent" if consent else "no_consent"
+    return False
+
+
+def get_langfuse_config() -> None:
+    """
+    Set up Langfuse for monitoring and evaluation, if appropriate.
+
+    The config is only needed if the user consents and we are not using a graph with streaming
+    """
+
+    config = {}
+
+    mode = langfuse_mode()
+    if mode:
+
+        trace_id = str(uuid.uuid4())
+        st.session_state["current_trace_id"] = trace_id
+
+        if mode == "consent":
+            streaming_with_graph = stream and use_graph in ["chat", "combined"]
+            if not streaming_with_graph:
+                # if streaming with graph then add the trace manually at the end of the streaming process (see comment below)
+                # note that this means a detailed breakdown of the trace by chain/graph component is not available in Langfuse
+                # otherwise add the trace here and pass config through to the graph or chain
+                config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
+                langfuse.trace(id=trace_id, metadata=trace_metadata())
+
+        elif mode == "no_consent":
+            # if the user does not consent to monitoring, still log that they didn't consent, but no other information
+            langfuse.trace(id=trace_id, metadata={"consent": False})
+
+    return config
 
 
 def trace_metadata() -> Dict:
