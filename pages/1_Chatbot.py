@@ -240,15 +240,16 @@ def filter_conditions() -> Union[str, None]:
     return None
 
 
-def push_feedback_to_langfuse(feedback: Dict) -> None:
+def push_feedback_to_langfuse() -> None:
     """Send the feedback score and comments to Langfuse"""
 
-    trace_id = st.session_state.chatbot["current_trace_id"]
+    trace_id = st.session_state["current_trace_id"]
 
     faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
 
     langfuse.score(
-        trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
+        # trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
+        trace_id=trace_id, name="user-feedback", value=st.session_state["feedback"], comment="N/A"
     )
 
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
@@ -385,10 +386,27 @@ if __name__ == "__main__":
                 message_placeholder.markdown(message.as_html(), unsafe_allow_html=True)
                 st.session_state.chatbot["messages"].append(message)
 
-            if USE_LANGFUSE:
-                feedback = streamlit_feedback(
-                    feedback_type="faces",
-                    optional_text_label="[Optional] Please provide an explanation",
-                    key="feedback",
-                    on_submit=push_feedback_to_langfuse,
-                )
+        if USE_LANGFUSE:
+        # feedback = streamlit_feedback(
+        #     feedback_type="faces",
+        #     optional_text_label="[Optional] Please provide an explanation",
+        #     key="feedback",
+        #     on_submit=push_feedback_to_langfuse,
+        # )
+        feedback = st.feedback(
+            options="faces",
+            key="feedback",
+            on_change=push_feedback_to_langfuse,
+        )
+        st.markdown(
+            """
+            <style>
+                div[aria-label="button group"] {
+                    display: flex;
+                    justify-content: flex-end;
+                    max-width: 100% !important;
+                }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
