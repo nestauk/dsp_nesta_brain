@@ -93,8 +93,11 @@ class GraphStreamEvent(dict):
 def chat_history() -> List[BaseMessage]:
     """Derive chat history from streamlit messages"""
 
-    if len(st.session_state.chatbot["messages"]) > 1:  # omit initial_message from chat history
-        return st.session_state.chatbot["messages"][1:]
+    def message_class(message: Dict) -> type:
+        return AIMessage if message["role"] == "assistant" else HumanMessage
+
+    if len(st.session_state.messages) > 1:  # omit initial_message from chat history
+        return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
 
     return []
 
