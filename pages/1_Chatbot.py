@@ -90,32 +90,6 @@ class GraphStreamEvent(dict):
         )
 
 
-def check_password() -> bool:
-    """Return `True` if the user had the correct password."""
-
-    def password_entered() -> None:
-        """Check whether a password entered by the user is correct."""
-        if st.session_state["password"] == st.secrets["password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        # First run, show input for password.
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"]:
-        # Password not correct, show input + error.
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.error("😕 Password incorrect")
-        return False
-    else:
-        # Password correct.
-
-        return True
-
-
 def chat_history() -> List[BaseMessage]:
     """Derive chat history from streamlit messages"""
 
@@ -281,14 +255,51 @@ if __name__ == "__main__":
 
     # settings
     limit: int = 10
-    use_graph: Optional[graph_options_type] = "combined"  # or None for none of the options
+    if ALLOW_POLICY_DOCS:
+        use_graph: Optional[graph_options_type] = "combined"  # or None for none of the options
+    else:
+        use_graph = None
+    use_langfuse: bool = (
+        not DEBUG_MODE and PROJECT == "NESTA_BRAIN"
+    )  # Langfuse is not currently set up for other projects –
+    # don't want NestaBrain's Langfuse to store traces from other projects
+
     stream: bool = True
     use_tool_for_citations: bool = False
 
     # UI settings
     initial_message: str = "Hi, how can I help?"
 
-    if check_password():
+    if use_tool_for_citations:
+        raise Exception("use_tool_for_citations may no longer work – need to check")
+
+    runnable, stream_nodes = get_graph_or_rag_chain(
+        use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
+    )
+
+    load_dotenv()
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    # -------authentication credit------
+    # credit: https://medium.com/@coding-otter
+    # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
+    
+    # if "connected" not in st.session_state:
+    if DEPLOY_MODE:
+        redirect_uri = "https://nesta-brain.dap-tools.uk/"
+    else:
+        redirect_uri = "http://localhost:8501/"
+    authenticator = Authenticator(
+        # allowed_users=allowed_users,   #adapted to allow any email address with a nesta.org.uk domain
+        token_key=os.getenv("AUTH_TOKEN_KEY"),
+        secret_path="client_secret.json",  # nosec
+        redirect_uri=redirect_uri,
+    )
+
+    authenticator.check_auth()
+    authenticator.login()
+
+    if st.session_state["connected"]:
 
         load_dotenv()
         logging.getLogger("httpx").setLevel(logging.WARNING)
