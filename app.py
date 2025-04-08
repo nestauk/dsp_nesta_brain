@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Union
 
@@ -18,10 +19,11 @@ from config import ALLOW_POLICY_DOCS
 from config import DEBUG_MODE
 from config import DEPLOY_MODE
 from config import EARLIEST_YEAR
-from config import PROJECT
 from config import USE_LANGFUSE
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
+
+# from streamlit_feedback import streamlit_feedback
 from front_end.auth.authenticate import Authenticator
 from front_end.project_spec import INTRO
 from front_end.project_spec import WIDGET_SPEC
@@ -36,7 +38,6 @@ from lgraph.graph import graph_options_type
 from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
-from streamlit_feedback import streamlit_feedback
 
 
 if TYPE_CHECKING:
@@ -46,7 +47,13 @@ if TYPE_CHECKING:
 CURRENT_YEAR = datetime.now().year
 
 
-langfuse = Langfuse()
+langfuse = Langfuse(
+    secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+    public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+    host=os.getenv("LANGFUSE_HOST"),
+)
+
+# langfuse = Langfuse()
 
 langfuse_handler = CallbackHandler(
     secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
@@ -107,16 +114,63 @@ def chat_history() -> List[BaseMessage]:
     return []
 
 
-def trace_metadata() -> Dict:
+def langfuse_mode() -> Literal["consent", "no_consent", False]:
+    """Test whether to use Langfuse for monitoring and evaluation"""
+    if USE_LANGFUSE:
+        consent_option = WIDGET_SPEC["monitoring"]["options"][WIDGET_SPEC["monitoring"]["consent_option_index"]]
+        consent = st.session_state["monitoring"] == consent_option
+        return "consent" if consent else "no_consent"
+    return False
+
+
+def get_langfuse_config() -> None:
+    """
+    Set up Langfuse for monitoring and evaluation, if appropriate.
+
+    The config is only needed if the user consents and we are not using a graph with streaming
+    """
+
+    config = {}
+
+    mode = langfuse_mode()
+    if mode:
+
+        trace_id = str(uuid.uuid4())
+        st.session_state["current_trace_id"] = trace_id
+
+        if mode == "consent":
+            streaming_with_graph = stream and use_graph in ["chat", "combined"]
+            if not streaming_with_graph:
+                # if streaming with graph then add the trace manually at the end of the streaming process (see comment below)
+                # note that this means a detailed breakdown of the trace by chain/graph component is not available in Langfuse
+                # otherwise add the trace here and pass config through to the graph or chain
+                config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
+                langfuse.trace(id=trace_id, metadata=trace_metadata())
+
+        elif mode == "no_consent":
+            # if the user does not consent to monitoring, still log that they didn't consent, but no other information
+            langfuse.trace(id=trace_id, metadata={"consent": False})
+
+    return config
+
+
+def trace_metadata(**kwargs) -> Dict:
     """Compile trace metadata on sidebar parameters and the resulting filter_condition string, as well as settings"""
-    sidebar_metadata = {key: st.session_state[key] for key in WIDGET_SPEC.keys()}
+    sidebar_metadata = {
+        key: st.session_state[key] for key in WIDGET_SPEC.keys() if key != "monitoring"
+    }  # the metadata isn't needed if monitoring is not consented to
     metadata = {"sidebar": sidebar_metadata}
-    metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
+    # metadata["retriever_filter_condition"] = st.session_state["filter_condition"]
+    # not needed in metadata if it is part of input
     metadata["settings"] = {
         "use_tool_for_citations": use_tool_for_citations,
         "use_graph": use_graph,
-        "limit": limit,
+        #   "limit": limit,      #not needed in metadata if it is part of input
     }
+    metadata[
+        "policy_file_ids"
+    ] = None  # this needs to be updated via kwargs after the graph has run, if the graph is used
+    metadata.update(kwargs)
     return metadata
 
 
@@ -127,11 +181,7 @@ def respond(
 ) -> CustomAIMessage:
     """Get LLM response from chain"""
 
-    if USE_LANGFUSE:
-        trace_id = str(uuid.uuid4())
-        config = {"run_id": trace_id, "callbacks": [langfuse_handler]}
-    else:
-        config = {}
+    config = get_langfuse_config()
 
     input = {
         "messages": chat_history(),
@@ -149,7 +199,7 @@ def respond(
                 message_text = ""
                 id = None
 
-                async for event in chain_or_graph.astream_events(input, config, version="v1", stream_mode="values"):
+                async for event in chain_or_graph.astream_events(input, version="v1", stream_mode="values"):
 
                     event = GraphStreamEvent(event)
 
@@ -166,8 +216,37 @@ def respond(
 
             final_state = asyncio.run(stream_())
 
+            if langfuse_mode() == "consent":
+                # the Langfuse trace is added manually here with the output because passing config
+                # to .astream_events did not seem to work and resulted in blank outputs in traces
+                policy_file_ids = final_state.get("intermediate_outputs", {}).get("policy_file_ids")
+                output = {
+                    k: v
+                    for k, v in final_state["raw_response"].items()
+                    if k
+                    not in [
+                        "limit",
+                        "filter_condition",
+                        "use_hybrid_search",
+                        "intermediate_outputs",
+                    ]  # either in input or not needed
+                }
+                langfuse.trace(
+                    id=st.session_state["current_trace_id"],
+                    input=input,
+                    output=output,
+                    metadata=trace_metadata(policy_file_ids=policy_file_ids),
+                    user_id=os.getenv("LANGFUSE_USER_ID"),
+                )
+
         else:
+
             final_state = chain_or_graph.invoke(input, config=config)
+            if langfuse_mode() == "consent":
+                policy_file_ids = final_state.get("intermediate_outputs", {}).get("policy_file_ids")
+                langfuse.trace(
+                    id=st.session_state["current_trace_id"], metadata={"policy_file_ids": policy_file_ids}
+                )  # this will update just the relevant key-value pair in metadata
 
         return_message = final_state["messages"][-1]
 
@@ -211,10 +290,6 @@ def respond(
         # it will be rendered in a nicer format with references
         message_placeholder.markdown("")
 
-    if USE_LANGFUSE:
-        langfuse.trace(id=trace_id, metadata=trace_metadata())
-        st.session_state["current_trace_id"] = trace_id
-
     return return_message
 
 
@@ -225,19 +300,20 @@ def filter_conditions() -> Union[str, None]:
 
     for key, spec in WIDGET_SPEC.items():
 
-        default = spec["default"]
-        filter_condition_format = spec["filter_condition_format"]
-        current_value = st.session_state[key]
+        if spec.get("filter_condition_format"):
+            default = spec["default"]
+            filter_condition_format = spec["filter_condition_format"]
+            current_value = st.session_state[key]
 
-        if key == "from_year":
-            append_filter_condition = current_value != EARLIEST_YEAR
-        else:
-            append_filter_condition = current_value != default
-            # caution: if the rest of the widgets are at their default value then no filter is required
-            # if the defaults change, the logic here may also need to change
+            if key == "from_year":
+                append_filter_condition = current_value != EARLIEST_YEAR
+            else:
+                append_filter_condition = current_value != default
+                # caution: if the rest of the widgets are at their default value then no filter is required
+                # if the defaults change, the logic here may also need to change
 
-        if append_filter_condition:
-            filter_conditions.append(filter_condition_format.format(current_value=current_value))
+            if append_filter_condition:
+                filter_conditions.append(filter_condition_format.format(current_value=current_value))
 
     if filter_conditions:
         return " and ".join(filter_conditions)
@@ -250,11 +326,14 @@ def push_feedback_to_langfuse() -> None:
 
     trace_id = st.session_state["current_trace_id"]
 
-    faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
+    #    faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
 
     langfuse.score(
         # trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
-        trace_id=trace_id, name="user-feedback", value=st.session_state["feedback"], comment="N/A"
+        trace_id=trace_id,
+        name="user-feedback",
+        value=st.session_state["feedback"],
+        comment="N/A",
     )
 
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
@@ -268,10 +347,6 @@ if __name__ == "__main__":
         use_graph: Optional[graph_options_type] = "combined"  # or None for none of the options
     else:
         use_graph = None
-    use_langfuse: bool = (
-        not DEBUG_MODE and PROJECT == "NESTA_BRAIN"
-    )  # Langfuse is not currently set up for other projects –
-    # don't want NestaBrain's Langfuse to store traces from other projects
 
     stream: bool = True
     use_tool_for_citations: bool = False
@@ -283,7 +358,7 @@ if __name__ == "__main__":
         raise Exception("use_tool_for_citations may no longer work – need to check")
 
     runnable, stream_nodes = get_graph_or_rag_chain(
-        use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
+        use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, stream=stream, return_stream_nodes=True
     )
 
     load_dotenv()
@@ -292,12 +367,12 @@ if __name__ == "__main__":
     # -------authentication credit------
     # credit: https://medium.com/@coding-otter
     # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
-    
+
     # if "connected" not in st.session_state:
     if DEPLOY_MODE:
         redirect_uri = "https://nesta-brain.dap-tools.uk/"
     else:
-        redirect_uri = "http://localhost:8501/"
+        redirect_uri = "http://localhost:8501"
     authenticator = Authenticator(
         # allowed_users=allowed_users,   #adapted to allow any email address with a nesta.org.uk domain
         token_key=os.getenv("AUTH_TOKEN_KEY"),
@@ -384,7 +459,7 @@ if __name__ == "__main__":
                 message = {"role": "assistant", "html": response.as_html(), "content": response.content}
                 st.session_state.messages.append(message)
 
-        if USE_LANGFUSE:
+        if langfuse_mode() == "consent":
             # feedback = streamlit_feedback(
             #     feedback_type="faces",
             #     optional_text_label="[Optional] Please provide an explanation",
