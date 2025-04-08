@@ -68,7 +68,7 @@ def retriever(use_graph: Optional[graph_options_type] = None) -> Runnable:
     """Return a CustomRetriever with the option of chaining it with a graph in order to make retrieval more sophisticated"""
     retriever_ = CustomRetriever()
 
-    if use_graph in ["retrieval", "combined"]:
+    if use_graph in ["retrieval"]:
 
         # the output of the graph is a list of dicts in this format:
         # List[{'node_1_name':dict representing state returned by node 1} .. {'node_n_name': state returned by node n}]
