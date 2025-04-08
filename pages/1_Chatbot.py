@@ -17,12 +17,10 @@ import streamlit as st
 
 from config import ALLOW_POLICY_DOCS
 from config import DEBUG_MODE
-from config import DEPLOY_MODE
 from config import EARLIEST_YEAR
 from config import USE_LANGFUSE
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
-from front_end.auth.authenticate import Authenticator
 from front_end.project_spec import PAGE_INTRO
 from front_end.project_spec import WIDGET_SPEC
 from front_end.sidebar import sidebar
@@ -36,6 +34,8 @@ from lgraph.graph import graph_options_type
 from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
+
+
 # from streamlit_feedback import streamlit_feedback
 
 
@@ -361,25 +361,6 @@ if __name__ == "__main__":
     load_dotenv()
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    # -------authentication credit------
-    # credit: https://medium.com/@coding-otter
-    # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
-
-    # if "connected" not in st.session_state:
-    if DEPLOY_MODE:
-        redirect_uri = "https://nesta-brain.dap-tools.uk/"
-    else:
-        redirect_uri = "http://localhost:8501/"
-    authenticator = Authenticator(
-        # allowed_users=allowed_users,   #adapted to allow any email address with a nesta.org.uk domain
-        token_key=os.getenv("AUTH_TOKEN_KEY"),
-        secret_path="client_secret.json",  # nosec
-        redirect_uri=redirect_uri,
-    )
-
-    authenticator.check_auth()
-    authenticator.login()
-
     if st.session_state["connected"]:
 
         load_dotenv()
@@ -389,8 +370,7 @@ if __name__ == "__main__":
             use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
         )
 
-
-     #   st.set_page_config(layout="wide")
+        #   st.set_page_config(layout="wide")
         st.markdown(
             """
         <style>
@@ -488,4 +468,3 @@ if __name__ == "__main__":
                 """,
                 unsafe_allow_html=True,
             )
-

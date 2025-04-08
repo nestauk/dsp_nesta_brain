@@ -64,32 +64,6 @@ WIDGET_SPEC = OrderedDict(
 WIDGET_SPEC["knowledge_source"]["use_retrieval_option"] = WIDGET_SPEC["knowledge_source"]["options"][1]
 
 
-def check_password() -> bool:
-    """Return `True` if the user had the correct password."""
-
-    def password_entered() -> None:
-        """Check whether a password entered by the user is correct."""
-        if st.session_state["password"] == st.secrets["password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        # First run, show input for password.
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"]:
-        # Password not correct, show input + error.
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.error("😕 Password incorrect")
-        return False
-    else:
-        # Password correct.
-
-        return True
-
-
 def chat_history() -> List[BaseMessage]:
     """Derive chat history from streamlit messages"""
 
@@ -124,10 +98,7 @@ def fill_preview_container(
             unsafe_allow_html=True,
         )
 
-        st.text_area(
-            "Please provide any revision instructions, if needed",
-            key="revision_instructions"
-        )
+        st.text_area("Please provide any revision instructions, if needed", key="revision_instructions")
 
         st.button(
             "Submit",
@@ -212,27 +183,16 @@ if __name__ == "__main__":
     limit: int = 10
     stream: bool = False
     add_checkpoints: bool = True
-    # checkpoint: Literal[
-    #    "check_template", "edit"
-    # ] = "check_template"  # temporary variable until I figure out how to have more than one checkpoint
-    # if checkpoint == "edit":
-    #   interrupt_before = "terminate"
-    # elif checkpoint == "check_template":
-    #   interrupt_before = "fetch_template"
-    # else:
-    #   interrupt_before = None
-
-    # UI settings
     initial_message: str = "Hi, how can I help?"
 
-    if check_password():
+    load_dotenv()
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        load_dotenv()
-        logging.getLogger("httpx").setLevel(logging.WARNING)
+    graph, interrupt_before = create_graph(add_checkpoints=add_checkpoints)
 
-        graph, interrupt_before = create_graph(add_checkpoints=add_checkpoints)
+    if st.session_state["connected"]:
 
-        st.set_page_config(layout="wide")
+        #        st.set_page_config(layout="wide")
 
         st.markdown(
             """

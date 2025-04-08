@@ -1,47 +1,43 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import streamlit as st
 
 from config import DEBUG_MODE
+from config import DEPLOY_MODE
 from dotenv import load_dotenv
+from front_end.auth.authenticate import Authenticator
 from front_end.project_spec import WELCOME_INTRO
-
-
-def check_password() -> bool:
-    """Return `True` if the user had the correct password."""
-
-    def password_entered() -> None:
-        """Check whether a password entered by the user is correct."""
-        if st.session_state["password"] == st.secrets["password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        # First run, show input for password.
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"]:
-        # Password not correct, show input + error.
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.error("😕 Password incorrect")
-        return False
-    else:
-        # Password correct.
-
-        return True
 
 
 if __name__ == "__main__":
 
-    if check_password():
-        load_dotenv()
-        logging.getLogger("httpx").setLevel(logging.WARNING)
+    load_dotenv()
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        st.set_page_config(layout="wide")
+    # -------authentication credit------
+    # credit: https://medium.com/@coding-otter
+    # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
+
+    # if "connected" not in st.session_state:
+    if DEPLOY_MODE:
+        redirect_uri = "https://nesta-brain.dap-tools.uk/"
+    else:
+        redirect_uri = "http://localhost:8501/"
+    authenticator = Authenticator(
+        # allowed_users=allowed_users,   #adapted to allow any email address with a nesta.org.uk domain
+        token_key=os.getenv("AUTH_TOKEN_KEY"),
+        secret_path="client_secret.json",  # nosec
+        redirect_uri=redirect_uri,
+    )
+
+    authenticator.check_auth()
+    authenticator.login()
+
+    if st.session_state["connected"]:
+        # st.set_page_config(layout="wide")
 
         st.sidebar.success("Select a page above.")
 
