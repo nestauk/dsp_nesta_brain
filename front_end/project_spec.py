@@ -40,6 +40,11 @@ if PROJECT == "NESTA_BRAIN":
             <span style="color:red">Please note that this data is not linked to your identity or log-in credentials.
             However, you may opt out by clicking "Opt out, please" under the "Monitoring and evaluation" heading
             in the sidebar.</span>
+            <br/><br/>
+            <span style="color: red">Like any AI chatbot, responses are not guaranteed to be 100% accurate and complete.
+            Please always double-check the information provided and use your own judgement.
+            If you need in-depth assistance on matters which could affect your personal welfare or career, please
+            seek help from the People Team.</span>
             """
 
     WIDGET_SPEC = OrderedDict(
