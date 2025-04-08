@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from config import ALLOW_POLICY_DOCS
-from google_api.policy import Policy
+from google_api.drive_doc.policy import Policy
 from langchain.prompts import PromptTemplate
 
 
