@@ -11,6 +11,10 @@ if PROJECT == "NESTA_BRAIN":
 
     INTRO = """
             <h2>🧠 Nesta Brain</h2><br/>
+
+            <span style="color:red">DELETE THIS: red text shows recent edits to the intro.
+            Remove the red styling when happy with the edits.</span><br><br>
+
             This is a prototype AI chatbot designed to help you explore Nesta's knowledge.
             It searches thousands of webpages and reports to find the most relevant content
             in response to your questions.
@@ -27,10 +31,20 @@ if PROJECT == "NESTA_BRAIN":
             on <a href="https://nesta.slack.com/archives/C05BCUZNATG">#proj-nesta-brain</a>.
             <br/><br/>
             The chatbot currently accesses information from <strong>Nesta's public website (up to October 2024)</strong>
-            and does <strong>not</strong> include internal documents or systems like Nesta:Net, Slack, or GitHub.
+            and does <strong>not</strong> include internal documents or systems like Nesta:Net, Slack, or GitHub,
+            <span style="color:red">with the exception of a sample of people policies used for development</span>.
             <br/><br/>
             Use the sidebar to customize the chatbot's search parameters, such as date range or mission team.
-            Note that user queries and responses are saved for chatbot's performance evaluation and improvement.
+            Note that <span style="color:red">by default</span> user queries and responses are saved for chatbot's performance
+            evaluation and improvement.
+            <span style="color:red">Please note that this data is not linked to your identity or log-in credentials.
+            However, you may opt out by clicking "Opt out, please" under the "Monitoring and evaluation" heading
+            in the sidebar.</span>
+            <br/><br/>
+            <span style="color: red">Like any AI chatbot, responses are not guaranteed to be 100% accurate and complete.
+            Please always double-check the information provided and use your own judgement.
+            If you need in-depth assistance on matters which could affect your personal welfare or career, please
+            seek help from the People Team.</span>
             """
 
     WIDGET_SPEC = OrderedDict(
@@ -52,6 +66,11 @@ if PROJECT == "NESTA_BRAIN":
                 "default": None,
                 "filter_condition_format": "array_contains(source.missions,'{current_value}')",
                 "options": ("A fairer start", "A healthy life", "A sustainable future", None),
+            },
+            "monitoring": {
+                "default": "I'm OK with that",
+                "options": ("I'm OK with that", "Opt out, please"),
+                "consent_option_index": 0,
             },
         }
     )
