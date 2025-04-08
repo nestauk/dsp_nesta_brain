@@ -283,6 +283,7 @@ def choose_main_prompt(state: State) -> State:
 
 
 def create_combined_graph(
+    stream: bool = False,
     return_stream_nodes: bool = False, **kwargs
 ) -> CompiledStateGraph:  # doing it as a function to avoid circular imports
     """Compile and return a graph to assist with both retrieval and chat"""
@@ -294,16 +295,31 @@ def create_combined_graph(
         prompt = state["intermediate_outputs"].get("main_prompt")
         rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(prompt=prompt, **kwargs)
         response = rag_chain.invoke(state)
+        state["raw_response"] = response
         state["messages"].append(CustomAIMessage(response))
 
         return state
 
+    async def async_call_chain(
+        state: State,
+    ) -> State:  # function defined here to avoid circular import
+
+        prompt = state["intermediate_outputs"].get("main_prompt")
+        rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(prompt=prompt, **kwargs)
+        response = await rag_chain.ainvoke(state)
+        state["raw_response"] = response
+        state["messages"].append(CustomAIMessage(response))
+
+        return state
+
+    use_async = stream
+    
     builder = StateGraph(State)
 
     builder.add_node("initiate", initiate)
-    builder.add_node("decide_whether_needs_policy", decide_whether_needs_policy)
+    builder.add_node("decide_whether_needs_policy", async_decide_whether_needs_policy if use_async else decide_whether_needs_policy)
     builder.add_node("choose_main_prompt", choose_main_prompt)
-    builder.add_node("call_chain", call_chain)
+    builder.add_node("call_chain", async_call_chain if use_async else call_chain)
     builder.add_edge(START, "initiate")
     builder.add_edge("initiate", "decide_whether_needs_policy")
     builder.add_edge("decide_whether_needs_policy", "choose_main_prompt")
@@ -318,19 +334,3 @@ def create_combined_graph(
         return graph, stream_nodes
     else:
         return graph
-
-
-if __name__ == "__main__":
-
-    graph = create_retrieval_graph()
-    #  input = "What work has Nesta done on heat pumps?"
-    # input = "Who has data science skills at Nesta?"
-    # input = 'Are you a lemon?'
-    #  input = "List all the reports published last year"
-    input = "List all the reports published recently"
-    # messages =
-    res = asyncio.run(graph.ainvoke({"input": input, "filter_condition": "", "merge": True}))
-    logger.info(res)
-
-    # for m in messages['messages']:
-    #   m.pretty_print()
