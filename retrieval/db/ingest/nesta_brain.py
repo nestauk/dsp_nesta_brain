@@ -34,15 +34,15 @@ from langdetect import detect
 from pdf2image.exceptions import PDFInfoNotInstalledError
 from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
 from retrieval.db.schema.nesta_brain import Document as LanceDocument
+from retrieval.db.schema.nesta_brain import MissionProject
 from scraping.pdf.openparse_ import OpenParsePDF
 from scraping.pdf.unstructured_ import PDF
-from retrieval.db.schema.nesta_brain import MissionProject
 from scraping.scrape import html_to_text
 from scraping.scrape import search_query_to_scraped_data
 from utils import unique
 
 
-mode_type: Type = Literal["web_dump", "web_search", "given_urls", "from_csv","drive"]  # possible modes
+mode_type: Type = Literal["web_dump", "web_search", "given_urls", "from_csv", "from_drive"]  # possible modes
 
 _prefix = "2024-10-29"
 WEBSITE_DATA_PATH = PROJECT_DIR / f"scraping/data/website_{_prefix}"
@@ -54,7 +54,7 @@ NESTA_SITE_URL = "https://nesta.org.uk"
 
 DB = lancedb.connect(DB_PATH)
 DOCUMENT_TABLE = DB.open_table("document")
-
+CHUNK_TABLE = None  # defined below
 
 
 def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
@@ -107,7 +107,7 @@ async def chunk_to_Chunk(
         return await ing.chunk_to_Chunk(chunk, order_index=order_index, source=source)
 
 
-async def documents_to_Chunks(documents: List[LangchainDocument], split_documents: bool = True) -> List[Chunk]:
+async def documents_to_Chunks(documents: List[LangchainDocument], split_documents: bool = True) -> List[const.Chunk]:
 
     """
     Split Langchain documents into chunks and convert these into objects
@@ -446,10 +446,9 @@ def search_query_to_ingested_data(
     return bool(scraped_data)
 
 
-
 def ingest_from_drive(
     file_ids: Optional[List[str]] = None,
-    all_pdfs: bool = False,
+    all: bool = False,
     drive_type: Optional[str] = None,
     pdf_parser: str = "openparse",
     **kwargs,
@@ -473,10 +472,10 @@ def ingest_from_drive(
                     pass
         return title_guess, date_guess
 
-    if file_ids is None and not all_pdfs:
-        raise Exception("You must provide either a list of file_ids or set all_pdfs=True")
+    if file_ids is None and not all:
+        raise Exception("You must provide either a list of file_ids or set all=True")
 
-    if all_pdfs:
+    if all:
         files = list_files(mimetype="application/pdf")
         file_ids = [file["id"] for file in files]
         logger.info(f"Found {len(file_ids)} PDFs in Google Drive")
@@ -517,22 +516,23 @@ def ingest_from_drive(
             doc = LangchainDocument(page_content=text, metadata=metadata)
             ingest([doc], **kwargs)
 
-            
-class mode_arg(Enum):
+
+class ModeArgEnum(Enum):
     """Specifies the values that --mode can take via the command line"""
 
     wd = "wd"
     ws = "ws"
     csv = "csv"
+    drv = "drv"
 
+
+class DriveTypeEnum(Enum):
+    """Specifies the values that --drive_type (a variable describing the document type on Drive) can take via the command line"""
+
+    policy = "policy"  # add others as needed
 
 
 if __name__ == "__main__":
-
-
-    # you will need to add instructions and settings relevant to the new mode  "drive"
-    # split_documents setting is also new
-
 
     # global variable
     request_counter = ing.RequestCounter()
@@ -546,19 +546,20 @@ if __name__ == "__main__":
     #                  Use '-m ws' in the command line.
     # if 'from_csv': ingest from the CSV file specified by CSV_PATH.
     #                  Use '-m csv' in the command line.
+    # if 'from_drive': ingest from Google Drive.
+    #                  Use '-m drv' in the command line.
     # if 'given_urls': scrape webpages from a list of known urls otherwise.
     #                  Omit -m and specify the urls via --urls in the command line.
-    mode_args_map = {"wd": "web_dump", "ws": "web_search", "csv": "from_csv"}
+    mode_args_map = {"wd": "web_dump", "ws": "web_search", "csv": "from_csv", "drv": "from_drive"}
 
     parser = argparse.ArgumentParser()
 
     # universal arguments
-    parser.add_argument("-m", "--mode", type=mode_arg)
+    parser.add_argument("-m", "--mode", type=ModeArgEnum)
     parser.add_argument(
         "-r", "--replace", action="store_true"
     )  # replace flag. If present, if the document already exists in the DB, any chunks derived
     # from it will be deleted and replaced
-    split_documents = mode != "drive"  # if True, split documents into chunks before ingesting
 
     # arguments only relevant in web_dump mode
     parser.add_argument("--pdf", action="store_true")  # PDF flag. If present, scrape PDFs rather than webpages
@@ -582,7 +583,16 @@ if __name__ == "__main__":
     # arguments only relevant in given_urls mode
     parser.add_argument("--urls", nargs="*")
 
-    # argumrents relevant to web_dump mode and from_csv mode
+    # arguments only relevant to from_drive mode
+    parser.add_argument("-m", "--drive_type", type=DriveTypeEnum)
+    parser.add_argument(
+        "--all", action="store_true"
+    )  # all flag. If present, attempt to ingest all PDF documents which are accessible in the Google Drive root directory.
+    #
+    parser.add_argument("--file_ids", nargs="*")
+    # alternatively, you can specify a list of file_ids to ingest via the command line
+
+    # arguments relevant to web_dump mode and from_csv mode
     parser.add_argument(
         "--start_index", type=int, default=0
     )  # the row of the relevant data file to start ingesting; everything prior to this will be ignored
@@ -594,20 +604,18 @@ if __name__ == "__main__":
     mode: mode_type = "given_urls" if args.urls else mode_args_map.get(args.mode.value)
     # relevant to web_dump mode only
     download_button_pdf_only: bool = args.pdf and args.all
+    split_documents = mode != "from_drive"  # if True, split documents into chunks before ingesting
     # relevant to web_search mode
     subdirectories: List[str] = sorted(
         ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
     )
-
-
-    # settings relevant to drive mode
-    drive_type: Literal["policy"] = "policy"  # add other strings to the Literal as other types of documents are added
+    # relevant to from_drive mode
+    drive_type: DriveTypeEnum = DriveTypeEnum(args.drive_type or "policy")
     pdf_parser: Literal[
         "unstructured", "openparse"
     ] = "openparse"  # use openparse for simple documents which may contain tables
 
-
-    error_instructions = "\n* give the command line argument '-m wd' or '-m ws' to signify 'web_dump' mode or 'web_search' mode; OR\n* give a list of urls to go into 'given_urls' mode"  # noqa
+    error_instructions = "\n* give the command line argument '-m wd', '-m ws', '-m csv' or '-m drv' to signify one of the modes; OR\n* give a list of urls to go into 'given_urls' mode"  # noqa
     if not mode:
         raise Exception("No mode detected: You must either:" + error_instructions)
     elif args.urls and mode_args_map.get(args.mode):
@@ -616,7 +624,8 @@ if __name__ == "__main__":
         )
     if mode == "web_search" and not args.query:
         raise Exception("You must provide a --query argument via the command line in web_search mode")
-
+    if mode == "from_drive" and not args.file_ids and not args.all:
+        raise Exception("You must provide either a list of file_ids or set --all=True in from_drive mode")
 
     info = ["", "Ingestion settings as interpreted from command line arguments:"]
     info.append(f'mode: {mode} ({args.mode.value if args.mode else f"{len(args.urls)} urls provided"})')
@@ -656,11 +665,14 @@ if __name__ == "__main__":
 
             if args.pdf:
                 pdfs_to_ingested_data(
-                    df, replace=args.replace, download_button_pdf_only=download_button_pdf_only, cautious=args.cautious
+                    df,
+                    replace=args.replace,
+                    download_button_pdf_only=download_button_pdf_only,
+                    cautious=args.cautious,
+                    split_documents=split_documents,
                 )
             else:
-                webpages_to_ingested_data(df=df, replace=args.replace)
-
+                webpages_to_ingested_data(df=df, replace=args.replace, split_documents=split_documents)
 
     elif mode == "web_search":
         # if scraping from web
@@ -678,24 +690,24 @@ if __name__ == "__main__":
                 # 0 = first set of 10 results, 10 = the next set of 10 results, etc.
                 logging.info(f"\nGoogle search result set url = {url}, start = {start}")
 
-                results_returned = search_query_to_ingested_data(args.query, url, start=start, replace=args.replace)
+                results_returned = search_query_to_ingested_data(
+                    args.query, url, start=start, replace=args.replace, split_documents=split_documents
+                )
                 if not results_returned:
                     break
 
-    elif mode == "drive":
+    elif mode == "from_drive":
 
-        all_pdfs = False
-        file_ids = ["11jOuU_ABSkLDMHwziolXt-zfUzvuVwN2"]
         #   urls = ["https://drive.google.com/file/d/1NeuLG4DAHg-gd_iwAWCWKq80_iVUmXMp/view?usp=sharing"]
         #  file_ids = [
         #     url.replace("https://drive.google.com/file/d/", "").replace("/view?usp=sharing", "") for url in urls
         # ]
         ingest_from_drive(
-            replace=replace,
+            replace=args.replace,
             split_documents=split_documents,
             drive_type=drive_type,
-            all_pdfs=all_pdfs,
-            file_ids=file_ids,
+            all=args.all,
+            file_ids=args.file_ids,
         )
 
     elif mode == "from_csv":
@@ -715,4 +727,3 @@ if __name__ == "__main__":
                 Chunk_func=lambda *args, **kwargs: chunk_to_Chunk(*args, mode="from_csv", **kwargs),
                 chunk_presence_test=lambda *args, **kwargs: chunk_already_in_db(*args, mode="from_csv", **kwargs),
             )
-

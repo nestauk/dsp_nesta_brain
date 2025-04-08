@@ -14,8 +14,11 @@ from typing import Union
 
 import streamlit as st
 
+from config import ALLOW_POLICY_DOCS
 from config import DEBUG_MODE
+from config import DEPLOY_MODE
 from config import EARLIEST_YEAR
+from config import PROJECT
 from config import USE_LANGFUSE
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
@@ -51,7 +54,6 @@ langfuse_handler = CallbackHandler(
     host=os.getenv("LANGFUSE_HOST"),
     user_id=os.getenv("LANGFUSE_USER_ID"),
 )
-
 
 
 class GraphStreamEvent(dict):
@@ -243,7 +245,7 @@ def filter_conditions() -> Union[str, None]:
     return None
 
 
-def push_feedback_to_langfuse(feedback: Dict) -> None:
+def push_feedback_to_langfuse() -> None:
     """Send the feedback score and comments to Langfuse"""
 
     trace_id = st.session_state["current_trace_id"]
@@ -251,7 +253,8 @@ def push_feedback_to_langfuse(feedback: Dict) -> None:
     faces_score_map = {"😞": 1, "🙁": 2, "😐": 3, "🙂": 4, "😀": 5}
 
     langfuse.score(
-        trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
+        # trace_id=trace_id, name="user-feedback", value=faces_score_map[feedback["score"]], comment=feedback["text"]
+        trace_id=trace_id, name="user-feedback", value=st.session_state["feedback"], comment="N/A"
     )
 
     logger.info(f"Pushed user feedback for trace_id {trace_id} to Langfuse")
@@ -261,7 +264,10 @@ if __name__ == "__main__":
 
     # settings
     limit: int = 10
-    use_graph: Optional[graph_options_type] = "combined"  # or None for none of the options
+    if ALLOW_POLICY_DOCS:
+        use_graph: Optional[graph_options_type] = "combined"  # or None for none of the options
+    else:
+        use_graph = None
     use_langfuse: bool = (
         not DEBUG_MODE and PROJECT == "NESTA_BRAIN"
     )  # Langfuse is not currently set up for other projects –
@@ -276,33 +282,33 @@ if __name__ == "__main__":
     if use_tool_for_citations:
         raise Exception("use_tool_for_citations may no longer work – need to check")
 
-
     runnable, stream_nodes = get_graph_or_rag_chain(
-          use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
+        use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
     )
 
     load_dotenv()
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-
-    st.set_page_config(layout="wide")
-
     # -------authentication credit------
     # credit: https://medium.com/@coding-otter
     # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
-
+    
+    # if "connected" not in st.session_state:
+    if DEPLOY_MODE:
+        redirect_uri = "https://nesta-brain.dap-tools.uk/"
+    else:
+        redirect_uri = "http://localhost:8501/"
     authenticator = Authenticator(
         # allowed_users=allowed_users,   #adapted to allow any email address with a nesta.org.uk domain
         token_key=os.getenv("AUTH_TOKEN_KEY"),
         secret_path="client_secret.json",  # nosec
-        redirect_uri="http://localhost:8501",
+        redirect_uri=redirect_uri,
     )
 
     authenticator.check_auth()
     authenticator.login()
 
     if st.session_state["connected"]:
-
 
         st.markdown(
             """
@@ -379,9 +385,26 @@ if __name__ == "__main__":
                 st.session_state.messages.append(message)
 
         if USE_LANGFUSE:
-            feedback = streamlit_feedback(
-                feedback_type="faces",
-                optional_text_label="[Optional] Please provide an explanation",
+            # feedback = streamlit_feedback(
+            #     feedback_type="faces",
+            #     optional_text_label="[Optional] Please provide an explanation",
+            #     key="feedback",
+            #     on_submit=push_feedback_to_langfuse,
+            # )
+            feedback = st.feedback(
+                options="faces",
                 key="feedback",
-                on_submit=push_feedback_to_langfuse,
+                on_change=push_feedback_to_langfuse,
+            )
+            st.markdown(
+                """
+                <style>
+                    div[aria-label="button group"] {
+                        display: flex;
+                        justify-content: flex-end;
+                        max-width: 100% !important;
+                    }
+                </style>
+                """,
+                unsafe_allow_html=True,
             )

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import importlib
 import re
 
@@ -10,6 +9,7 @@ from typing import Dict
 from typing import Literal
 from typing import Type
 
+from config import ALLOW_POLICY_DOCS
 from config import DEFAULT_START_YEAR
 from dsp_nesta_brain import logger
 from langchain_core.runnables import RunnableParallel
@@ -19,7 +19,11 @@ from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.types import StreamWriter
 from lgraph.prompt import currentness_comment_prompt
-from lgraph.prompt import needs_policy_prompt
+
+
+if ALLOW_POLICY_DOCS:
+    from lgraph.prompt import needs_policy_prompt
+
 from lgraph.prompt import personnel_prompt
 from lgraph.prompt import year_constraint_prompt
 from llm.llm import default_llm as llm
@@ -262,7 +266,8 @@ def create_combined_graph(
         prompt = state["intermediate_outputs"].get("main_prompt")
         rag_chain = importlib.import_module("llm.chain").get_graph_or_rag_chain(prompt=prompt, **kwargs)
         response = rag_chain.invoke(state)
-        state["messages"].append(CustomAIMessage(response))
+        message = CustomAIMessage(response)
+        state["messages"].append(message)
 
         return state
 
@@ -286,19 +291,3 @@ def create_combined_graph(
         return graph, stream_nodes
     else:
         return graph
-
-
-if __name__ == "__main__":
-
-    graph = create_retrieval_graph()
-    #  input = "What work has Nesta done on heat pumps?"
-    # input = "Who has data science skills at Nesta?"
-    # input = 'Are you a lemon?'
-    #  input = "List all the reports published last year"
-    input = "List all the reports published recently"
-    # messages =
-    res = asyncio.run(graph.ainvoke({"input": input, "filter_condition": "", "merge": True}))
-    logger.info(res)
-
-    # for m in messages['messages']:
-    #   m.pretty_print()
