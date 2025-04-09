@@ -453,6 +453,8 @@ def search_query_to_ingested_data(
     """Perform a search, scrape the webpages from the search results, and ingest the data"""
 
     scraped_data = search_query_to_scraped_data(query, site_url, **kwargs)
+    for datum in scraped_data:
+        datum["location"] = datum["url"]
     return scraped_data_to_ingested_data(scraped_data, replace=replace, split_documents=split_documents)
 
 
@@ -605,7 +607,7 @@ if __name__ == "__main__":
     parser.add_argument("--query")
     parser.add_argument("--site", default=NESTA_SITE_URL)
     parser.add_argument(
-        "--use-subdirectories", action="store_true"
+        "--use_subdirectories", action="store_true"
     )  # if present and site=NESTA_SITE_URL, search various subdirectories of the Nesta website in turn
 
     # arguments only relevant in given_urls or from_drive mode
@@ -632,7 +634,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # translate command line arguments to mode
-    mode: mode_type = "given_urls" if args.urls else mode_args_map.get(args.mode.value)
+    mode: mode_type = mode_args_map.get(args.mode.value)
+    if not mode and args.urls:
+        mode = "given_urls"
 
     # some other flags derived once the command line arguments are known
     # relevant to web_dump mode only
@@ -674,12 +678,12 @@ if __name__ == "__main__":
     elif mode == "given_urls":
         present_args += ["urls"]
     elif mode == "from_drive":
-        present_args += ["drive_type", "all", "file_ids", "urls"]
+        present_args += ["drive_type", "all_drive", "file_ids", "urls"]
     elif mode == "from_csv":
         present_args += ["start_index", "batch_size"]
 
     info += [f"{k}: {v}" for k, v in args.__dict__.items() if k in present_args]
-    info.append("Refer to instructions if these are not correct\n")
+    info.append("Refer to instructions on command line arguments if these are not correct\n")
     logger.info("\n".join(info))
 
     # execute ingestion depending on mode
@@ -709,7 +713,7 @@ if __name__ == "__main__":
     elif mode == "web_search":
         # if scraping from web
 
-        if subdirectories:
+        if args.use_subdirectories:
             urls = [args.site + "/" + subdirectory for subdirectory in subdirectories]
         else:
             urls = [args.site]
