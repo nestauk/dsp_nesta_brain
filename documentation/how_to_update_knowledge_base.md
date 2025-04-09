@@ -169,7 +169,7 @@ Depending on the mode, additional arguments may also need to be passed on via th
 > an integer which represents the index of a set of data records to start ingesting from. If absent, then the start index defaults to zero. If in `web_dump` mode, start_index represents the row of the metadata dataframe (see **Data** section) to start ingesting from. If in `from_csv` mode, then it represents the row of the dataframe into which the CSV data has been read.
 
 **`--batch_size` : batch size**
-> the number of data records (representing webpages, PDFs, etc.) to get embeddings for and ingest at a time. If absent, then it defaults to 10. Note that if the batch size is too high then you will get error messages back from OpenAI (see **Known issues**). Users are encouraged to experiment with batch size. PDFs can be large and slow to scrape, so a very low batch_size (<5) is recommended. A batch size of 50 for webpages and 1 for PDFs was used when the DB was originally set up. Batch sizes > 100 for webpages seemed to cause problems. (As a clarification, note that the word 'batch' in this context has no relation to OpenAI's Batch API, which is not used.)
+> the number of data records (representing webpages, etc.) to get embeddings for and ingest at a time. If absent, then it defaults to 10. Users are strongly encouraged to use much higher batch sizes when ingesting web pages (up to 350 has successfully been tested). The @retry decorator is used to ensure embeddings requests are retried if rate limit or API connection errors are thrown. PDFs can be large and slow to scrape, so a very low batch_size (<5) is recommended. (As a clarification, note that the word 'batch' in this context has no relation to OpenAI's Batch API, which is not used.)
 
 *arguments only relevant to `web_search` mode*
 
@@ -197,7 +197,7 @@ Depending on the mode, additional arguments may also need to be passed on via th
 **`--file_ids` : file IDs**:
 > a list of file IDs to ingest (space-separated)
 
-**`--all` : all files flag**:
+**`--all_drive` : all Drive files flag**:
 > if present, look for all accessible files on Google Drive and ingest them all. If absent, you must specify which files you want to ingest via `--file_ids` or `--urls`.
 
 ## Adding new data sets: Examples
@@ -234,7 +234,7 @@ For a completely new reingestion, a new database needs to be created, following 
     table = db.create_table("your_chunk_table_name", schema=YourSchemaChunkClass)  #the chunk table in NestaBrain is just called "chunk
     table.create_fts_index("text")  #assuming your chunk class has a text field
     ```
-3. Run `__main__` in `retrieval/db/ingest/nesta_brain.py` with `-m wd` on the command line. Again, if PDFs are wanted as well, then run twice, once with `--pdf`, and once without. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, investigate and fix the issue, or use `start_index` to skip the webpage which caused the error to be thrown.
+3. Run `__main__` in `retrieval/db/ingest/nesta_brain.py` with `-m wd` on the command line. Again, if PDFs are wanted as well, then run twice, once with `--pdf`, and once without. Note that ingesting the entire site can take a long time and may throw the occasional error. If errors are encountered, investigate and fix the issue, or use `start_index` to skip the webpage which caused the error to be thrown.
 
 ### Adding webpages from other sites
 
@@ -256,6 +256,5 @@ Note that the code which does the website scraping in `scraping/scrape.py` is de
 
 ## Known issues
 
-1. __[May no longer be current – I am testing an improved throttle]__ A throttle should (theoretically) ensure OpenAI requests are kept within rate limits. However, when `batch_size` is large error messages can be thrown by the API which are not due to rate limits being exceeded, or by the lancedb package. Accordingly, users may find that the rate limits are not in danger of being breached because the batch sizes need to be relatively small to avoid these latter errors. There wasn't time to troubleshoot and fix these issues, but future users should be aware that if they wish to ingest large volumes of documents simultaneously, they may need to investigate the causes of these errors and upgrade the code.
-2. There were some PDFs which didn't scrape successfully and which threw error messages, probably due to size. There also wasn't time to investigate and fix this. Future users may encounter the same problem. If a PDF throws an error, it can be skipped by noting the row in the metadata dataframe of the originating webpage and setting `start_index` to the one following it.
-3. As mentioned above, the `location` metadata field is used as a unique identifier for documents to avoid duplicate scraping of webpages and other documents. However, the database does currently contain some duplication of webpages where there are URL aliases in the site map. These should be removed from the database, time-permitting, and code added to `retrieval/db/ingest/nesta_brain.py` to prevent this occurring.
+1. There were some PDFs which didn't scrape successfully and which threw error messages, probably due to size. There also wasn't time to investigate and fix this. Future users may encounter the same problem. If a PDF throws an error, it can be skipped by noting the row in the metadata dataframe of the originating webpage and setting `start_index` to the one following it.
+2. As mentioned above, the `location` metadata field is used as a unique identifier for documents to avoid duplicate scraping of webpages and other documents. However, the database does currently contain some duplication of webpages where there are URL aliases in the site map. These should be removed from the database, time-permitting, and code added to `retrieval/db/ingest/nesta_brain.py` to prevent this occurring.

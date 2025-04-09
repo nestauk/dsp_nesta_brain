@@ -120,6 +120,8 @@ def scrape(url: str) -> str:
         # metadata
         title = soup.find("title").getText().replace(" | Nesta", "")
         data_layer = extract_data_layer(soup)
+        if type(data_layer) == list:  # it should be a list with just one dict element
+            data_layer = data_layer[0]
         try:
             date_pub = data_layer.pop("publishDate")
             date_pub = dt.datetime.strptime(date_pub, "%Y-%m-%d")

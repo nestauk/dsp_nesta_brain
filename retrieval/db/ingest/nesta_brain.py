@@ -25,7 +25,7 @@ from bs4.element import Tag
 from config import DB_PATH
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
-from google_api.drive import PDF_SCOPES
+from google_api.drive import READ_ONLY_SCOPES
 from google_api.drive import download_pdf
 from google_api.drive import drive_service
 from google_api.drive import get_file
@@ -45,6 +45,9 @@ from scraping.scrape import search_query_to_scraped_data
 from utils import unique
 
 
+pause = input
+
+
 mode_type: Type = Literal["web_dump", "web_search", "given_urls", "from_csv", "from_drive"]  # possible modes
 
 _prefix = "2024-10-29"
@@ -56,7 +59,6 @@ NESTA_SITE_URL = "https://nesta.org.uk"
 DEFAULT_BATCH_SIZE = 10
 
 DB = lancedb.connect(DB_PATH)
-CHUNK_TABLE = None  # defined below
 
 
 def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
@@ -67,7 +69,7 @@ def doc_already_in_db(doc_or_location: Union[LangchainDocument, str]) -> bool:
     elif isinstance(doc_or_location, str):
         location = doc_or_location
 
-    results = CHUNK_TABLE.search().where(f'source.location = "{location}"').to_list()
+    results = chunk_table.search().where(f'source.location = "{location}"').to_list()
     return bool(results)
 
 
@@ -113,6 +115,8 @@ async def documents_to_Chunks(documents: List[LangchainDocument], split_document
     Split Langchain documents into chunks and convert these into objects
     of the Chunk class which can be ingested into the DB
     """  # noqa
+
+    logging.getLogger("openai").setLevel(logging.WARNING)
 
     sources = [LanceDocument(ingestion=True, **doc.metadata) for doc in documents]
 
@@ -161,9 +165,10 @@ async def documents_to_Chunks(documents: List[LangchainDocument], split_document
                 source_tasks.append(task)
                 order_index += 1
 
+        tasks += source_tasks  # add the final set of source_tasks
+
         logger.info(f"Fetching embeddings for {len(tasks)} chunks ...")
         chunks = await asyncio.gather(*tasks)
-        return chunks, sources
 
     else:
 
@@ -175,7 +180,10 @@ async def documents_to_Chunks(documents: List[LangchainDocument], split_document
             skip_message_format="Skipping document {location} as it already seems to be in the DB",
             chunk_to_Chunk=chunk_to_Chunk_,
         )
-        return chunks, sources
+
+    logging.getLogger("openai").setLevel(logging.INFO)
+
+    return chunks, sources
 
 
 def ingest(documents: List[LangchainDocument], replace: bool = False, **kwargs) -> None:
@@ -340,6 +348,10 @@ def pdfs_to_ingested_data(
             html = f.read()
         _, soup = html_to_text(html, return_soup=True)
 
+        web_metadata = row["web_metadata"]
+        if type(web_metadata) is list:
+            web_metadata = web_metadata[0]
+
         if download_button_pdf_only:
             button_links_doc_titles = find_download_button_links(row, soup)
 
@@ -356,7 +368,7 @@ def pdfs_to_ingested_data(
                 (
                     file_name,
                     link,
-                    row["web_metadata"]["title"],
+                    web_metadata["title"],
                 )  # web metadata title is used as one of the guesses of the title of the PDF
                 for link, file_name in file_names.items()
                 if is_good_link(link)
@@ -392,9 +404,6 @@ def pdfs_to_ingested_data(
 
                         else:
 
-                            web_metadata = row["web_metadata"]
-                            if type(web_metadata) is list:
-                                web_metadata = web_metadata[0]
                             title_guesses = unique([soup.find("title").getText().replace(" | Nesta", ""), title_guess])
                             metadata = pdf.guess_metadata(
                                 title_guess=title_guesses,
@@ -418,7 +427,7 @@ def pdfs_to_ingested_data(
         ingest(docs, **kwargs)
 
     else:
-        logger.info("No PDF-derived docs to ingest for this batch")
+        logger.info("No PDFs to ingest for this batch")
 
 
 # if scraping/ingesting from search results
@@ -484,7 +493,7 @@ def ingest_from_drive(
 
     if file_ids:
         logger.info("Setting up connection to Google Drive API")
-        service = drive_service(scopes=PDF_SCOPES)
+        service = drive_service(scopes=READ_ONLY_SCOPES)
 
     for file_id in file_ids:
 
@@ -605,7 +614,7 @@ if __name__ == "__main__":
     # arguments only relevant to from_drive mode
     parser.add_argument("--drive_type", type=DriveTypeEnum)
     parser.add_argument(
-        "--all", action="store_true"
+        "--all_drive", action="store_true"
     )  # all files flag. If present, attempt to ingest all PDF documents which are accessible in the Google Drive root directory.
     #
     parser.add_argument("--file_ids", nargs="*")
@@ -647,14 +656,14 @@ if __name__ == "__main__":
 
     if mode == "web_search" and not args.query:
         raise Exception("You must provide a --query argument via the command line in web_search mode")
-    if mode == "from_drive" and not args.file_ids and not args.urls and not args.all:
+    if mode == "from_drive" and not args.file_ids and not args.urls and not args.all_drive:
         raise Exception(
             "You must EITHER provide a list of file_ids or URLs of the files you want to ingest, "
-            "OR set --all flag in from_drive mode"
+            "OR set --all-drive flag in from_drive mode"
         )
 
     # log command line arguments received
-    info = ["", "Ingestion settings as interpreted from command line arguments:"]
+    info = ["", "\nIngestion settings as interpreted from command line arguments:"]
     info.append(f'mode: {mode} ({args.mode.value if args.mode else f"{len(args.urls)} urls provided"})')
 
     present_args = ["replace"]
@@ -670,7 +679,7 @@ if __name__ == "__main__":
         present_args += ["start_index", "batch_size"]
 
     info += [f"{k}: {v}" for k, v in args.__dict__.items() if k in present_args]
-    info.append("Refer to instructions if these are not correct")
+    info.append("Refer to instructions if these are not correct\n")
     logger.info("\n".join(info))
 
     # execute ingestion depending on mode
@@ -727,12 +736,10 @@ if __name__ == "__main__":
             logger.info(f"\nScraping {url}")
             try:
                 scraped_datum = scrape(url)
+                scraped_datum["location"] = url
+                scraped_data.append(scraped_datum)
             except Exception as e:
                 logger.error(f"Error while trying to scrape {url}: {e}")
-                continue
-
-            scraped_datum["url"] = url
-            scraped_data.append(scraped_datum)
 
         scraped_data_to_ingested_data(scraped_data, replace=args.replace, split_documents=split_documents)
 
@@ -752,7 +759,7 @@ if __name__ == "__main__":
             replace=args.replace,
             split_documents=split_documents,
             drive_type=drive_type,
-            all=args.all,
+            all=args.all_drive,
             file_ids=file_ids,
         )
 

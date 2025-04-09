@@ -291,7 +291,7 @@ if __name__ == "__main__":
 
     db = lancedb.connect(DB_PATH)
     chunk_table = db.open_table(CHUNK_TABLE_NAME)
-    project_table = db.open_table("mission_project")
+    #  project_table = db.open_table("mission_project")
 
     # code below is just for testing and experimenting
 
