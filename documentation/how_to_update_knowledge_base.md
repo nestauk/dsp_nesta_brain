@@ -29,7 +29,7 @@ The records which the database contains are defined by a schema made up of two P
 `Document` fields are as follows:
 
 **`location`**: `str`
-> the url or file system path where the document can be found
+> the url or file system path where the document can be found (unique identifier)
 
 **`title`**: `str`
 > document title
@@ -231,26 +231,28 @@ For a completely new reingestion, a new database needs to be created, following 
     table = db.create_table("your_chunk_table_name", schema=YOUR_SCHEMA_CHUNK_CLASS)  #e.g., "chunk" and the Chunk class from retrieval/db/schema/nesta_brain.py
     table.create_fts_index("text")  #assuming your chunk class has a text field
     ```
-4. Run `__main__` in `retrieval/db/ingest/nesta_brain.py` setting `mode = "web_dump"`. Again, if PDFs are wanted as well, then run twice, once with `pdf_mode = False`, and once with `pdf_mode = True`. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, investigate and fix the issue, or use `start_index` to skip the webpage which caused the error to be thrown.
+3. Run `__main__` in `retrieval/db/ingest/nesta_brain.py` with `-m wd` on the command line. Again, if PDFs are wanted as well, then run twice, once with `--pdf`, and once without. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, investigate and fix the issue, or use `start_index` to skip the webpage which caused the error to be thrown.
 
 ### Adding webpages from other sites
 
 Webpages from other sites can potentially be added, either in `web_search` or `given_urls` mode. For example, to scrape pages on Medium by the Nesta data science team follow these steps:
 
-1. Set `mode = "web_search"`.
-2. Set `site_url = "https://medium.com/data-analytics-at-nesta"`.
-3. If looking for a particular topic, set `query` to look for related keywords or phrases. Alternatively, set `query` equal to the empty string or `query = "-site:https://medium.com/data-analytics-at-nesta/tagged"` to exclude particular subdirectories.
-4. Set `subdirectories` equal to a list of any desired subdirectories, or set equal to `None` or `[]`.
-5. Run `__main__` in `retrieval/db/ingest/nesta_brain.py`.
+1. Run `__main__` in `retrieval/db/ingest/nesta_brain.py` with `-m ws --site https://medium.com/data-analytics-at-nesta` as command line arguments.
+
+Options:
+
+• If looking for a particular topic, also use the `--query` command line argument to look for related keywords or phrases. 
+
+• To look only in particular, set the `subdirectories` variable in `retrieval/db/ingest/nesta_brain.py` equal to a list of any desired 
+subdirectories, and use the `--use-subdirectories` command line argument
+
+• Alternatively, subdirectories can be specified or excluded using the `--query` command ine argument with Google search syntax, for example `--query -site:https://medium.com/data-analytics-at-nesta/tagged` to exclude particular subdirectories.
 
 Note that the code which does the website scraping in `scraping/scrape.py` is designed for Nesta webpages and may need some editing to be suitable for other websites, for example, in deriving the publication date, or determining which page elements count as text and which you wish to ignore. See the `scrape` and `html_to_text` functions in `scraping/scrape.py`.
 
-### Adding offline resources
-
-The code in `retrieval/db/ingest/nesta_brain.py` is not currently set up to ingest offline resources (other than webpages and PDFs stored during a data dump of the Nesta website and accessed in `web_dump` mode). Code would need to be written to convert the offline documents into plain text, and then convert the plain text and any metadata into the LangChain [`Document`](https://python.langchain.com/api_reference/core/documents/langchain_core.documents.base.Document.html) class. A list of LangChain `Document`s can be passed to the `ingest` function via the `documents` argument. The `ingest` function chunks and vectorizes each document and inserts the chunks into the vector database. Note that every `Document` in `documents` must have a `location` (system file path or url) and `title` field in its metadata – all other metadata is optional. `location` is used as a unique identifier for documents to establish whether documents have already been added to the database. \[Note that the LangChain `Document` class is distinct from the `Document` class defined in the DB schema. The aliases `LangchainDocument` and `LanceDocument` are used for these classes respectively in `retrieval/db/ingest/nesta_brain.py` to avoid confusion].
 
 ## Known issues
 
-1. A throttle should (theoretically) ensure OpenAI requests are kept within rate limits. However, when `batch_size` is large error messages can be thrown by the API which are not due to rate limits being exceeded, or by the lancedb package. Accordingly, users may find that the rate limits are not in danger of being breached because the batch sizes need to be relatively small to avoid these latter errors. There wasn't time to troubleshoot and fix these issues, but future users should be aware that if they wish to ingest large volumes of documents simultaneously, they may need to investigate the causes of these errors and upgrade the code.
+1. __[May no longer be current – I am testing an improved throttle]__ A throttle should (theoretically) ensure OpenAI requests are kept within rate limits. However, when `batch_size` is large error messages can be thrown by the API which are not due to rate limits being exceeded, or by the lancedb package. Accordingly, users may find that the rate limits are not in danger of being breached because the batch sizes need to be relatively small to avoid these latter errors. There wasn't time to troubleshoot and fix these issues, but future users should be aware that if they wish to ingest large volumes of documents simultaneously, they may need to investigate the causes of these errors and upgrade the code. 
 2. There were some PDFs which didn't scrape successfully and which threw error messages, probably due to size. There also wasn't time to investigate and fix this. Future users may encounter the same problem. If a PDF throws an error, it can be skipped by noting the row in the metadata dataframe of the originating webpage and setting `start_index` to the one following it.
-3. As mentioned above, the `location` metadata field is used a as a unique identifier for documents to avoid duplicate scraping of webpages and other documents. However, the database does currently contain some duplication of webpages where there are URL aliases in the site map. These should be removed from the database, time-permitting, and code added to retrieval/db/ingest/nesta_brain.py to prevent this occurring.
+3. As mentioned above, the `location` metadata field is used as a unique identifier for documents to avoid duplicate scraping of webpages and other documents. However, the database does currently contain some duplication of webpages where there are URL aliases in the site map. These should be removed from the database, time-permitting, and code added to `retrieval/db/ingest/nesta_brain.py` to prevent this occurring.
