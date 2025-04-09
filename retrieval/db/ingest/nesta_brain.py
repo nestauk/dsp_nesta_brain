@@ -53,7 +53,7 @@ METADATA_PATH = WEBSITE_DATA_PATH / "metadata.jsonl"
 PDF_PATH = WEBSITE_DATA_PATH / "pdf_files"
 CSV_PATH = PROJECT_DIR / "data/Mission Project List.csv"
 NESTA_SITE_URL = "https://nesta.org.uk"
-
+DEFAULT_BATCH_SIZE = 10
 
 DB = lancedb.connect(DB_PATH)
 CHUNK_TABLE = None  # defined below
@@ -603,10 +603,10 @@ if __name__ == "__main__":
     parser.add_argument("--urls", nargs="*")
 
     # arguments only relevant to from_drive mode
-    parser.add_argument("-m", "--drive_type", type=DriveTypeEnum)
+    parser.add_argument("--drive_type", type=DriveTypeEnum)
     parser.add_argument(
         "--all", action="store_true"
-    )  # all flag. If present, attempt to ingest all PDF documents which are accessible in the Google Drive root directory.
+    )  # all files flag. If present, attempt to ingest all PDF documents which are accessible in the Google Drive root directory.
     #
     parser.add_argument("--file_ids", nargs="*")
     # alternatively, you can specify a list of file_ids to ingest via the command line
@@ -615,7 +615,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--start_index", type=int, default=0
     )  # the row of the relevant data file to start ingesting; everything prior to this will be ignored
-    parser.add_argument("--batch_size", type=int, default=10)  # the number of webpages/rows to ingest at a time
+    parser.add_argument(
+        "--batch_size", type=int, default=DEFAULT_BATCH_SIZE
+    )  # the number of webpages/rows to ingest at a time
 
     # parse command line arguments
     args = parser.parse_args()
@@ -645,8 +647,11 @@ if __name__ == "__main__":
 
     if mode == "web_search" and not args.query:
         raise Exception("You must provide a --query argument via the command line in web_search mode")
-    if mode == "from_drive" and not args.file_ids and not args.all:
-        raise Exception("You must provide either a list of file_ids or set --all=True in from_drive mode")
+    if mode == "from_drive" and not args.file_ids and not args.urls and not args.all:
+        raise Exception(
+            "You must EITHER provide a list of file_ids or URLs of the files you want to ingest, "
+            "OR set --all flag in from_drive mode"
+        )
 
     # log command line arguments received
     info = ["", "Ingestion settings as interpreted from command line arguments:"]
@@ -733,7 +738,9 @@ if __name__ == "__main__":
 
     elif mode == "from_drive":
 
-        if args.urls:
+        if args.file_ids:
+            file_ids = args.file_ids
+        elif args.urls:
             file_ids = [
                 url.replace("https://drive.google.com/file/d/", "").replace("/view?usp=sharing", "")
                 for url in args.urls
@@ -746,7 +753,7 @@ if __name__ == "__main__":
             split_documents=split_documents,
             drive_type=drive_type,
             all=args.all,
-            file_ids=args.file_ids,
+            file_ids=file_ids,
         )
 
     elif mode == "from_csv":

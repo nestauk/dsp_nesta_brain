@@ -177,3 +177,6 @@ retrieval/db/knowledge_bases
 #other
 documentation/policy_documents_ingested.csv
 client_secret.json
+scraping/data/website_2024-10-29/*.txt
+scraping/data/website_2024-10-29/*.html
+scraping/data/*.json

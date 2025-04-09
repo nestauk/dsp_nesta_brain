@@ -26,12 +26,12 @@ class Document(LanceModel):
     # extra metadata from metadata.jsonl
     projects: Optional[List[str]] = None
     units: Optional[List[str]] = None
-    rank: Optional[int] = None
-    views: Optional[int] = None
     areas_of_work: Optional[List[str]] = None
     missions: Optional[List[str]] = None
     authors: Optional[List[str]] = None
     contentType: Optional[str] = None
+    views: Optional[int] = None
+    rank: Optional[int] = None
     # other
     drive_type: Optional[str] = None
     time_added: datetime
@@ -244,7 +244,7 @@ if __name__ == "__main__":
 
     # creating tables
     if True:
-        table = db.create_table("mission_project", schema=MissionProject)
+        table = db.create_table("chunk", schema=Chunk)
         table.create_fts_index("text")
 
     # dropping tables
