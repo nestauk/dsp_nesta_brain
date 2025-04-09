@@ -200,7 +200,7 @@ Depending on the mode, additional arguments may also need to be passed on via th
 **`--all` : all files flag**:
 > if present, look for all accessible files on Google Drive and ingest them all. If absent, you must specify which files you want to ingest via `--file_ids` or `--urls`.
 
-## Adding new data sets
+## Adding new data sets: Examples
 
 As the website changes over time, the vector database underlying Nesta Brain will need to reflect this. In addition, admins may wish to add pages from other sites, or offline documents.
 
@@ -208,23 +208,30 @@ As the website changes over time, the vector database underlying Nesta Brain wil
 
 If it is necessary to ingest only a relatively small number of pages which have been added to the Nesta website since October 2024, then the following step can be taken:
 
-1. If the urls of the webpages are known, then they can be added by setting `mode` to `'given_urls'` and setting the `given_urls` variable to the list of urls.
+1. If the urls of the webpages are known, then they can be added in `give_urls` mode via the `--urls` command line argument.
 
-Note that if `mode == "given_urls"` scraping of Nesta webpages hould automatically yield the full range of metadata contained in the data layer on each page (although some of the fields are often left blank).
+Note that in `given_urls` mode scraping of Nesta webpages should automatically yield the full range of metadata contained in the data layer on each page (although some of the fields are often left blank).
 
 ### Updates to the Nesta website: `web_dump` mode
 
 `web_dump` mode can be used either to add new pages or to do a completely new reingestion of the whole site.
 
-[an explanation of how to derive urls from the site map, download them and add their metadata to `metadata.jsonl` needs to be added here.]
+You will need to download the relevant webpages and/or PDFs and put them in the directories with paths `WEBSITE_DATA_PATH` and/or `PDF_PATH`. You will also need to create a metadata file equivalent to `scraping/data/website_2024-10-29/metadata.jsonl`.
 
-New pages can be added in `web_dump` mode. Only webpages which are not already in the database are added. The code will iterate through the rows of the dataframe representing all webpages, and those already present will be ignored. If any PDFs linked to by new pages are wanted as well, then run the code twice, once with `pdf_mode = False` (to ingest the webpages), and once with `pdf_mode = True` (to ingest the PDFs).
+New pages can be added in `web_dump` mode - only webpages which are not already in the database should be added. The code will iterate through the rows of the dataframe representing all webpages, and those already present will be ignored. If any PDFs linked to by new pages are wanted as well, then run the code twice, once with `--pdf` and once without.
 
 For a completely new reingestion, a new database needs to be created, following these steps:
 
 1. Change DB_PATH in config.py to the path of the new database.
-2. Run `__main__` in `retrieval/db/schema/nesta_brain.py` to set up the new database.
-3. Run `__main__` in `retrieval/db/ingest/nesta_brain.py` setting `mode = "web_dump"`. Again, if PDFs are wanted as well, then run twice, once with `pdf_mode = False`, and once with `pdf_mode = True`. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, investigate and fix the issue, or use `start_index` to skip the webpage which caused the error to be thrown.
+2. Put the following code in a file and run it:
+    ```
+    import lancedb
+    from config import DB_PATH
+    db = lancedb.connect(DB_PATH)
+    table = db.create_table("your_chunk_table_name", schema=YOUR_SCHEMA_CHUNK_CLASS)  #e.g., "chunk" and the Chunk class from retrieval/db/schema/nesta_brain.py
+    table.create_fts_index("text")  #assuming your chunk class has a text field
+    ```
+4. Run `__main__` in `retrieval/db/ingest/nesta_brain.py` setting `mode = "web_dump"`. Again, if PDFs are wanted as well, then run twice, once with `pdf_mode = False`, and once with `pdf_mode = True`. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, investigate and fix the issue, or use `start_index` to skip the webpage which caused the error to be thrown.
 
 ### Adding webpages from other sites
 
