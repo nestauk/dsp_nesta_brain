@@ -227,8 +227,11 @@ For a completely new reingestion, a new database needs to be created, following 
     ```
     import lancedb
     from config import DB_PATH
+    from your_schema_module import YourSchemaChunkClass  #import a class representing the DB chunk from wherever you have put it
+    #for example, from retrieval.db.schema.nesta_brain import Chunk
+    
     db = lancedb.connect(DB_PATH)
-    table = db.create_table("your_chunk_table_name", schema=YOUR_SCHEMA_CHUNK_CLASS)  #e.g., "chunk" and the Chunk class from retrieval/db/schema/nesta_brain.py
+    table = db.create_table("your_chunk_table_name", schema=YourSchemaChunkClass)  #the chunk table in NestaBrain is just called "chunk
     table.create_fts_index("text")  #assuming your chunk class has a text field
     ```
 3. Run `__main__` in `retrieval/db/ingest/nesta_brain.py` with `-m wd` on the command line. Again, if PDFs are wanted as well, then run twice, once with `--pdf`, and once without. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, investigate and fix the issue, or use `start_index` to skip the webpage which caused the error to be thrown.
