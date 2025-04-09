@@ -24,7 +24,7 @@ LanceDB was chosen because it is a free, serverless database which is simple to 
 
 ### Schema
 
-The records which the database contains are defined by a schema made up of two Pydantic classes, `Document` and `Chunk` in `retrieval/db/schema/nesta_brain.py`. Note that the metadata associated with each chunk record is contained in the `source` nested field, which represents the `Document` the chunk text is derived from. 
+The records which the database contains are defined by a schema made up of two Pydantic classes, `Document` and `Chunk` in `retrieval/db/schema/nesta_brain.py`. Note that the metadata associated with each chunk record is contained in the `source` nested field, which represents the `Document` the chunk text is derived from.
 
 `Document` fields are as follows:
 
@@ -93,7 +93,7 @@ The records which the database contains are defined by a schema made up of two P
 
 ## Data
 
-The database `nesta_brain` contains a vectorized version of the webpages on Nesta's website (as of 29th October 2024), as well as key PDFs from the website (see **PDF scraping** for a description). It also contains 32 HR policies, current as of March 2025. 
+The database `nesta_brain` contains a vectorized version of the webpages on Nesta's website (as of 29th October 2024), as well as key PDFs from the website (see **PDF scraping** for a description). It also contains 32 HR policies, current as of March 2025.
 
 There are various methods for ingesting data into the database – see description of the different ingestion 'modes' below.
 
@@ -103,11 +103,11 @@ A data dump containing the HTML files and PDFs from the website was created and 
 
 Metadata on each webpage is contained in the file `metadata.jsonl`, also included in the data dump. In `web_dump` mode the details of the webpages to scrape are taken from this file and read into a dataframe. Any webpages with a `_status_code` not equal to 200 are removed from the dataframe. The dataframe should therefore only contain webpages which have been successfully downloaded and included in the data dump.
 
-`web_dump` mode is most appropriate when initialising or doing a total refresh of the database. If updating a selection of webpages then `given_urls` mode is more suitable. 
+`web_dump` mode is most appropriate when initialising or doing a total refresh of the database. If updating a selection of webpages then `given_urls` mode is more suitable.
 
 ### Webpage scraping
 
-Note that the code in `scraping/scrape.py` is set up to scrape pages from the Nesta website. It contains functions which test whether `div` and `p` elements are desriable based on how Nesta webpages are structured. If scraping pages from other websites, then this code may need to be adjusted accordingly. Alternatively, look at examples of how others scrape generic webapges for RAG systems and/or refer to [LangChain documentation](https://python.langchain.com/v0.1/docs/use_cases/web_scraping/). 
+Note that the code in `scraping/scrape.py` is set up to scrape pages from the Nesta website. It contains functions which test whether `div` and `p` elements are desriable based on how Nesta webpages are structured. If scraping pages from other websites, then this code may need to be adjusted accordingly. Alternatively, look at examples of how others scrape generic webapges for RAG systems and/or refer to [LangChain documentation](https://python.langchain.com/v0.1/docs/use_cases/web_scraping/).
 
 
 ### PDF scraping
@@ -126,11 +126,11 @@ Most of the code for ingest text sources into the database is in `retrieval/db/i
 
 There are five 'modes' for ingestion depending on the source and structure of the data to be ingested. The modes are designed to ingest the following content:
 
-**`web_dump`**: webpages/PDFs which are included in a data dump of the Nesta website and are contained in directories with paths `WEBSITE_DATA_PATH` or `PDF_PATH` 
+**`web_dump`**: webpages/PDFs which are included in a data dump of the Nesta website and are contained in directories with paths `WEBSITE_DATA_PATH` or `PDF_PATH`
 
-**`web_search`**: webpages resulting from a Google programmable search 
+**`web_search`**: webpages resulting from a Google programmable search
 
-**`given_urls`**: webpages derived from a list of urls supplied by the user 
+**`given_urls`**: webpages derived from a list of urls supplied by the user
 
 **`from_csv`**: data contained in a CSV file
 
@@ -149,18 +149,18 @@ Depending on the mode, additional arguments may also need to be passed on via th
 
 *universal arguments*
 
-**`-r` : replace flag**: 
+**`-r` : replace flag**:
 > if the replace flag is present, if a document already exists in the DB, any chunks previously derived from it will be deleted and replaced. If it is absent, previously existing chunks will be left but new chunks will not be added. In both cases, chunks are not added to the database if any chunks have been previously added from the same document, using each document's `location` as a unique identifier. This is to avoid duplication of chunks.
 
 *arguments only relevant to `web_dump` mode*
 
-**`--pdf` : PDF flag**: 
+**`--pdf` : PDF flag**:
 > if present, look for and ingest PDFs downloaded from the website and stored in the directory with path `PDF_PATH`; if absent, look for and ingest downloaded webpages stored in the directory with path `WEBSITE_DATA_PATH`
 
 **`--all` : all PDFs flag**:
 > A problem encountered while ingesting PDFs was detecting and inserting their metadata (title, publication date). We found this could not be reliably automatically identified from the PDF itself. For this reason, where a webpage has obviously been created to promote a new report, it is simplest to assume the PDF has the same metadata as the webpage. If `--all` is absent, then only those PDFs linked to by a red 'Download' button on the originating webpage are ingested; if `present`, all PDFs linked to by the originating webpage are looked for and ingested, as long as they are on the Nesta website. **This is not recommended.** Note that if the cautious flag (see below) is absent, then all PDFs are given the same title and publication date as the originating webpage. This could result in a significant number of PDFs in the database with inaccurate metadata.
 
-**`-c` : cautious flag**: 
+**`-c` : cautious flag**:
 > if present, the system will pause to check whether the user wants to scrape every individual PDF in turn, and will also ask whether metadata guesses are correct. If absent, PDFs are scraped automatically and it is assumed that the metadata from the originating webpage is correct, as described above. Setting the cautious flag is very slow and only intended for testing, or for getting a feel for the available PDFs, or for ingesting a small number of PDFs.
 
 *arguments only relevant to `web_dump` and `from_csv` mode*
@@ -168,8 +168,8 @@ Depending on the mode, additional arguments may also need to be passed on via th
 **`--start_index` : start index**
 > an integer which represents the index of a set of data records to start ingesting from. If absent, then the start index defaults to zero. If in `web_dump` mode, start_index represents the row of the metadata dataframe (see **Data** section) to start ingesting from. If in `from_csv` mode, then it represents the row of the dataframe into which the CSV data has been read.
 
-**`--batch_size` : batch size** 
-> the number of data records (representing webpages, PDFs, etc.) to get embeddings for and ingest at a time. If absent, then it defaults to 10. Note that if the batch size is too high then you will get error messages back from OpenAI (see **Known issues**). Users are encouraged to experiment with batch size. PDFs can be large and slow to scrape, so a very low batch_size (<5) is recommended. A batch size of 50 for webpages and 1 for PDFs was used when the DB was originally set up. Batch sizes > 100 for webpages seemed to cause problems. (As a clarification, note that the word 'batch' in this context has no relation to OpenAI's Batch API, which is not used.)
+**`--batch_size` : batch size**
+> the number of data records (representing webpages, etc.) to get embeddings for and ingest at a time. If absent, then it defaults to 10. Users are strongly encouraged to use much higher batch sizes when ingesting web pages (up to 350 has successfully been tested). The @retry decorator is used to ensure embeddings requests are retried if rate limit or API connection errors are thrown. PDFs can be large and slow to scrape, so a very low batch_size (<5) is recommended. (As a clarification, note that the word 'batch' in this context has no relation to OpenAI's Batch API, which is not used.)
 
 *arguments only relevant to `web_search` mode*
 
@@ -197,7 +197,7 @@ Depending on the mode, additional arguments may also need to be passed on via th
 **`--file_ids` : file IDs**:
 > a list of file IDs to ingest (space-separated)
 
-**`--all` : all files flag**:
+**`--all_drive` : all Drive files flag**:
 > if present, look for all accessible files on Google Drive and ingest them all. If absent, you must specify which files you want to ingest via `--file_ids` or `--urls`.
 
 ## Adding new data sets: Examples
@@ -229,12 +229,12 @@ For a completely new reingestion, a new database needs to be created, following 
     from config import DB_PATH
     from your_schema_module import YourSchemaChunkClass  #import a class representing the DB chunk from wherever you have put it
     #for example, from retrieval.db.schema.nesta_brain import Chunk
-    
+
     db = lancedb.connect(DB_PATH)
     table = db.create_table("your_chunk_table_name", schema=YourSchemaChunkClass)  #the chunk table in NestaBrain is just called "chunk
     table.create_fts_index("text")  #assuming your chunk class has a text field
     ```
-3. Run `__main__` in `retrieval/db/ingest/nesta_brain.py` with `-m wd` on the command line. Again, if PDFs are wanted as well, then run twice, once with `--pdf`, and once without. Note that ingesting the entire site can take many hours and may throw the occasional error. If errors are encountered, investigate and fix the issue, or use `start_index` to skip the webpage which caused the error to be thrown.
+3. Run `__main__` in `retrieval/db/ingest/nesta_brain.py` with `-m wd` on the command line. Again, if PDFs are wanted as well, then run twice, once with `--pdf`, and once without. Note that ingesting the entire site can take a long time and may throw the occasional error. If errors are encountered, investigate and fix the issue, or use `start_index` to skip the webpage which caused the error to be thrown.
 
 ### Adding webpages from other sites
 
@@ -244,9 +244,9 @@ Webpages from other sites can potentially be added, either in `web_search` or `g
 
 Options:
 
-• If looking for a particular topic, also use the `--query` command line argument to look for related keywords or phrases. 
+• If looking for a particular topic, also use the `--query` command line argument to look for related keywords or phrases.
 
-• To look only in particular, set the `subdirectories` variable in `retrieval/db/ingest/nesta_brain.py` equal to a list of any desired 
+• To look only in particular, set the `subdirectories` variable in `retrieval/db/ingest/nesta_brain.py` equal to a list of any desired
 subdirectories, and use the `--use-subdirectories` command line argument
 
 • Alternatively, subdirectories can be specified or excluded using the `--query` command ine argument with Google search syntax, for example `--query -site:https://medium.com/data-analytics-at-nesta/tagged` to exclude particular subdirectories.
@@ -256,6 +256,5 @@ Note that the code which does the website scraping in `scraping/scrape.py` is de
 
 ## Known issues
 
-1. __[May no longer be current – I am testing an improved throttle]__ A throttle should (theoretically) ensure OpenAI requests are kept within rate limits. However, when `batch_size` is large error messages can be thrown by the API which are not due to rate limits being exceeded, or by the lancedb package. Accordingly, users may find that the rate limits are not in danger of being breached because the batch sizes need to be relatively small to avoid these latter errors. There wasn't time to troubleshoot and fix these issues, but future users should be aware that if they wish to ingest large volumes of documents simultaneously, they may need to investigate the causes of these errors and upgrade the code. 
-2. There were some PDFs which didn't scrape successfully and which threw error messages, probably due to size. There also wasn't time to investigate and fix this. Future users may encounter the same problem. If a PDF throws an error, it can be skipped by noting the row in the metadata dataframe of the originating webpage and setting `start_index` to the one following it.
-3. As mentioned above, the `location` metadata field is used as a unique identifier for documents to avoid duplicate scraping of webpages and other documents. However, the database does currently contain some duplication of webpages where there are URL aliases in the site map. These should be removed from the database, time-permitting, and code added to `retrieval/db/ingest/nesta_brain.py` to prevent this occurring.
+1. There were some PDFs which didn't scrape successfully and which threw error messages, probably due to size. There also wasn't time to investigate and fix this. Future users may encounter the same problem. If a PDF throws an error, it can be skipped by noting the row in the metadata dataframe of the originating webpage and setting `start_index` to the one following it.
+2. As mentioned above, the `location` metadata field is used as a unique identifier for documents to avoid duplicate scraping of webpages and other documents. However, the database does currently contain some duplication of webpages where there are URL aliases in the site map. These should be removed from the database, time-permitting, and code added to `retrieval/db/ingest/nesta_brain.py` to prevent this occurring.
