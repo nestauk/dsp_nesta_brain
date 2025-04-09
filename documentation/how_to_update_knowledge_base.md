@@ -179,7 +179,7 @@ Depending on the mode, additional arguments may also need to be passed on via th
 **`--site` : site url**
 > the url of the website which is the target of the search (defaults to Nesta's website)
 
-**`--use-subdirectories` : use subdirectories flag**
+**`--use_subdirectories` : use subdirectories flag**
 > if present and searching Nesta's website, search various subdirectories in turn (see `subdirectories` variable)
 
 *Google Programmable Search limits*: Note that only a 100 search results can be returned from Google Programmable Search for each distinct search, where a distinct search is a combination of query, url and subdirectory. Furthermore, if more than 100 searches a day are required, a billing account will need to be set up. See [this Google webpage](https://developers.google.com/custom-search/v1/overview#:~:text=Custom%20Search%20JSON%20API%20provides,to%2010k%20queries%20per%20day.) for more details.
@@ -246,10 +246,8 @@ Options:
 
 • If looking for a particular topic, also use the `--query` command line argument to look for related keywords or phrases.
 
-• To look only in particular, set the `subdirectories` variable in `retrieval/db/ingest/nesta_brain.py` equal to a list of any desired
-subdirectories, and use the `--use-subdirectories` command line argument
-
-• Alternatively, subdirectories can be specified or excluded using the `--query` command ine argument with Google search syntax, for example `--query -site:https://medium.com/data-analytics-at-nesta/tagged` to exclude particular subdirectories.
+• To look only in particular subdirectories, set the `subdirectories` variable in `retrieval/db/ingest/nesta_brain.py` equal to a list of any desired
+subdirectories, and use the `--use_subdirectories` command line argument
 
 Note that the code which does the website scraping in `scraping/scrape.py` is designed for Nesta webpages and may need some editing to be suitable for other websites, for example, in deriving the publication date, or determining which page elements count as text and which you wish to ignore. See the `scrape` and `html_to_text` functions in `scraping/scrape.py`.
 
