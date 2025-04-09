@@ -160,32 +160,45 @@ Depending on the mode, additional arguments may also need to be passed on via th
 **`--all` : all PDFs flag**:
 > A problem encountered while ingesting PDFs was detecting and inserting their metadata (title, publication date). We found this could not be reliably automatically identified from the PDF itself. For this reason, where a webpage has obviously been created to promote a new report, it is simplest to assume the PDF has the same metadata as the webpage. If `--all` is absent, then only those PDFs linked to by a red 'Download' button on the originating webpage are ingested; if `present`, all PDFs linked to by the originating webpage are looked for and ingested, as long as they are on the Nesta website. **This is not recommended.** Note that if the cautious flag (see below) is absent, then all PDFs are given the same title and publication date as the originating webpage. This could result in a significant number of PDFs in the database with inaccurate metadata.
 
-**`-c` : cautious flag**: `bool`
-> if `True` the system will pause to check whether the user wants to scrape every individual PDF in turn, and will also ask whether metadata guesses are correct. If `False`, the system will scrape each PDF automatically and assume the metadata from the originating webpage is correct, as described above. Setting `cautious` to True is very slow and only intended for testing, or for getting a feel for the available PDFs, or for ingesting a small number of PDFs.
+**`-c` : cautious flag**: 
+> if present, the system will pause to check whether the user wants to scrape every individual PDF in turn, and will also ask whether metadata guesses are correct. If absent, PDFs are scraped automatically and it is assumed that the metadata from the originating webpage is correct, as described above. Setting the cautious flag is very slow and only intended for testing, or for getting a feel for the available PDFs, or for ingesting a small number of PDFs.
 
-**`start_index`**: `int`
-> the row of the metadata dataframe (see **Data** section) to start ingesting from, with the first row at index `0`. `start_index` is taken from the first command line argument, or defaults to `0`.
+*arguments only relevant to `web_dump` and `from_csv` mode*
 
-**`batch_size`**: `int`
-> the number of webpages or PDFs to get embeddings for and ingest at a time. Note that if `batch_size` is too high then you will get error messages back from OpenAI (see **Known issues**). Users are encouraged to experiment with `batch_size`. PDFs can be large and slow to scrape, so a very low batch_size (<5) is recommended if `pdf_mode` is `True`. A `batch_size` of 50 for webpages and 1 for PDFs was used when the DB was originally set up. Batch sizes > 100 for webpages seemed to cause problems. (Note that this in document when the word 'batch' is used this is not with reference to OpenAI's Batch API, which is not used.)
+**`--start_index` : start index**
+> an integer which represents the index of a set of data records to start ingesting from. If absent, then the start index defaults to zero. If in `web_dump` mode, start_index represents the row of the metadata dataframe (see **Data** section) to start ingesting from. If in `from_csv` mode, then it represents the row of the dataframe into which the CSV data has been read.
 
-*Settings relevant to `web_search` mode*
+**`--batch_size` : batch size** 
+> the number of data records (representing webpages, PDFs, etc.) to get embeddings for and ingest at a time. If absent, then it defaults to 10. Note that if the batch size is too high then you will get error messages back from OpenAI (see **Known issues**). Users are encouraged to experiment with batch size. PDFs can be large and slow to scrape, so a very low batch_size (<5) is recommended. A batch size of 50 for webpages and 1 for PDFs was used when the DB was originally set up. Batch sizes > 100 for webpages seemed to cause problems. (As a clarification, note that the word 'batch' in this context has no relation to OpenAI's Batch API, which is not used.)
 
-**`query`**: `str`
+*arguments only relevant to `web_search` mode*
+
+**`--query` : query**
 > the web search query (as if doing a Google search)
 
-**`site_url`**: `str`
-> the url of the website which is the target of the search
+**`--site` : site url**
+> the url of the website which is the target of the search (defaults to Nesta's website)
 
-**`subdirectories`**:`Optional[List[str]]`
-> a list of subdirectories on the website which you wish to limit the search to; note that a separate search will be conducted for each of these subdirectories in turn
+**`--use-subdirectories` : use subdirectories flag**
+> if present and searching Nesta's website, search various subdirectories in turn (see `subdirectories` variable)
 
 *Google Programmable Search limits*: Note that only a 100 search results can be returned from Google Programmable Search for each distinct search, where a distinct search is a combination of query, url and subdirectory. Furthermore, if more than 100 searches a day are required, a billing account will need to be set up. See [this Google webpage](https://developers.google.com/custom-search/v1/overview#:~:text=Custom%20Search%20JSON%20API%20provides,to%2010k%20queries%20per%20day.) for more details.
 
-*Settings relevant to `given_urls` mode*
+*arguments only relevant to `given_urls` and `from_drive` mode*
 
-**`given_urls`**: `List[str]`
-> a specified list of urls pointing to webpages to scrape and ingest
+**`--urls`: urls**:
+> as mentioned above. When used in `from_drive` mode, it specifies a list of files on Google Drive. These must be accessible via the service account (see `google_api/drive.py`).
+
+*arguments only relevant to `from_drive` mode*
+
+**`--drive-type` : drive type**:
+> an optional string which describes the type of drive document which is stored with the document metadata. Only use this if there is a reason somewhere else in the code. Note that the string must be one of the values specified by DriveTypeEnum (you can add to this as you wish).
+
+**`--file_ids` : file IDs**:
+> a list of file IDs to ingest (space-separated)
+
+**`--all` : all files flag**:
+> if present, look for all accessible files on Google Drive and ingest them all. If absent, you must specify which files you want to ingest via `--file_ids` or `--urls`.
 
 ## Adding new data sets
 
