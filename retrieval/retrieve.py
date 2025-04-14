@@ -10,7 +10,6 @@ from typing import Optional
 from typing import Union
 
 import lancedb
-import numpy as np
 
 from config import DB_PATH
 from config import PROJECT
@@ -27,6 +26,9 @@ from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
 from retrieval.db.schema.policy_atlas import Activity
 from retrieval.embeddings import vector
 from utils import unique
+
+
+# import numpy as np
 
 
 if PROJECT == "NESTA_BRAIN":
@@ -166,7 +168,6 @@ class CustomRetriever(BaseRetriever):
         db: LanceDBConnection,
         input: RetrieverInput,
         include_projects: bool = False,
-        quantile_limit: float = 0.333,
         **kwargs,
     ) -> List[Chunk]:
         """Retrieve chunks synchrously"""
@@ -206,9 +207,7 @@ class CustomRetriever(BaseRetriever):
 
         if include_projects and input["use_hybrid_search"]:
             ranked_chunks = sorted(chunks, key=lambda chunk: chunk.relevance_score, reverse=True)
-            quantile = np.quantile([chunk.relevance_score for chunk in chunks], quantile_limit)
-            top_chunks = [chunk for chunk in ranked_chunks if chunk.relevance_score >= quantile]
-            chunks = top_chunks[0:limit]
+            chunks = ranked_chunks[0:limit]
 
         else:
             chunks = chunks[0:limit]
