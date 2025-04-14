@@ -84,7 +84,7 @@ class PDF(BasePDF):
         """Collate the text from good sections"""
         if self.good_sections is None:
             self.filter()
-        return "\n\n".join([section.text for section in self.good_sections])
+        return "\n\n".join([section.text for section in (self.good_sections or [])])
 
     @staticmethod
     def is_bad_text(element: Element) -> bool:

@@ -43,6 +43,7 @@ from scraping.scrape import html_to_text
 from scraping.scrape import scrape
 from scraping.scrape import search_query_to_scraped_data
 from utils import unique
+from utils import yesno
 
 
 pause = input
@@ -389,7 +390,7 @@ def pdfs_to_ingested_data(
                     os.system(f"open {path}")  # nosec
                     os.system(f'open {row["url"]}')  # nosec
 
-                if not cautious or input(f'Scrape {file_name or path}? (any key except enter = "yes")') != "":
+                if not cautious or yesno(f"Scrape {file_name or path}?"):
                     try:
                         pdf = PDF(path, linking_url=row["url"])
                         text = pdf.filtered_text
@@ -634,7 +635,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # translate command line arguments to mode
-    mode: mode_type = mode_args_map.get(args.mode.value)
+    mode: mode_type = mode_args_map.get(args.mode.value) if args.mode else None
     if not mode and args.urls:
         mode = "given_urls"
 

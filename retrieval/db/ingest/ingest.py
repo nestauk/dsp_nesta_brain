@@ -41,12 +41,17 @@ load_dotenv()
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
 
+def standardise_text(text: str) -> str:
+    """Standardise text for embedding purposes."""
+    return text.replace('"', "”")  # avoid Unterminated string literal errors
+
+
 def chunk_already_in_db(chunk: LangchainDocument, where_condition: Optional[str] = None) -> bool:
     """Determine whether identical chunks have already been added to the database, because PDFs may be duplicated across the site.
     The chunking strategy needs to have been the same for this to work.
     """  # noqa
 
-    where_condition = where_condition or f'text == """{chunk.page_content}"""'
+    where_condition = where_condition or f'text == """{standardise_text(chunk.page_content)}"""'
     try:
         results = CHUNK_TABLE.search().where(where_condition).limit(1).to_pydantic(Chunk)
     except Exception as e:
@@ -62,7 +67,7 @@ async def chunk_to_Chunk(chunk: LangchainDocument, **kwargs) -> Chunk:
     of the Chunk class as defined by the DB schema which can be ingested into the DB
     (including deriving an embedding for the Chunk)
     """  # noqa
-    vector_ = await vector(chunk.page_content, async_=True)
+    vector_ = await vector(standardise_text(chunk.page_content), async_=True)
     return Chunk(text=chunk.page_content, vector=vector_, **kwargs)
 
 
