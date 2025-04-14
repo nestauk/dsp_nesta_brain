@@ -63,8 +63,9 @@ async def chunk_to_Chunk(chunk: LangchainDocument, **kwargs) -> const.Chunk:
     of the Chunk class as defined by the DB schema which can be ingested into the DB
     (including deriving an embedding for the Chunk)
     """  # noqa
-    vector_ = await vector(standardise_text(chunk.page_content), async_=True)
-    return const.Chunk(text=chunk.page_content, vector=vector_, **kwargs)
+    text = standardise_text(chunk.page_content)
+    vector_ = await vector(text, async_=True)
+    return const.Chunk(text=text, vector=vector_, **kwargs)
 
 
 def split_documents(documents: List[LangchainDocument]) -> List[LangchainDocument]:
