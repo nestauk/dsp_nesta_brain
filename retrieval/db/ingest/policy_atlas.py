@@ -32,19 +32,12 @@ async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Ch
     """  # noqa
 
     try:
-        return await ing.chunk_to_Chunk(chunk, ingestion=ingestion, **chunk.metadata)
+        metadata = chunk.metadata
+        metadata.pop("text")
+        return await ing.chunk_to_Chunk(chunk, ingestion=ingestion, **metadata)
     except Exception as e:
         return e
 
-
-# !!!!!!!!!!!!!!!!!!!!!!!!!!
-# documents_to_Chunks
-# AND
-# ingest
-# methods were at one point deleted from this file  (when compared with handover-tidying-0)
-# Assume they are not needed anymore?
-# CHECK THIS MAKES SENSE
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 if __name__ == "__main__":
 
@@ -78,4 +71,5 @@ if __name__ == "__main__":
             #  identifier="iati_identifier",
             Chunk_func=chunk_to_Chunk,
             chunk_presence_test=chunk_already_in_db,
+            skip_message_format="Skipping chunk {iati_identifier} as it already seems to be in the DB",
         )
