@@ -23,9 +23,6 @@ from retrieval.embeddings import vector
 
 
 DB = lancedb.connect(DB_PATH)
-CHUNK_TABLE = DB.open_table(
-    const.CHUNK_TABLE_NAME
-)  # this should be set in retrieval/db/ingest/nesta_brain.py or retrieval/db/ingest/policy_atlas.py
 
 CHUNK_SIZE = 2000
 CHUNK_OVERLAP = 100
@@ -46,9 +43,13 @@ def chunk_already_in_db(chunk: LangchainDocument, where_condition: Optional[str]
     The chunking strategy needs to have been the same for this to work.
     """  # noqa
 
+    chunk_table = DB.open_table(
+        const.CHUNK_TABLE_NAME
+    )  # this should be set in retrieval/db/ingest/nesta_brain.py or retrieval/db/ingest/policy_atlas.py
+
     where_condition = where_condition or f'text == """{standardise_text(chunk.page_content)}"""'
     try:
-        results = CHUNK_TABLE.search().where(where_condition).limit(1).to_pydantic(const.Chunk)
+        results = chunk_table.search().where(where_condition).limit(1).to_pydantic(const.Chunk)
     except Exception as e:
         error_message = "Error while trying to check whether a chunk exists in the database"
         logger.error(error_message)
@@ -127,11 +128,15 @@ def ingest(documents: List[LangchainDocument], **kwargs) -> None:
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
+    chunk_table = DB.open_table(
+        const.CHUNK_TABLE_NAME
+    )  # this should be set in retrieval/db/ingest/nesta_brain.py or retrieval/db/ingest/policy_atlas.py
+
     chunks = asyncio.run(documents_to_Chunks_no_split(documents, **kwargs))
 
     if chunks:
         logger.info(f"Ingested {len(chunks)} Chunks into the database")
-        CHUNK_TABLE.add(chunks)
+        chunk_table.add(chunks)
     else:
         logger.info("No chunks to ingest into the database")
 
