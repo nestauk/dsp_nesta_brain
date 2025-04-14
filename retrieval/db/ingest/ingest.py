@@ -83,6 +83,8 @@ async def documents_to_Chunks_no_split(
     documents: List[LangchainDocument],
     skip_message_format: Optional[str] = None,
     Chunk_func: Callable = chunk_to_Chunk,
+    chunk_presence_test: Callable = chunk_already_in_db,
+    #   identifier: Optional[str] = None,
 ) -> List[const.Chunk]:
     """Convert LangchainDocuments into objects of the Chunk class (without splitting them) which can be ingested into the DB"""
 
@@ -98,16 +100,18 @@ async def documents_to_Chunks_no_split(
         if exceptions:
             raise Exception("Exceptions in documents_to_Chunks_no_split")
 
-    chunks = []
-    for doc in documents:
+    logging.getLogger("openai").setLevel(logging.WARNING)
 
-        if chunk_already_in_db(doc):
+    chunks = []
+    for chunk in documents:
+
+        if chunk_presence_test(chunk):  # , identifier=identifier):
 
             if skip_message_format:
-                logger.info(skip_message_format.format(**doc.metadata))
+                logger.info(skip_message_format.format(**chunk.metadata))
 
         else:
-            chunks.append(doc)
+            chunks.append(chunk)
 
     if chunks:
         tasks = [asyncio.create_task(Chunk_func(chunk)) for chunk in chunks]
@@ -115,6 +119,8 @@ async def documents_to_Chunks_no_split(
         gather_results = await asyncio.gather(*tasks, return_exceptions=True)
         log_exceptions(gather_results)
         return gather_results
+
+    logging.getLogger("openai").setLevel(logging.INFO)
 
     return []
 

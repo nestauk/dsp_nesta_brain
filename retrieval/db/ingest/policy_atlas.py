@@ -75,7 +75,7 @@ if __name__ == "__main__":
             DATA_PATH,
             start_index_,
             args.batch_size,
-            identifier="iati_identifier",
+            #  identifier="iati_identifier",
             Chunk_func=chunk_to_Chunk,
             chunk_presence_test=chunk_already_in_db,
         )

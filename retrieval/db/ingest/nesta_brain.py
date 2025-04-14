@@ -46,6 +46,9 @@ from utils import unique
 from utils import yesno
 
 
+# from retrieval.db.schema.nesta_brain import MissionProject
+
+
 pause = input
 
 
@@ -558,8 +561,8 @@ if __name__ == "__main__":
     # these constants may be used by other modules so set them as const.var_name
     # rather than as a global variable just for use in this module
 
-    const.Chunk = NestaBrainChunk
-    const.CHUNK_TABLE_NAME = "chunk"
+    const.Chunk = NestaBrainChunk  # MissionProject#
+    const.CHUNK_TABLE_NAME = "chunk"  # "mission_project"
     chunk_table = DB.open_table(const.CHUNK_TABLE_NAME)
 
     # list of subdirectories if used in web_search mode
@@ -780,7 +783,7 @@ if __name__ == "__main__":
                 CSV_PATH,
                 start_index_,
                 args.batch_size,
-                identifier="name",
+                #    identifier="name",
                 text_col=["Project Name (Asana)", "Research Question"],
                 Chunk_func=lambda *args, **kwargs: chunk_to_Chunk(*args, **kwargs),
                 chunk_presence_test=lambda *args, **kwargs: chunk_already_in_db(*args, **kwargs),
