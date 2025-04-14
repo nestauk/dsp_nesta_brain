@@ -145,22 +145,22 @@ async def documents_to_Chunks(documents: List[LangchainDocument], split_document
                 source_tasks = []
 
             if source_is_pdf and not skip_source:
-                _, existing_location = chunk_already_in_db(chunk)
-                existing_chunk_count[existing_location] = (existing_chunk_count.get(existing_location) or 0) + 1
-                is_duplicate = (
-                    existing_chunk_count[existing_location] >= 2
-                )  # there may be the occasional paragraph which is in
-                # more than one document, so make the rule there needs to be two chunks
-                # before the document is considered a duplicate
-                skip_source = is_duplicate
+                already_in_db, existing_location = chunk_already_in_db(chunk)
+                if already_in_db:
+                    existing_chunk_count[existing_location] = existing_chunk_count.get(existing_location, 0) + 1
+                    is_duplicate = (
+                        existing_chunk_count[existing_location] >= 2
+                    )  # there may be the occasional paragraph which is in
+                    # more than one document, so make the rule there needs to be two chunks
+                    # before the document is considered a duplicate
+                    skip_source = is_duplicate
+                    if skip_source:
+                        logger.info(
+                            f"Skipping PDF {source.location} as it already seems to be in the DB with location: {existing_location}"  # noqa
+                        )
+                        source_tasks = []
 
-            if skip_source:
-                logger.info(
-                    f"Skipping PDF {source.location} as it already seems to be in the DB with location: {existing_location}"
-                )
-                source_tasks = []
-
-            else:
+            if not skip_source:
                 task = asyncio.create_task(chunk_to_Chunk(chunk, order_index=order_index, source=source))
                 source_tasks.append(task)
                 order_index += 1
