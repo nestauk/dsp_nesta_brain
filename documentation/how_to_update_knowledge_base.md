@@ -1,7 +1,5 @@
 # Guide to updating the Nesta Brain knowledge base
 
-[work in progress]
-
 
 ## Introduction
 
