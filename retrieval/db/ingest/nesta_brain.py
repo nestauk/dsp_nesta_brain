@@ -182,7 +182,7 @@ async def documents_to_Chunks(documents: List[LangchainDocument], split_document
         chunks = await ing.documents_to_Chunks_no_split(
             documents,
             skip_message_format="Skipping document {location} as it already seems to be in the DB",
-            chunk_to_Chunk=chunk_to_Chunk_,
+            Chunk_func=chunk_to_Chunk_,
         )
 
     logging.getLogger("openai").setLevel(logging.INFO)
