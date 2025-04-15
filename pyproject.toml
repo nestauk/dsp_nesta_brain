@@ -33,6 +33,10 @@ openparse = "^0.7.0"
 google-auth-oauthlib = "^1.2.1"
 extra-streamlit-components = "^0.1.71"
 pyjwt = "^2.10.1"
+langdetect = "^1.0.9"
+pdf2image = "^1.17.0"
+pi-heif = "^0.20.0"
+pdfminer-six = "==20231228"
 
 [tool.poetry.group.development]
 optional = true
