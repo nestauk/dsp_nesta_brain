@@ -17,6 +17,7 @@ from langchain_core.messages import HumanMessage
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
 from lgraph.drive_doc.office_template import OfficeTemplate
+from lgraph.research_agent.research_agent import AgentState as State
 from lgraph.research_agent.research_agent import create_graph
 from lgraph.research_agent.research_agent import revise as research_agent_revise
 from Welcome import setup
@@ -24,7 +25,6 @@ from Welcome import setup
 
 if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
-    from lgraph.research_agent.research_agent import AgentState as State
     from streamlit.delta_generator import DeltaGenerator
 
 pause = input
