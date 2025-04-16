@@ -1,0 +1,158 @@
+<!doctype html>
+<meta http-equiv="content-type" content="application/xhtml+xml; charset=utf-8" />
+<html>
+<head>
+    <title>Nesta Brain demo flowchart</title>
+
+    <style type="text/css">
+        body {
+            font: 10pt sans;
+        }
+
+        #mynetwork {
+            width: 700px;
+            height: 550px;
+            background-color: white;
+        }
+
+    </style>
+    <script type="text/javascript" src="https://visjs.github.io/vis-network/standalone/umd/vis-network.min.js"></script>
+    <link href="vis-4.21.0/dist/vis-network.min.css" rel="stylesheet" type="text/css"/>
+
+    <!--DRAFT 1-->
+    <script type="text/javascript">
+        var nodes = null;
+        var edges = null;
+        var network = null;
+        var directionInput = document.getElementById("direction");
+
+        function destroy() {
+            if (network !== null) {
+                network.destroy();
+                network = null;
+            }
+        }
+
+        function draw() {
+            destroy();
+            var connectionCount = [];
+            height = 40
+            h_incr = height + 45;
+            width = 150;
+            w_incr = width + 80;
+            nodes = [
+                        {id: 'i1', x:0, y:h_incr*-2, label: "UI",group:'info'},
+                        {id: 'i2', x:w_incr*1.4, y:h_incr*1.7, label: "YES",group:'info'},
+                        {id: 'sw', x:0, y:h_incr*-1, label: "sidebar widgets",group:'other'},
+                     {id: 'use_ret', x:w_incr*1, y:h_incr*2, label: "use retriever",group:'decision'},
+                     {id: 'off', x:w_incr*2, y:h_incr*0, label: "template\ndecision",group:'other'},
+                        {id: 'ret', x:w_incr*3, y:h_incr*2, label: "retriever",group:'other'},
+                        {id: 'd1', x:w_incr*-0.5, y:h_incr*2,group:"dummy"},
+                        {id: 'd2', x:w_incr*1, y:h_incr*0,group:"dummy"},
+                        {id: 'd4', x:w_incr*-0.5, y:h_incr*0,group:"dummy"},
+                        {id: 'ui', x:0, y:h_incr*0, label: "user input",group:"data_flow"},
+                        {id: 'cx', x:w_incr*3, y:h_incr*4, label: "context",group:"data_flow"},
+                        {id: 'p2', x:w_incr*1, y:h_incr*4, label: "prompt",group:'other'},
+                        {id: 'docgen', x:w_incr*1, y:h_incr*5, label: "generate\ndocument",group:'other'},
+                        {id: 'd3', x:w_incr*-0.5, y:h_incr*4,group:"dummy"},
+                        {id: 'op2', x:w_incr*0, y:h_incr*5, label: "response",group:"data_flow"},
+                        {id: 'd5', x:w_incr*1, y:h_incr*-1,group:"dummy"},
+                        {id: 'd6', x:w_incr*0, y:h_incr*2,group:'dummy'},
+                        {id: 'd7', x:w_incr*2, y:h_incr*5,group:'dummy'},
+                        {id: 'd8', x:w_incr*1, y:h_incr*2,group:'dummy'},
+                        {id: 'd9', x:w_incr*3, y:h_incr*4,group:'dummy'},
+                        {id: 'd10', x:w_incr*1, y:h_incr*6,group:'dummy'},
+                        {id: 'feed', x:w_incr*0, y:h_incr*6,label:'user feedback\nor approval',group:'other'},
+                    ];
+
+            edges = [
+                         {from: 'chh', to: 'd1',arrows: {to:false}},
+                         {from: 'd4', to: 'd3',arrows: {to:false}},
+                         {from: 'd3', to: 'p2'},
+                         {from: 'ui', to: 'd4',arrows: {to:false}},
+                         {from: 'chh', to: 'ret'},//,arrows: {to:false}},
+                        {from: 'ui', to: 'd6',arrows: {to:false}},
+                         {from: 'ui', to: 'off'},
+                         {from: 'ui', to: 'd2',arrows: {to:false}},
+                         {from: 'p1', to: 'llm1'},
+                         {from: 'llm1', to: 'op1'},
+                         {from: 'op1', to: 'em'},
+                         {from: 'em', to: 'ev'},
+                         {from: 'ev', to: 'ldb'},
+                         {from: 'ldb', to: 'ch'},
+                         {from: 'ch', to: 'cx'},
+                         {from: 'cx', to: 'p2',dashes:true},
+                         {from: 'p2', to: 'docgen'},
+                         {from: 'docgen', to: 'op2'},
+                        {from: 'sw', to: 'use_d5',arrows: {to:false}},
+                        {from: 'use_ret', to: 'd5',arrows: {to:false}},
+                        {from: 'off', to: 'd7',arrows: {to:false}},
+                        {from: 'd7', to: 'docgen'},
+                        {from:'d6',to:'use_ret',arrows: {to:false}},
+                        {from:'use_ret',to:'ret',dashes:true},
+                        {from:'sw',to:'d5',arrows: {to:false}},
+                         {from: 'ret', to: 'cx',dashes:true},
+                         {from: 'feed', to: 'd10',arrows: {to:false},dashes:true},
+                         {from: 'd10', to: 'docgen',dashes:true},
+                         {from: 'op2', to: 'feed'},
+                        ];
+
+
+            // create a network
+            var container = document.getElementById('mynetwork');
+            var data = {
+                nodes: nodes,
+                edges: edges
+            };
+
+            var options = {
+                groups: {
+                            dummy: {shape:'dot',color: {background:'white',border:'pink'},size:0},
+                            info: {color: {background:'white',border:'white'},font: { size: 20}},
+                         //   ghost: {color: {background:null,border:null}},
+                            data_flow: {color: {background:'lightgrey',border:'grey'},font: { size: 20}},
+                            other: {font: { size: 20}},
+                            decision: {shape:'diamond',font: { size: 20}}
+                       },
+                nodes: {
+                            shape: 'box',
+                            color:{background:'#84c0f5'},
+                            font: {size:14},
+                            heightConstraint: {minimum: 40},
+                            widthConstraint: {minimum: width, maximum:width}
+                       },
+                edges: {
+                    color:{color:'#84c0f5'},
+                    font: {size:10, background:'lightgrey'},
+                    arrows: {to:true}
+                },
+                layout: {
+              //      hierarchical: {
+                //        direction: directionInput.value
+                  //  }
+                },
+                physics:false
+            };
+            network = new vis.Network(container, data, options);
+
+
+            network.on("afterDrawing", function(ctx) {
+            var dataURL = ctx.canvas.toDataURL();
+            document.getElementById('canvasImg').href = dataURL;
+            })
+        }
+
+    </script>
+
+
+
+</head>
+
+<body onload="draw();">
+<h2>Nesta Brain demo flowchart</h2>
+
+<div id="mynetwork"></div>
+<input type="button" value="Download image" onclick="document.getElementById('canvasImg').click();">
+<a id="canvasImg" download="filename"></a>
+</body>
+</html>

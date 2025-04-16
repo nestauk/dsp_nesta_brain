@@ -106,7 +106,7 @@ class CustomRetriever(BaseRetriever):
         if merge:
             docs = CustomRetriever.merge_chunks(chunks, enumerate_=enumerate_)
             if len(docs) < len(chunks):
-                logger.info(f"{len(chunks)} retreived chunks were merged into {len(docs)} chunks")
+                logger.info(f"{len(chunks)} retrieved chunks were merged into {len(docs)} chunks")
             return docs
         else:
             return [
