@@ -180,7 +180,7 @@ Depending on the mode, additional arguments may also need to be passed on via th
 **`--use_subdirectories` : use subdirectories flag**
 > if present and searching Nesta's website, search various subdirectories in turn (see `subdirectories` variable)
 
-*Google Programmable Search limits*: Note that only a 100 search results can be returned from Google Programmable Search for each distinct search, where a distinct search is a combination of query, url and subdirectory. Furthermore, if more than 100 searches a day are required, a billing account will need to be set up. See [this Google webpage](https://developers.google.com/custom-search/v1/overview#:~:text=Custom%20Search%20JSON%20API%20provides,to%2010k%20queries%20per%20day.) for more details.
+*Google Programmable Search credentials and limits*: Users will need Google Programmable search credentials to use `web_search` mode and add the `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_ID` variables to their `.env` file. Note that only a 100 search results can be returned from Google Programmable Search for each distinct search, where a distinct search is a combination of query, url and subdirectory. Furthermore, if more than 100 searches a day are required, a billing account will need to be set up. See [this Google webpage](https://developers.google.com/custom-search/v1/overview#:~:text=Custom%20Search%20JSON%20API%20provides,to%2010k%20queries%20per%20day.) for more details.
 
 *arguments only relevant to `given_urls` and `from_drive` mode*
 
