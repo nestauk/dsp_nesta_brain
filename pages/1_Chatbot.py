@@ -334,16 +334,19 @@ def push_feedback_to_langfuse() -> None:
 if __name__ == "__main__":
 
     # settings
-    limit: int = 10
+
     if ALLOW_POLICY_DOCS:
         use_graph: Optional[graph_options_type] = "combined"  # or None for none of the options
     else:
         use_graph = None
 
+    limit: int = 10
     stream: bool = True
-    use_tool_for_citations: bool = False
+    use_tool_for_citations: bool = (
+        False  # this is obsolete but retained in case future developers want to experiment with improving citations
+    )
     if use_tool_for_citations:
-        raise Exception("use_tool_for_citations may no longer work – need to check")
+        raise Exception("use_tool_for_citations is deprecated. Set to False")
 
     # UI settings
     initial_message: str = "Hi, how can I help?"

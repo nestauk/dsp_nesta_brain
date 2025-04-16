@@ -177,12 +177,11 @@ if __name__ == "__main__":
     # settings
     limit: int = 10
     stream: bool = False
-    add_checkpoints: bool = True
     initial_message: str = "Hi, how can I help?"
 
     setup()
 
-    graph, interrupt_before = create_graph(add_checkpoints=add_checkpoints)
+    graph, interrupt_before = create_graph()
 
     if st.session_state["connected"]:
 
@@ -239,8 +238,7 @@ if __name__ == "__main__":
                 BaseMessage(content=initial_message, type="", role="assistant"),
             ]
             st.session_state["docgen"]["chat_input_disabled"] = False
-            if add_checkpoints:
-                st.session_state.docgen["checkpoints_cleared"] = [False, False]
+            st.session_state.docgen["checkpoints_cleared"] = [False, False]
 
         # Display chat messages
         for message in st.session_state.docgen["messages"]:
@@ -259,12 +257,12 @@ if __name__ == "__main__":
                 st.write(input)
 
         if isinstance(st.session_state.docgen["messages"][-1], HumanMessage) and (
-            not add_checkpoints or not all(st.session_state.docgen["checkpoints_cleared"])
+            not all(st.session_state.docgen["checkpoints_cleared"])
         ):
 
             with st.chat_message("assistant"):
 
-                if not add_checkpoints or sum(st.session_state.docgen["checkpoints_cleared"]) == 0:
+                if sum(st.session_state.docgen["checkpoints_cleared"]) == 0:
 
                     input = {
                         "messages": [st.session_state.docgen["messages"][1]],  # just send the user input
@@ -277,7 +275,7 @@ if __name__ == "__main__":
                         input, config=config, interrupt_before=interrupt_before
                     )  # NB config has no langfuse instructions at the moment
 
-                    if add_checkpoints and sum(st.session_state.docgen["checkpoints_cleared"]) < 2:
+                    if sum(st.session_state.docgen["checkpoints_cleared"]) < 2:
                         preview_container = st.empty()
                         pill_container = st.empty()
                         check_template(*(pill_container, preview_container))  # Action for first checkpoint

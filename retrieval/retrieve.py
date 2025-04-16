@@ -64,11 +64,6 @@ class CustomRetriever(BaseRetriever):
     """Custom retriever class because I encountered a bug when converting a LanceDB
     vector store into a retriever in the usual way"""  # noqa
 
-    # async def _aget_relevant_documents(self, query: str, limit: int = 3, **kwargs) -> List[LangchainDocument]:
-    # may not be needed
-    # there have been problems getting Lance DB to work with asynchronous requests
-    #    pass
-
     def _get_relevant_documents(self, input: RetrieverInput, **kwargs) -> List[LangchainDocument]:
         """
         Retrieve chunks related to a search query using a hybrid search strategy
