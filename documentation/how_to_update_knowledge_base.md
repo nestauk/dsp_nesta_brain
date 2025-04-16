@@ -249,6 +249,9 @@ subdirectories, and use the `--use_subdirectories` command line argument
 
 Note that the code which does the website scraping in `scraping/scrape.py` is designed for Nesta webpages and may need some editing to be suitable for other websites, for example, in deriving the publication date, or determining which page elements count as text and which you wish to ignore. See the `scrape` and `html_to_text` functions in `scraping/scrape.py`.
 
+### Creating schemas and tables for other chunk-like data
+
+The `BaseChunk` class can be extended to create other tables containing any data which users would like to subject to semantic search. This could include, for example, data which comes from tables with one text-based field which is suitable for semantic search. During the Nesta Brain project, we experimented with ingesting data which did not come from documents but from tables, for example, a table containing all of Nesta's mission projects, and a table of International Aid Transparency Initiative data (see the `MissionProject` class in `retrieval/db/schema/nesta_brain.py` and the `Activity` class in `retrieval/db/schema/policy_atlas.py`). The only constraints on chunk-like data is that it must have a text field and a vector field. The rest of the fields are essentially metadata. The user can specify the field to be used as the text field in the `__init__` function of the chunk class, or simply have a field already labelled 'text' in the input data. See the `chunk_to_Chunk` function in `retrieval/db/ingest/ingest.py` to see where vectorization currently happends in the code base. 
 
 ## Known issues
 
