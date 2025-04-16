@@ -66,6 +66,7 @@ class AgentState(State):
     context: List[Dict]
     sidebar_options: Dict
     upload_confirmed: bool
+    router_override: str
 
 
 def call_model(state: AgentState, prompt: PromptTemplate) -> AgentState:

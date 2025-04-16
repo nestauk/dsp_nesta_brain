@@ -114,27 +114,38 @@ def preview_with_revision_option(pill_container: DeltaGenerator, *args, partial_
     )
 
 
+def reset() -> None:
+    """Reset the session state variables to clear the app"""
+    for i in [0, 1]:
+        st.session_state.docgen["checkpoints_cleared"][i] = True
+    st.session_state.docgen["messages"] = [
+        st.session_state.docgen["messages"][0]
+    ]  # reset the messages to the initial message
+    st.session_state["docgen"]["chat_input_disabled"] = False
+
+
 def upload_complete_graph_and_reset(graph: CompiledStateGraph) -> None:
     """Upload the final draft to Google Drive (if the user confirms) and complete the graph"""
 
     graph.update_state(config, {"upload_confirmed": st.session_state["upload"].lower() == "yes"})
     graph.invoke(None, config)
-    st.session_state.docgen["checkpoints_cleared"][1] = True
-    st.session_state.docgen["messages"].pop(-1)  # remove the human message to allow a new request
-    st.session_state["docgen"]["chat_input_disabled"] = False
+    reset()
 
 
 def update_graph_and_resume(partial_state: State, pill_container: DeltaGenerator, *args) -> None:
     """Update the graph with the user's response to the template check and continue the graph to the next checkpoint"""
 
     if st.session_state["template_check"].lower() == "no":
-        partial_state["intermediate_outputs"]["file_ids"] = None
+        partial_state["router_override"] = "conclude"  # make absolutely sure it goes to conclude
         graph.update_state(config, partial_state)
+        reset()
 
     pill_container.empty()
     graph.invoke(None, config)
-    st.session_state.docgen["checkpoints_cleared"][0] = True
-    preview_with_revision_option(pill_container, *args)  # Action for second checkpoint
+
+    if st.session_state["template_check"].lower() == "yes":
+        st.session_state.docgen["checkpoints_cleared"][0] = True
+        preview_with_revision_option(pill_container, *args)  # Action for second checkpoint
 
 
 def check_template(pill_container: DeltaGenerator, *args) -> None:
@@ -151,19 +162,29 @@ def check_template(pill_container: DeltaGenerator, *args) -> None:
     snapshot = graph.get_state(config)  # this only works because a checkpoint has been set
     partial_state = snapshot.values
 
-    check_template_message_format = (
-        'Based on your request, I think I should be applying the following template: "{template_title}". '
-        "Is that correct?"
-    )
-    check_template_message = check_template_message_format.format(template_title=get_template_title(partial_state))
+    file_ids_found = bool(partial_state.get("intermediate_outputs", {}).get("file_ids"))
 
-    pill_container.pills(
-        check_template_message,
-        ("Yes", "No"),
-        key="template_check",
-        on_change=update_graph_and_resume,
-        args=(partial_state, pill_container) + args,
-    )
+    if file_ids_found:
+        check_template_message_format = (
+            'Based on your request, I think I should be applying the following template: "{template_title}". '
+            "Is that correct?"
+        )
+        check_template_message = check_template_message_format.format(template_title=get_template_title(partial_state))
+
+        pill_container.pills(
+            check_template_message,
+            ("Yes", "No"),
+            key="template_check",
+            on_change=update_graph_and_resume,
+            args=(partial_state, pill_container) + args,
+        )
+
+    else:
+        st.text("Sorry, no template available based on your request.")
+        partial_state["router_override"] = "conclude"
+        graph.update_state(config, partial_state)
+        graph.invoke(None, config)
+        reset()
 
 
 def disable_chat_input() -> None:
