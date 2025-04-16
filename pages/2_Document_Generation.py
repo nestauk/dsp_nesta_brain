@@ -11,6 +11,7 @@ import markdown
 import streamlit as st
 
 from config import DEBUG_MODE
+from front_end.project_spec import DOCGEN_INTRO
 from front_end.sidebar import sidebar
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
@@ -239,7 +240,7 @@ if __name__ == "__main__":
             )
 
         st.markdown(
-            "INTRO",
+            DOCGEN_INTRO,
             unsafe_allow_html=True,
         )
 

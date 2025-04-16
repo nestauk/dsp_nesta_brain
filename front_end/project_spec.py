@@ -80,6 +80,25 @@ if PROJECT == "NESTA_BRAIN":
         }
     )
 
+    DOCGEN_INTRO = """
+    <h2>✍️ Document Generation Assistant</h2>
+
+    This page contains a prototype document generation assistant that can help you create
+    documents from templates based on your input.<br><br>
+
+    By default, the assistant will use the same knowledge base as the Chatbot to generate documents.
+    You can choose to use the LLM's internal knowledge instead via the radio button on the sidebar.<br><br>
+
+    The current list of templates which the assistant has at its disposal are:<br><br>
+    [LIST OF TEMPLATES HERE]<br><br>
+
+    If it cannot find an appropriate template for your request, it will tell you.<br><br>
+
+    If a suitable template is found, the assistant will draft a version of the document for you. You can give it further revision
+    comments if needed, or simply upload to Google Drive.
+    """
+
+
 elif PROJECT == "POLICY_ATLAS":
 
     WELCOME_INTRO = """
