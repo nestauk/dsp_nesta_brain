@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import uuid
 
@@ -19,12 +18,10 @@ from config import ALLOW_POLICY_DOCS
 from config import DEBUG_MODE
 from config import EARLIEST_YEAR
 from config import USE_LANGFUSE
-from dotenv import load_dotenv
 from dsp_nesta_brain import logger
 from front_end.project_spec import PAGE_INTRO
 from front_end.project_spec import WIDGET_SPEC
 from front_end.sidebar import sidebar
-from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.base import Runnable
@@ -34,6 +31,7 @@ from lgraph.graph import graph_options_type
 from llm.chain import get_graph_or_rag_chain
 from llm.message import CustomAIMessage
 from streamlit.delta_generator import DeltaGenerator
+from Welcome import setup
 
 
 # from streamlit_feedback import streamlit_feedback
@@ -102,11 +100,8 @@ class GraphStreamEvent(dict):
 def chat_history() -> List[BaseMessage]:
     """Derive chat history from streamlit messages"""
 
-    def message_class(message: Dict) -> type:
-        return AIMessage if message["role"] == "assistant" else HumanMessage
-
-    if len(st.session_state.messages) > 1:  # omit initial_message from chat history
-        return [message_class(msg)(content=msg["content"]) for msg in st.session_state.messages[1:]]
+    if len(st.session_state.chatbot["messages"]) > 1:  # omit initial_message from chat history
+        return st.session_state.chatbot["messages"][1:]
 
     return []
 
@@ -339,32 +334,30 @@ def push_feedback_to_langfuse() -> None:
 if __name__ == "__main__":
 
     # settings
-    limit: int = 10
+
     if ALLOW_POLICY_DOCS:
         use_graph: Optional[graph_options_type] = "combined"  # or None for none of the options
     else:
         use_graph = None
 
+    limit: int = 10
     stream: bool = True
-    use_tool_for_citations: bool = False
+    use_tool_for_citations: bool = (
+        False  # this is obsolete but retained in case future developers want to experiment with improving citations
+    )
+    if use_tool_for_citations:
+        raise Exception("use_tool_for_citations is deprecated. Set to False")
 
     # UI settings
     initial_message: str = "Hi, how can I help?"
 
-    if use_tool_for_citations:
-        raise Exception("use_tool_for_citations may no longer work – need to check")
+    setup()
 
     runnable, stream_nodes = get_graph_or_rag_chain(
         use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True
     )
 
-    load_dotenv()
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-
     if st.session_state["connected"]:
-
-        load_dotenv()
-        logging.getLogger("httpx").setLevel(logging.WARNING)
 
         runnable, stream_nodes = get_graph_or_rag_chain(
             use_graph=use_graph, use_tool_for_citations=use_tool_for_citations, return_stream_nodes=True

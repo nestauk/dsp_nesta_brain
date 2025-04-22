@@ -120,6 +120,8 @@ def scrape(url: str) -> str:
         # metadata
         title = soup.find("title").getText().replace(" | Nesta", "")
         data_layer = extract_data_layer(soup)
+        if type(data_layer) == list:  # it should be a list with just one dict element
+            data_layer = data_layer[0]
         try:
             date_pub = data_layer.pop("publishDate")
             date_pub = dt.datetime.strptime(date_pub, "%Y-%m-%d")
@@ -227,37 +229,3 @@ def search_query_to_scraped_data(query: str, site_url: str, save: bool = False, 
     scraped_data = scrape_multiple_pages(urls, save=save)
 
     return scraped_data
-
-
-if __name__ == "__main__":
-
-    query = "Centre for Collective Intelligence Design"
-    site_url = "nesta.org.uk"
-    subdirectories = sorted(
-        ["toolkit", "team", "report", "project", "press-release", "jobs", "feature", "event", "blog"]
-    )
-    webpage_url = "https://www.nesta.org.uk/jobs/product-designer-centre-for-collective-intelligence-design-ccid/"
-
-    if query and site_url:
-        # convert a set of Google programmable search results into text
-        # just visually inspecting the results for now - the next step will be to vectorize them
-
-        for subdirectory in subdirectories:
-
-            url = site_url + "/" + subdirectory
-            for start in list(
-                range(0, 100, 10)
-            ):  # the start parameter specifies which result set to return from Google Programmable Search;
-                # 0 = first set of 10 results, 10 = the next set of 10 results, etc.
-                logger.info(f"\nGoogle search result set url = {url}, start = {start}")
-
-            results_returned = search_query_to_scraped_data(query, site_url, save=False)
-            if not results_returned:
-                break
-
-    elif webpage_url:
-        # scrape a single webpage
-
-        text = scrape(webpage_url).get("text")
-
-        logger.info(text)

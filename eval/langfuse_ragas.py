@@ -9,13 +9,11 @@ from typing import List
 from typing import Optional
 from typing import Union
 
-from config import DEFAULT_EMBEDDINGS_MODEL
 from dotenv import load_dotenv
 from dsp_nesta_brain import logger
-from langchain_openai import ChatOpenAI
-from langchain_openai import OpenAIEmbeddings
 from langfuse import Langfuse
 from langfuse.client import FetchTracesResponse
+from llm.llm import default_llm
 from metrics import CorrectedSummarizationScore as SummarizationScore
 from ragas import EvaluationDataset
 from ragas import MultiTurnSample
@@ -36,6 +34,7 @@ from ragas.metrics.base import Metric
 from ragas.metrics.base import MetricWithEmbeddings
 from ragas.metrics.base import MetricWithLLM
 from ragas.run_config import RunConfig
+from retrieval.embeddings import embeddings_model
 
 
 if TYPE_CHECKING:
@@ -229,8 +228,8 @@ def push_scores_to_langfuse(samples: List[BaseSample], trace_ids: List[str], met
 
 if __name__ == "__main__":
 
-    evaluator_llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o-mini"))
-    evaluator_embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model=DEFAULT_EMBEDDINGS_MODEL))
+    evaluator_llm = LangchainLLMWrapper(default_llm)
+    evaluator_embeddings = LangchainEmbeddingsWrapper(embeddings_model)
 
     traces = langfuse.fetch_traces()
     samples, trace_ids = traces_to_samples(traces)

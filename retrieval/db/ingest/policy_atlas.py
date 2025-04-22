@@ -8,7 +8,7 @@ import retrieval.db.ingest.ingest as ing
 from dsp_nesta_brain import PROJECT_DIR
 from dsp_nesta_brain import logger
 from langchain.docstore.document import Document as LangchainDocument
-from retrieval.db.schema.policy_atlas import Activity
+from retrieval.db.schema.policy_atlas import Activity as Chunk
 
 
 DATA_PATH = PROJECT_DIR / "data/policy_atlas/fcdo_iati_data_2025_01_17.csv"
@@ -16,16 +16,15 @@ DATA_PATH = PROJECT_DIR / "data/policy_atlas/fcdo_iati_data_2025_01_17.csv"
 
 def chunk_already_in_db(chunk: LangchainDocument, **kwargs) -> bool:
     """Determine whether identical chunks have already been added to the database.
-
     Chunking strategy should have been the same.
-    """
+    """  # noqa
 
     where_condition = f'iati_identifier == "{chunk.metadata["iati_identifier"]}"'
     results = ing.chunk_already_in_db(chunk, where_condition=where_condition, **kwargs)
     return bool(results)
 
 
-async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Activity:
+async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Chunk:
     """
     Convert a Langchain document into an object
     of the Chunk class which can be ingested into the DB
@@ -33,7 +32,9 @@ async def chunk_to_Chunk(chunk: LangchainDocument, ingestion: bool = True) -> Ac
     """  # noqa
 
     try:
-        return await ing.chunk_to_Chunk(chunk, ingestion=ingestion, **chunk.metadata)
+        metadata = chunk.metadata
+        metadata.pop("text")
+        return await ing.chunk_to_Chunk(chunk, ingestion=ingestion, **metadata)
     except Exception as e:
         return e
 
@@ -52,11 +53,8 @@ if __name__ == "__main__":
     )  # the number of CSV rows to ingest at a time. Batch sizes of 230+ seem to get errors back from OpenAI.
 
     # settings constants which may be needed in other files
-    const.Chunk = Activity
+    const.Chunk = Chunk
     const.CHUNK_TABLE_NAME = "activity"
-
-    # global variable
-    request_counter = ing.RequestCounter()
 
     args = parser.parse_args()
 
@@ -70,7 +68,8 @@ if __name__ == "__main__":
             DATA_PATH,
             start_index_,
             args.batch_size,
-            identifier="iati_identifier",
+            #  identifier="iati_identifier",
             Chunk_func=chunk_to_Chunk,
             chunk_presence_test=chunk_already_in_db,
+            skip_message_format="Skipping chunk {iati_identifier} as it already seems to be in the DB",
         )

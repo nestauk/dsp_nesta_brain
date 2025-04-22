@@ -26,12 +26,12 @@ class Document(LanceModel):
     # extra metadata from metadata.jsonl
     projects: Optional[List[str]] = None
     units: Optional[List[str]] = None
-    rank: Optional[int] = None
-    views: Optional[int] = None
     areas_of_work: Optional[List[str]] = None
     missions: Optional[List[str]] = None
     authors: Optional[List[str]] = None
     contentType: Optional[str] = None
+    views: Optional[int] = None
+    rank: Optional[int] = None
     # other
     drive_type: Optional[str] = None
     time_added: datetime
@@ -244,8 +244,7 @@ if __name__ == "__main__":
 
     # creating tables
     if True:
-        #  db.create_table("document", schema=Document)
-        table = db.create_table("mission_project", schema=MissionProject)
+        table = db.create_table("chunk", schema=Chunk)
         table.create_fts_index("text")
 
     # dropping tables
@@ -259,62 +258,25 @@ if __name__ == "__main__":
 
     # searching for records
     if False:
-        document_table = db.open_table("document")
         chunk_table = db.open_table("chunk")
-
-        #   docs = document_table.search().where('title LIKE "%Birthing Parent%"').limit(10).to_pydantic(Document)
-        #  print(docs)
-        # results = chunk_table.search().where('source.location NOT LIKE "https://%"').limit(100).to_pydantic(Chunk)
         results = chunk_table.search("climate change").limit(100).select(["text"]).to_list()
         logger.info(len(results))
-
-    # adding columns
-    if False:
-        table = db.open_table("document")
-        table.add_columns({"drive_type": "cast(NULL as string)"})
 
     # deleting records
     if False:
 
         input("You are about to delete some records. Press any key to continue.")
-        document_table = db.open_table("document")
         chunk_table = db.open_table("chunk")
 
-        #  document_table.delete('location LIKE "https://drive.google.com/file/d%"')
         chunk_table.delete('source.location = "1NeuLG4DAHg-gd_iwAWCWKq80_iVUmXMp"')
-
-    # updating records
-    if False:
-
-        document_table = db.open_table("document")
-        chunk_table = db.open_table("chunk")
-
-        bad_title = "Sickness Absence Policy - Update July 2022"
-        good_title = "Sickness Absence Policy"
-        document_table.update(where=f'title LIKE "%{bad_title}%"', values={"title": good_title})
-        results = document_table.search().where(f'title LIKE "%{good_title}%"').limit(1).to_pydantic(Document)
-        updated_document = results[0]
-
-        bad_chunks = chunk_table.search().where(f'source.title LIKE "%{bad_title}%"').limit(1).to_pydantic(Chunk)
-        chunk_table.delete(f'source.title LIKE "%{bad_title}%"')
-        for bad_chunk in bad_chunks:
-            good_chunk = bad_chunk
-            good_chunk.source = updated_document
-            chunk_table.add([good_chunk])
 
     # copying tables from one db to another
     if False:
 
         copy_from_path = "retrieval/db/full_site_demo_db_with_pdfs"
         copy_from_db = lancedb.connect(copy_from_path)
-        copy_from_document_table = copy_from_db.open_table("document")
         copy_from_chunk_table = copy_from_db.open_table("chunk")
-
-        copy_to_document_table = db.open_table("document")
         copy_to_chunk_table = db.open_table("chunk")
-
-        # docs = copy_from_document_table.search().to_pydantic(Document)
-        # copy_to_document_table.add(docs)
 
         chunks_df = (
             copy_from_chunk_table.search().limit(-1).to_pandas()
@@ -325,11 +287,3 @@ if __name__ == "__main__":
             rows = chunks_df.iloc[i : i + batch_size]
             chunks = [Chunk(**row.to_dict()) for _, row in rows.iterrows()]
             copy_to_chunk_table.add(chunks)
-
-    if False:
-        copy_from_path = "retrieval/db/full_site_demo_db_with_pdfs"
-        copy_from_db = lancedb.connect(copy_from_path)
-        copy_from_chunk_table = copy_from_db.open_table("chunk")
-        chunks = copy_from_chunk_table.search().limit(None).to_pandas()  # .to_pydantic(Chunk)
-    #  print(chunks.shape)
-    #  copy_to_chunk_table.add(chunks)

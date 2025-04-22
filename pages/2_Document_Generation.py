@@ -1,33 +1,31 @@
 from __future__ import annotations
 
-import logging
 import os
 
 from collections import OrderedDict
 from datetime import datetime
 from typing import TYPE_CHECKING
-from typing import List
 from typing import Optional
 
 import markdown
 import streamlit as st
 
 from config import DEBUG_MODE
-from dotenv import load_dotenv
+from front_end.project_spec import DOCGEN_INTRO
 from front_end.sidebar import sidebar
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langfuse import Langfuse
 from langfuse.callback import CallbackHandler
 from lgraph.drive_doc.office_template import OfficeTemplate
+from lgraph.research_agent.research_agent import AgentState as State
 from lgraph.research_agent.research_agent import create_graph
 from lgraph.research_agent.research_agent import revise as research_agent_revise
-from llm.message import CustomAIMessage
+from Welcome import setup
 
 
 if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
-    from lgraph.research_agent.research_agent import AgentState as State
     from streamlit.delta_generator import DeltaGenerator
 
 pause = input
@@ -64,15 +62,6 @@ WIDGET_SPEC = OrderedDict(
 WIDGET_SPEC["knowledge_source"]["use_retrieval_option"] = WIDGET_SPEC["knowledge_source"]["options"][1]
 
 
-def chat_history() -> List[BaseMessage]:
-    """Derive chat history from streamlit messages"""
-
-    if len(st.session_state.docgen["messages"]) > 1:  # omit initial_message from chat history
-        return st.session_state.docgen["messages"][1:]
-
-    return []
-
-
 def send_revision_instructions(partial_state: State, *args) -> None:
     """Update the graph with the revision instructions and resume the graph"""
 
@@ -101,7 +90,7 @@ def fill_preview_container(
         st.text_area("Please provide any revision instructions, if needed", key="revision_instructions")
 
         st.button(
-            "Submit",
+            "Submit for revision",
             key="revision_submit",
             on_click=send_revision_instructions,
             args=(partial_state, *(pill_container, preview_container)),
@@ -121,31 +110,43 @@ def preview_with_revision_option(pill_container: DeltaGenerator, *args, partial_
         "Alternatively, upload to Google Drive?",
         ("Yes", "No"),
         key="upload",
-        on_change=upload_and_complete_graph,
+        on_change=upload_complete_graph_and_reset,
         args=(graph,),
     )
 
 
-def upload_and_complete_graph(graph: CompiledStateGraph) -> None:
+def reset() -> None:
+    """Reset the session state variables to clear the app"""
+    for i in [0, 1]:
+        st.session_state.docgen["checkpoints_cleared"][i] = True
+    st.session_state.docgen["messages"] = [
+        st.session_state.docgen["messages"][0]
+    ]  # reset the messages to the initial message
+    st.session_state["docgen"]["chat_input_disabled"] = False
+
+
+def upload_complete_graph_and_reset(graph: CompiledStateGraph) -> None:
     """Upload the final draft to Google Drive (if the user confirms) and complete the graph"""
 
     graph.update_state(config, {"upload_confirmed": st.session_state["upload"].lower() == "yes"})
     graph.invoke(None, config)
-    st.session_state.docgen["checkpoints_cleared"][1] = True
-    st.session_state.docgen["messages"].pop(-1)  # remove the human message to allow a new request
+    reset()
 
 
 def update_graph_and_resume(partial_state: State, pill_container: DeltaGenerator, *args) -> None:
     """Update the graph with the user's response to the template check and continue the graph to the next checkpoint"""
 
     if st.session_state["template_check"].lower() == "no":
-        partial_state["intermediate_outputs"]["file_ids"] = None
+        partial_state["router_override"] = "conclude"  # make absolutely sure it goes to conclude
         graph.update_state(config, partial_state)
+        reset()
 
     pill_container.empty()
     graph.invoke(None, config)
-    st.session_state.docgen["checkpoints_cleared"][0] = True
-    preview_with_revision_option(pill_container, *args)  # Action for second checkpoint
+
+    if st.session_state["template_check"].lower() == "yes":
+        st.session_state.docgen["checkpoints_cleared"][0] = True
+        preview_with_revision_option(pill_container, *args)  # Action for second checkpoint
 
 
 def check_template(pill_container: DeltaGenerator, *args) -> None:
@@ -162,19 +163,35 @@ def check_template(pill_container: DeltaGenerator, *args) -> None:
     snapshot = graph.get_state(config)  # this only works because a checkpoint has been set
     partial_state = snapshot.values
 
-    check_template_message_format = (
-        'Based on your request, I think I should be applying the following template: "{template_title}". '
-        "Is that correct?"
-    )
-    check_template_message = check_template_message_format.format(template_title=get_template_title(partial_state))
+    file_ids_found = bool(partial_state.get("intermediate_outputs", {}).get("file_ids"))
 
-    pill_container.pills(
-        check_template_message,
-        ("Yes", "No"),
-        key="template_check",
-        on_change=update_graph_and_resume,
-        args=(partial_state, pill_container) + args,
-    )
+    if file_ids_found:
+        check_template_message_format = (
+            'Based on your request, I think I should be applying the following template: "{template_title}". '
+            "Is that correct?"
+        )
+        check_template_message = check_template_message_format.format(template_title=get_template_title(partial_state))
+
+        pill_container.pills(
+            check_template_message,
+            ("Yes", "No"),
+            key="template_check",
+            on_change=update_graph_and_resume,
+            args=(partial_state, pill_container) + args,
+        )
+
+    else:
+        st.text("Sorry, no template available based on your request.")
+        partial_state["router_override"] = "conclude"
+        graph.update_state(config, partial_state)
+        graph.invoke(None, config)
+        reset()
+
+
+def disable_chat_input() -> None:
+    """Disable the chat input field"""
+
+    st.session_state["docgen"]["chat_input_disabled"] = True
 
 
 if __name__ == "__main__":
@@ -182,13 +199,11 @@ if __name__ == "__main__":
     # settings
     limit: int = 10
     stream: bool = False
-    add_checkpoints: bool = True
     initial_message: str = "Hi, how can I help?"
 
-    load_dotenv()
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    setup()
 
-    graph, interrupt_before = create_graph(add_checkpoints=add_checkpoints)
+    graph, interrupt_before = create_graph()
 
     if st.session_state["connected"]:
 
@@ -225,7 +240,7 @@ if __name__ == "__main__":
             )
 
         st.markdown(
-            "INTRO",
+            DOCGEN_INTRO,
             unsafe_allow_html=True,
         )
 
@@ -244,34 +259,35 @@ if __name__ == "__main__":
             st.session_state["docgen"]["messages"] = [
                 BaseMessage(content=initial_message, type="", role="assistant"),
             ]
-
-        if add_checkpoints and not st.session_state.docgen.get("checkpoints_cleared"):
+            st.session_state["docgen"]["chat_input_disabled"] = False
             st.session_state.docgen["checkpoints_cleared"] = [False, False]
 
         # Display chat messages
         for message in st.session_state.docgen["messages"]:
             with st.chat_message(message.role):
-                if isinstance(message, CustomAIMessage):
-                    st.markdown(message.as_html(), unsafe_allow_html=True)
-                else:
-                    st.write(message.content)
+                # if isinstance(message, CustomAIMessage):
+                #    st.markdown(message.as_html(), unsafe_allow_html=True)
+                # else:
+                st.write(message.content)
 
         # User-provided input
-        if input := st.chat_input():
+        if input := st.chat_input(
+            disabled=st.session_state["docgen"]["chat_input_disabled"], on_submit=disable_chat_input
+        ):
             st.session_state.docgen["messages"].append(HumanMessage(content=input, role="user"))
             with st.chat_message("user"):
                 st.write(input)
 
         if isinstance(st.session_state.docgen["messages"][-1], HumanMessage) and (
-            not add_checkpoints or not all(st.session_state.docgen["checkpoints_cleared"])
+            not all(st.session_state.docgen["checkpoints_cleared"])
         ):
 
             with st.chat_message("assistant"):
 
-                if not add_checkpoints or sum(st.session_state.docgen["checkpoints_cleared"]) == 0:
+                if sum(st.session_state.docgen["checkpoints_cleared"]) == 0:
 
                     input = {
-                        "messages": chat_history(),  # probably don't need this?
+                        "messages": [st.session_state.docgen["messages"][1]],  # just send the user input
                         "limit": limit,
                         "use_hybrid_search": True,
                         "sidebar_options": {key: st.session_state[key] for key in WIDGET_SPEC.keys()},
@@ -281,7 +297,7 @@ if __name__ == "__main__":
                         input, config=config, interrupt_before=interrupt_before
                     )  # NB config has no langfuse instructions at the moment
 
-                    if add_checkpoints and sum(st.session_state.docgen["checkpoints_cleared"]) < 2:
+                    if sum(st.session_state.docgen["checkpoints_cleared"]) < 2:
                         preview_container = st.empty()
                         pill_container = st.empty()
                         check_template(*(pill_container, preview_container))  # Action for first checkpoint

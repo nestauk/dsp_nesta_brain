@@ -12,7 +12,13 @@ from front_end.auth.authenticate import Authenticator
 from front_end.project_spec import WELCOME_INTRO
 
 
-if __name__ == "__main__":
+def setup() -> None:
+
+    """Perform setup tasks for the app:
+    - Load environment variables
+    - Remove unwanted information from logging
+    - Authentication
+    """  # noqa
 
     load_dotenv()
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -21,13 +27,11 @@ if __name__ == "__main__":
     # credit: https://medium.com/@coding-otter
     # https://medium.com/@coding-otter/google-oauth-in-streamlit-a-solution-that-finally-works-for-me-a212a79fec30
 
-    # if "connected" not in st.session_state:
     if DEPLOY_MODE:
         redirect_uri = "https://nesta-brain.dap-tools.uk/"
     else:
-        redirect_uri = "http://localhost:8501/"
-    authenticator = Authenticator(
-        # allowed_users=allowed_users,   #adapted to allow any email address with a nesta.org.uk domain
+        redirect_uri = "http://localhost:8501"
+    authenticator = Authenticator(  # allows any email address with a nesta.org.uk domain
         token_key=os.getenv("AUTH_TOKEN_KEY"),
         secret_path="client_secret.json",  # nosec
         redirect_uri=redirect_uri,
@@ -35,6 +39,11 @@ if __name__ == "__main__":
 
     authenticator.check_auth()
     authenticator.login()
+
+
+if __name__ == "__main__":
+
+    setup()
 
     if st.session_state["connected"]:
         # st.set_page_config(layout="wide")

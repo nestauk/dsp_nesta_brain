@@ -66,6 +66,7 @@ class AgentState(State):
     context: List[Dict]
     sidebar_options: Dict
     upload_confirmed: bool
+    router_override: str
 
 
 def call_model(state: AgentState, prompt: PromptTemplate) -> AgentState:
@@ -212,15 +213,10 @@ def create_research_agent(add_checkpoints: bool = False) -> CompiledStateGraph:
     agent.add_edge("terminate", END)
     agent.add_conditional_edges("review", should_continue)
 
-    # if add_checkpoints:
-    #    interrupt_before = ["terminate"]
-    #   memory = MemorySaver()
-    #  return agent.compile(interrupt_before=interrupt_before, checkpointer=memory), interrupt_before
-    # else:
     return agent.compile(), None
 
 
-def create_graph(add_checkpoints: bool = False, **kwargs) -> CompiledStateGraph:
+def create_graph(add_checkpoints: bool = True, **kwargs) -> CompiledStateGraph:
     """Create the research agent graph."""
 
     OfficeTemplate: Type = importlib.import_module("lgraph.drive_doc.office_template").OfficeTemplate

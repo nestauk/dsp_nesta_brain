@@ -16,12 +16,21 @@ model = get_registry().get("openai").create(name=DEFAULT_EMBEDDINGS_MODEL)
 
 
 class BaseChunk(LanceModel):
-    """Defines the fields which a Chunk or chunk-like Record contains in the LanceDB database"""
+    """
+    Defines the fields which a Chunk or chunk-like Record contains in the LanceDB database.
+    Note that this need not be derived from a document, but could, for example represent a
+    record in a table (if the record has a field which is wordy and may benefit from being
+    subject to vector search)
+    See the NestaBrain schema for a Chunk class which builds on this class and contains a `source`
+    field to contain document metadata
+    """  # noqa
 
+    # chunk metadata
     text: str
     vector: Vector(model.ndims())
     order_index: Optional[int] = None
     time_added: Optional[datetime] = None
+    # useful during deployment and not intended as metadata
     relevance_score: Optional[float] = None
     use_as_context: Optional[bool] = None
 

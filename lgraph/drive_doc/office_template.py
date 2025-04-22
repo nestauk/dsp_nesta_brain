@@ -23,7 +23,8 @@ from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
 from lgraph.drive_doc.base import BaseDriveDoc
-from lgraph.graph import call_default_chain
+
+# from lgraph.graph import call_default_chain
 from lgraph.research_agent.research_agent import AgentState as State
 
 # from lgraph.research_agent.research_agent import revise as research_agent_revise
@@ -89,7 +90,7 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
             "check_revise_or_upload": check_revise_or_upload,
             #  "revise": research_agent_revise,
             "upload_output": upload_output,
-            "call_default_chain": call_default_chain,
+            #    "call_default_chain": call_default_chain,
             "conclude": conclude,
         }
 
@@ -107,7 +108,7 @@ class OfficeTemplate(OfficeTemplate, BaseDriveDoc):
         #  builder.add_edge("revise", "conclude")
         builder.add_conditional_edges("check_revise_or_upload", revise_or_upload_router)
         builder.add_edge("upload_output", "conclude")
-        builder.add_edge("call_default_chain", "conclude")
+        #  builder.add_edge("call_default_chain", "conclude")
         builder.add_edge("conclude", END)
 
         if add_checkpoints:
@@ -257,12 +258,17 @@ def conclude(state: State) -> State:
 
 def template_router(
     state: State,
-) -> Literal["call_default_chain", "decide_whether_needs_template", "check_template"]:
+) -> Literal["conclude", "decide_whether_needs_template", "check_template"]:
     """Go the appropriate node, depending on whether an office template is needed"""
 
-    file_ids_dict = state["intermediate_outputs"].get("file_ids")
+    if state.get("router_override"):
+        return state["router_override"]  # the routing wasn't behaving as desired when users reject the template
+        # this was added to force the desired behaviour
+
+    file_ids_dict = state.get("intermediate_outputs", {}).get("file_ids")
 
     if file_ids_dict:
+
         call_no, file_ids = list(file_ids_dict.items())[-1]
 
         if file_ids and file_ids[0] in OfficeTemplate.file_ids():
@@ -284,13 +290,14 @@ def template_router(
                     + " - however, the maximum number of retries for decide_whether_needs_template node have already been met. Proceeding without using template"  # noqa
                 )
 
-    return "call_default_chain"
+    else:
+        return "check_template"  # go to the checkpoint before check_template and tell the user no template was found
 
 
 def check_template_router(state: State) -> Literal["fetch_template", "conclude"]:
     """Go the appropriate node, depending on whether the template is the right one"""
 
-    if state["intermediate_outputs"].get("file_ids"):  # this may have been set to None via user interaction
+    if state["intermediate_outputs"].get("file_ids"):
         return "fetch_template"
     else:
         return "conclude"

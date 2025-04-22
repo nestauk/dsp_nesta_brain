@@ -10,7 +10,6 @@ from typing import Optional
 from typing import Union
 
 import lancedb
-import numpy as np
 
 from config import DB_PATH
 from config import PROJECT
@@ -27,6 +26,9 @@ from retrieval.db.schema.nesta_brain import Chunk as NestaBrainChunk
 from retrieval.db.schema.policy_atlas import Activity
 from retrieval.embeddings import vector
 from utils import unique
+
+
+# import numpy as np
 
 
 if PROJECT == "NESTA_BRAIN":
@@ -61,11 +63,6 @@ os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 class CustomRetriever(BaseRetriever):
     """Custom retriever class because I encountered a bug when converting a LanceDB
     vector store into a retriever in the usual way"""  # noqa
-
-    # async def _aget_relevant_documents(self, query: str, limit: int = 3, **kwargs) -> List[LangchainDocument]:
-    # may not be needed
-    # there have been problems getting Lance DB to work with asynchronous requests
-    #    pass
 
     def _get_relevant_documents(self, input: RetrieverInput, **kwargs) -> List[LangchainDocument]:
         """
@@ -109,7 +106,7 @@ class CustomRetriever(BaseRetriever):
         if merge:
             docs = CustomRetriever.merge_chunks(chunks, enumerate_=enumerate_)
             if len(docs) < len(chunks):
-                logger.info(f"{len(chunks)} retreived chunks were merged into {len(docs)} chunks")
+                logger.info(f"{len(chunks)} retrieved chunks were merged into {len(docs)} chunks")
             return docs
         else:
             return [
@@ -166,7 +163,6 @@ class CustomRetriever(BaseRetriever):
         db: LanceDBConnection,
         input: RetrieverInput,
         include_projects: bool = False,
-        quantile_limit: float = 0.333,
         **kwargs,
     ) -> List[Chunk]:
         """Retrieve chunks synchrously"""
@@ -206,9 +202,7 @@ class CustomRetriever(BaseRetriever):
 
         if include_projects and input["use_hybrid_search"]:
             ranked_chunks = sorted(chunks, key=lambda chunk: chunk.relevance_score, reverse=True)
-            quantile = np.quantile([chunk.relevance_score for chunk in chunks], quantile_limit)
-            top_chunks = [chunk for chunk in ranked_chunks if chunk.relevance_score >= quantile]
-            chunks = top_chunks[0:limit]
+            chunks = ranked_chunks[0:limit]
 
         else:
             chunks = chunks[0:limit]
@@ -290,9 +284,8 @@ if __name__ == "__main__":
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     db = lancedb.connect(DB_PATH)
-    doc_table = db.open_table("document")
     chunk_table = db.open_table(CHUNK_TABLE_NAME)
-    project_table = db.open_table("mission_project")
+    #  project_table = db.open_table("mission_project")
 
     # code below is just for testing and experimenting
 
