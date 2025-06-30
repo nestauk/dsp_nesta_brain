@@ -12,6 +12,9 @@ from front_end.auth.authenticate import Authenticator
 from front_end.project_spec import WELCOME_INTRO
 
 
+os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
+
+
 def setup() -> None:
 
     """Perform setup tasks for the app:
@@ -30,7 +33,7 @@ def setup() -> None:
     if DEPLOY_MODE:
         redirect_uri = "https://nesta-brain.dap-tools.uk/"
     else:
-        redirect_uri = "http://localhost:8501"
+        redirect_uri = "http://localhost:8501/"
     authenticator = Authenticator(  # allows any email address with a nesta.org.uk domain
         token_key=os.getenv("AUTH_TOKEN_KEY"),
         secret_path="client_secret.json",  # nosec
